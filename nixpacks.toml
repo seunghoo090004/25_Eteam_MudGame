@@ -1,0 +1,7 @@
+# nixpacks.toml 파일 내용을 이렇게 수정해주세요
+[build]
+builder = "nixpacks"
+buildCommand = "npm install"
+
+[start]
+command = "npm start"

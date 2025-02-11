@@ -1,0 +1,165 @@
+<!-- 로그인 페이지 템플릿 -->
+
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>로그인</title>
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <style>
+            body {
+                margin: 0;
+                padding: 0;
+                background: #f5f5f5; /* 밝은 배경 */
+                color: #000; /* 검은 텍스트 */
+                font-family: 'Arial', sans-serif;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                flex-direction: column;
+            }
+    
+            .title-container {
+                position: absolute;
+                top: 20px;
+                width: 100%;
+                display: flex;
+                justify-content: center;
+            }
+    
+            .title {
+                font-size: 4rem;
+                color: #0055ff; /* 게임 느낌의 밝은 블루 */
+                background: rgba(255, 255, 255, 0.9); /* 밝은 배경 박스 */
+                padding: 20px 40px;
+                border-radius: 10px;
+                box-shadow: 0 0 15px 2px #0055ff; /* 네온 효과 */
+                text-align: center;
+            }
+    
+            .login-container {
+                background: rgba(255, 255, 255, 0.9); /* 반투명한 밝은 박스 */
+                padding: 2rem;
+                border-radius: 10px;
+                box-shadow: 0 0 15px 2px #0055ff; /* 네온 효과 */
+                text-align: center;
+                width: 100%;
+                max-width: 400px;
+            }
+    
+            h1 {
+                font-size: 2rem;
+                color: #0055ff; /* 게임 느낌의 밝은 블루 */
+                margin-bottom: 1.5rem;
+            }
+    
+            form {
+                display: flex;
+                flex-direction: column;
+                gap: 1rem;
+            }
+    
+            input {
+                padding: 0.8rem;
+                border: none;
+                border-radius: 5px;
+                font-size: 1rem;
+                background: #f0f0f0; /* 밝은 입력 필드 */
+                color: #000;
+            }
+    
+            input::placeholder {
+                color: #999;
+            }
+    
+            button {
+                padding: 0.8rem;
+                border: none;
+                border-radius: 5px;
+                font-size: 1rem;
+                font-weight: bold;
+                background: #0055ff; /* 블루 버튼 */
+                color: #fff;
+                cursor: pointer;
+                transition: transform 0.2s, box-shadow 0.2s;
+            }
+    
+            button:hover {
+                transform: scale(1.05);
+                box-shadow: 0 0 10px #4477ff;
+            }
+    
+            a {
+                color: #0055ff;
+                text-decoration: none;
+            }
+    
+            a:hover {
+                text-decoration: underline;
+            }
+    
+            p {
+                margin-top: 1rem;
+                font-size: 0.9rem;
+            }
+    
+            .error-message {
+                margin-top: 1rem;
+                color: #ff5555; /* 빨간색 에러 메시지 */
+                font-size: 0.9rem;
+                background: rgba(255, 85, 85, 0.1); /* 반투명 배경 */
+                padding: 0.5rem;
+                border-radius: 5px;
+            }
+    
+            .error-message.hidden {
+                display: none;
+            }
+        </style>
+    </head>
+<body>
+    <div class="title-container">
+        <div class="title">머드게임</div>
+    </div>
+    <div class="login-container">
+        <h1>로그인</h1>
+        <form id="loginForm">
+            <input type="text" id="username" placeholder="아이디" required>
+            <input type="password" id="password" placeholder="비밀번호" required>
+            <button type="submit">로그인</button>
+        </form>
+        <p>계정이 없으신가요? <a href="/auth/signup">회원가입</a></p>
+        <div id="errorMessage" class="error-message hidden"></div>
+    </div>
+
+    <script>
+        $('#loginForm').on('submit', function(e) {
+            e.preventDefault();
+            $('#errorMessage').addClass('hidden').text('');
+            
+            $.ajax({
+                url: '/auth/login',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    username: $('#username').val(),
+                    password: $('#password').val()
+                }),
+                success: function(response) {
+                    if (response.msg.includes("SUCC")) {
+                        window.location.href = '/';
+                    } else {
+                        $('#errorMessage').removeClass('hidden').text(response.msg);
+                    }
+                },
+                error: function(xhr) {
+                    const errorMsg = xhr.responseJSON?.msg || '로그인 중 오류가 발생했습니다.';
+                    $('#errorMessage').removeClass('hidden').text(errorMsg);
+                }
+            });
+        });
+    </script>
+</body>
+</html>

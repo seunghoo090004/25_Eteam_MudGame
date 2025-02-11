@@ -1,0 +1,52 @@
+<!-- 회원가입 페이지 템플릿 -->
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sign Up</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <div class="signup-container">
+        <h1>Sign Up</h1>
+        <form id="signupForm">
+            <input type="text" id="username" placeholder="Username" required>
+            <input type="password" id="password" placeholder="Password" required>
+            <button type="submit">Sign Up</button>
+        </form>
+        <p>Already have an account? <a href="/auth/login">Login</a></p>
+    </div>
+
+    <script>
+        $(document).ready(function() {
+            $('#signupForm').on('submit', function(e) {
+                e.preventDefault();
+                
+                $.ajax({
+                    url: '/auth/signup',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        username: $('#username').val(),
+                        password: $('#password').val()
+                    }),
+                    success: function(response) {
+                        // 서버에서 오는 응답 처리 수정
+                        if(response.msg.includes("SUCC")) {
+                            alert('회원가입 성공!');
+                            window.location.href = '/auth/login';
+                        } else {
+                            alert(response.msg);
+                        }
+                    },
+                    error: function(xhr) {
+                        // 에러 메시지 처리 수정
+                        const errorMsg = xhr.responseJSON ? xhr.responseJSON.data : '회원가입 중 오류가 발생했습니다.';
+                        alert(errorMsg);
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
