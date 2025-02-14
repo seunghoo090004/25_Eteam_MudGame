@@ -184,10 +184,37 @@
 
     <script>
         $(document).ready(function() {
-            const socket = io();
+            // socket 초기화를 제일 먼저 수행
+            const socket = io({
+                reconnection: true,
+                reconnectionDelay: 1000,
+                reconnectionDelayMax: 5000,
+                reconnectionAttempts: 5
+            });            
+
             let currentGameId = null;
             let gameData = null;
-        
+                // 소켓 연결 확인
+            socket.on('connect', function() {
+                console.log('Socket connected successfully');
+                // 연결 후 즉시 게임 목록 로드
+                loadGamesList();
+            });
+
+
+            // 소켓 연결 에러 처리
+            socket.on('connect_error', function(error) {
+                console.error('Socket connection error:', error);
+            });
+
+            function loadGamesList() {
+                if (socket && socket.connected) {
+                    socket.emit('get games list');
+                } else {
+                    console.error('Socket not connected. Cannot load games list.');
+                }
+            }
+
             // 선택지 버튼 생성 함수
             function createChoiceButtons(message) {
                 // 이전 선택지 버튼들 제거
