@@ -169,42 +169,42 @@ class GameService {
     //============================================================================================
     async listGames(userId) {
     //============================================================================================
-        const LOG_HEADER_TITLE = "LIST_GAMES";
-        const LOG_HEADER = "UserId[" + userId + "] --> " + LOG_HEADER_TITLE;
-        const LOG_ERR_HEADER = "[FAIL]";
-        const LOG_SUCC_HEADER = "[SUCC]";
-        
-        let ret_status = 200;
-        let ret_data;
+    const LOG_HEADER_TITLE = "LIST_GAMES";
+    const LOG_HEADER = "UserId[" + userId + "] --> " + LOG_HEADER_TITLE;
+    const LOG_ERR_HEADER = "[FAIL]";
+    const LOG_SUCC_HEADER = "[SUCC]";
+    
+    let ret_status = 200;
+    let ret_data;
 
+    try {
+        const connection = await pool.getConnection();
         try {
-            const connection = await pool.getConnection();
-            try {
-                const [games] = await connection.query(
-                    'SELECT * FROM game_state WHERE user_id = ? ORDER BY last_updated DESC',
-                    [userId]
-                );
+            const [games] = await connection.query(
+                'SELECT game_id, user_id, thread_id, assistant_id, game_data, created_at, last_updated FROM game_state WHERE user_id = ? ORDER BY last_updated DESC',
+                [userId]
+            );
 
-                ret_data = games.map(game => ({
-                    ...game,
-                    game_data: typeof game.game_data === 'string' 
-                        ? JSON.parse(game.game_data) 
-                        : game.game_data
-                }));
+            ret_data = games.map(game => ({
+                ...game,
+                game_data: typeof game.game_data === 'string' 
+                    ? JSON.parse(game.game_data) 
+                    : game.game_data
+            }));
 
-            } finally {
-                connection.release();
-            }
-
-        } catch (e) {
-            ret_status = 501;
-            console.error(LOG_ERR_HEADER + LOG_HEADER + "getBODY::status(" + ret_status + ") ==> " + e);
-            throw e;
+        } finally {
+            connection.release();
         }
 
-        console.log(LOG_SUCC_HEADER + LOG_HEADER + "status(" + ret_status + ")");
-        return ret_data;
+    } catch (e) {
+        ret_status = 501;
+        console.error(LOG_ERR_HEADER + LOG_HEADER + "getBODY::status(" + ret_status + ") ==> " + e);
+        throw e;
     }
+
+    console.log(LOG_SUCC_HEADER + LOG_HEADER + "status(" + ret_status + ")");
+    return ret_data;
+}
 
     //============================================================================================
     async deleteGame(gameId, userId) {

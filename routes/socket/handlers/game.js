@@ -78,20 +78,20 @@ const gameHandler = (io, socket) => {
             });
         }
     });
-
+    
     socket.on('get games list', async () => {
         const LOG_HEADER = "GAME/LIST";
         try {
             const userId = socket.request.session.userId;
             if (!userId) throw "Not authenticated";
-
+    
             const games = await gameService.listGames(userId);
             console.log(`[${LOG_HEADER}] Games list retrieved`);
             socket.emit('games list response', {
                 success: true,
                 games: games
             });
-
+    
         } catch (e) {
             console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
             socket.emit('games list response', {
