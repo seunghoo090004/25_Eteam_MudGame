@@ -195,17 +195,18 @@
                 
                 const lines = message.split('\n');
                 const choices = lines
-                    .filter(line => /^\d+\.\s*\**[^*]+\**/.test(line))
+                    // 숫자로 시작하는 모든 라인을 선택지로 인식
+                    .filter(line => /^\d+\..*/.test(line))
                     .map(line => {
                         const [number, ...rest] = line.split('.');
                         return {
                             number: number.trim(),
-                            text: rest.join('.').replace(/\*+/g, '').trim()
+                            text: rest.join('.').trim()
                         };
                     });
-        
+            
                 if (choices.length === 0) return null;
-        
+            
                 const buttonContainer = $('<div class="choice-buttons"></div>');
                 choices.forEach(choice => {
                     const button = $(`
@@ -228,14 +229,14 @@
                             message: choice.number,
                             game_id: currentGameId
                         });
-        
+            
                         // 채팅창 스크롤
                         $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
                     });
                     
                     buttonContainer.append(button);
                 });
-        
+            
                 return buttonContainer;
             }
         
