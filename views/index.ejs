@@ -345,42 +345,90 @@
                     $('#chatbox').empty();
                     
                     if (data.game.chatHistory) {
+                        // 1. 채팅 히스토리 정렬 (생성 시간 기준 오름차순)
                         const sortedHistory = [...data.game.chatHistory]
                             .filter(msg => !msg.content.includes('New game initialization'))
-                            .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                            .sort((a, b) => {
+                                const timeA = new Date(a.created_at).getTime();
+                                const timeB = new Date(b.created_at).getTime();
+                                return timeA - timeB;
+                            });
                         
-                        sortedHistory.forEach(msg => {
+                        // 2. 채팅 메시지 추가
+                        sortedHistory.forEach((msg, index) => {
                             const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
                             $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
-                            
-                            // 디버깅용 로그
-                            console.log('Message:', {
-                                role: msg.role,
-                                content: msg.content,
-                                hasChoices: msg.content.match(/^\d+\./m) !== null
-                            });
                         });
             
-                        const lastMessage = sortedHistory[sortedHistory.length - 1];
-                        if (lastMessage && lastMessage.role === 'assistant') {
-                            console.log('Last message content:', lastMessage.content);
-                            const buttons = createChoiceButtons(lastMessage.content);
-                            if (buttons) {
-                                $('#chatbox').append(buttons);
-                            } else {
-                                console.log('No choices found in the last message');
+                        // 3. 마지막 assistant 메시지 찾기
+                        const lastAssistantMsg = [...sortedHistory]
+                            .reverse()
+                            .find(msg => msg.role === 'assistant');
+            
+                        // 4. 버튼 생성
+                        if (lastAssistantMsg) {
+                            const choices = parseChoices(lastAssistantMsg.content);
+                            if (choices.length > 0) {
+                                const buttonContainer = $('<div class="choice-buttons"></div>');
+                                choices.forEach(choice => {
+                                    const button = $(`
+                                        <button class="choice-button">
+                                            ${choice.text}
+                                        </button>
+                                    `);
+                                    
+                                    button.click(function() {
+                                        handleChoice(choice.number, choice.text);
+                                    });
+                                    
+                                    buttonContainer.append(button);
+                                });
+                                $('#chatbox').append(buttonContainer);
                             }
                         }
                     }
             
                     $('#assistant-select').prop('disabled', true);
-                    alert('게임을 불러왔습니다!');
                     $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
                     updateGameStateDisplay();
                 } else {
                     alert('게임을 불러오는 중 오류: ' + data.error);
                 }
             });
+            
+            // 선택지 파싱 함수
+            function parseChoices(content) {
+                const lines = content.split('\n');
+                return lines
+                    .filter(line => /^\d+\.\s*\**[^*]+\**/.test(line))
+                    .map(line => {
+                        const match = line.match(/^(\d+)\.\s*\**([^*]+?)\**(?::|$)/);
+                        if (match) {
+                            return {
+                                number: match[1].trim(),
+                                text: match[2].trim()
+                            };
+                        }
+                        return null;
+                    })
+                    .filter(choice => choice !== null);
+            }
+            
+            // 선택 처리 함수
+            function handleChoice(number, text) {
+                if (!currentGameId) return;
+                
+                $('.choice-button').prop('disabled', true);
+                
+                $('#chatbox').append(`<div class="message user-message">${number}. ${text}</div>`);
+                
+                socket.emit('chat message', {
+                    message: number,
+                    game_id: currentGameId
+                });
+            
+                $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
+            }
         
             // 게임 상태 표시 업데이트
             function updateGameStateDisplay() {
