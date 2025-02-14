@@ -73,7 +73,12 @@ class ChatService {
                 role: msg.role,
                 content: msg.content[0].text.value,
                 created_at: new Date(msg.created_at * 1000)
-            }));
+            }))
+
+            // 중복 제거 (동일한 content를 가진 메시지 제거)
+            .filter((msg, index, self) => 
+                index === self.findIndex(t => t.content === msg.content)
+            );
 
             console.log(`[${LOG_HEADER}] Retrieved ${history.length} messages`);
             return history;
