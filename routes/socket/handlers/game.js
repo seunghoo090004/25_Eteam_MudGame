@@ -50,28 +50,43 @@ const gameHandler = (io, socket) => {
     });
 
     socket.on('load game', async (data) => {
-        const LOG_HEADER = "GAME/LOAD";
+        const LOG_HEADER_TITLE = "LOAD_GAME";
+        const LOG_HEADER = "GameId[" + data.game_id + "] UserId[" + socket.request.session.userId + "] --> " + LOG_HEADER_TITLE;
+        const LOG_ERR_HEADER = "[FAIL]";
+        const LOG_SUCC_HEADER = "[SUCC]";
+        
+        let ret_status = 200;
+        
         try {
             const userId = socket.request.session.userId;
             if (!userId) throw "Not authenticated";
             if (!data.game_id) throw "Game ID required";
-
+    
             const gameData = await gameService.loadGame(data.game_id, userId);
-            console.log(`[${LOG_HEADER}] Game loaded`);
+            
+            if (gameData.chatHistory) {
+                // 시간순으로 정렬 (오래된 순)
+                gameData.chatHistory.sort((a, b) => {
+                    return new Date(a.created_at) - new Date(b.created_at);
+                });
+            }
+    
+            console.log(LOG_SUCC_HEADER + LOG_HEADER + "status(" + ret_status + ")");
             socket.emit('load game response', {
                 success: true,
                 game: gameData
             });
-
+    
         } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
+            ret_status = 501;
+            console.error(LOG_ERR_HEADER + LOG_HEADER + "getBODY::status(" + ret_status + ") ==> " + e);
             socket.emit('load game response', {
                 success: false,
                 error: e.message || e
             });
         }
     });
-
+    
     socket.on('save game', async (data) => {
         const LOG_HEADER = "GAME/SAVE";
         try {

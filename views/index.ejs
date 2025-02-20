@@ -376,36 +376,25 @@
                     $('#chatbox').empty();
                     
                     if (data.game.chatHistory) {
-                        // 1. 채팅 히스토리 정렬 (reverse()를 제거하고 직접 오름차순 정렬)
-                        const sortedHistory = [...data.game.chatHistory]
+                        // 정렬된 채팅 히스토리를 순서대로 표시
+                        data.game.chatHistory
                             .filter(msg => !msg.content.includes('New game initialization'))
-                            .sort((a, b) => {
-                                return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+                            .forEach(msg => {
+                                const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
+                                $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
                             });
-                        
-                        // 2. 정렬된 순서대로 메시지 추가 (앞에서부터 순차적으로)
-                        const chatbox = $('#chatbox');
-                        sortedHistory.forEach(msg => {
-                            const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
-                            // prepend 대신 append 사용
-                            chatbox.append(`<div class="message ${messageClass}">${msg.content}</div>`);
-                        });
             
-                        // 3. 실제 마지막 메시지 찾기 (시간순으로 가장 최근 것)
-                        const lastMessage = sortedHistory[sortedHistory.length - 1];
-                        
-                        // 4. 마지막 메시지가 assistant의 것인 경우에만 버튼 생성
+                        // 마지막 메시지가 assistant의 것인 경우 선택지 버튼 생성
+                        const lastMessage = data.game.chatHistory[data.game.chatHistory.length - 1];
                         if (lastMessage && lastMessage.role === 'assistant') {
-                            console.log('Creating buttons for the last message:', lastMessage.content);
                             const buttons = createChoiceButtons(lastMessage.content);
                             if (buttons) {
-                                chatbox.append(buttons);
+                                $('#chatbox').append(buttons);
                             }
                         }
                     }
             
                     $('#assistant-select').prop('disabled', true);
-                    // 스크롤을 가장 최근 메시지로
                     $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
                     updateGameStateDisplay();
                 } else {
