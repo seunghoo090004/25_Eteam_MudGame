@@ -7,25 +7,41 @@ const chatService = require('../services/chat');
 
 const gameHandler = (io, socket) => {
     socket.on('new game', async (data) => {
-        const LOG_HEADER = "GAME/NEW";
+        const LOG_HEADER_TITLE = "NEW_GAME";
+        const LOG_HEADER = "UserId[" + socket.request.session.userId + "] AssistantId[" + data.assistant_id + "] --> " + LOG_HEADER_TITLE;
+        const LOG_ERR_HEADER = "[FAIL]";
+        const LOG_SUCC_HEADER = "[SUCC]";
+        
+        let ret_status = 200;
+        
         try {
             const userId = socket.request.session.userId;
             if (!userId) throw "Not authenticated";
             if (!data.assistant_id) throw "Assistant ID required";
-
+    
             const game = await gameService.createNewGame(userId, data.assistant_id);
             const initialResponse = await chatService.initializeChat(game.threadId, data.assistant_id);
             
-            console.log(`[${LOG_HEADER}] Created new game`);
+            // 새 게임 생성 응답
             socket.emit('new game response', {
                 success: true,
                 game_id: game.gameId,
                 game_data: game.gameData,
                 initial_message: initialResponse
             });
-
+    
+            // 게임 목록 즉시 업데이트
+            const updatedGames = await gameService.listGames(userId);
+            socket.emit('games list response', {
+                success: true,
+                games: updatedGames
+            });
+    
+            console.log(LOG_SUCC_HEADER + LOG_HEADER + "status(" + ret_status + ")");
+    
         } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
+            ret_status = 501;
+            console.error(LOG_ERR_HEADER + LOG_HEADER + "getBODY::status(" + ret_status + ") ==> " + e);
             socket.emit('new game response', {
                 success: false,
                 error: e.message || e

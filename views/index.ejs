@@ -315,21 +315,25 @@
                     currentGameId = data.game_id;
                     gameData = data.game_data;
                     $('#chatbox').empty();
+                    
                     if (data.initial_message) {
                         $('#chatbox').append(`<div class="message assistant-message">${data.initial_message}</div>`);
-                        
-                        // 초기 선택지 버튼 생성
                         const buttons = createChoiceButtons(data.initial_message);
                         if (buttons) {
                             $('#chatbox').append(buttons);
                         }
                     }
+                    
                     $('#assistant-select').prop('disabled', true);
-                    alert('새 게임이 시작되었습니다!');
-                    loadGamesList();
-                    updateGameStateDisplay();
+                    
+                    // 게임 목록 업데이트 체크
+                    setTimeout(() => {
+                        if (!$('#saved_games_list').children().length) {
+                            loadGamesList();
+                        }
+                    }, 1000);
                 } else {
-                    alert('게임 시작 중 오류: ' + data.error);
+                    $('#errorMessage').removeClass('hidden').text(data.error || '게임 시작 중 오류가 발생했습니다.');
                 }
             });
         
