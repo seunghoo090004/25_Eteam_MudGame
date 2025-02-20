@@ -368,7 +368,7 @@
             }
         
             // 게임 불러오기 응답
-            ocket.on('load game response', function(data) {
+            socket.on('load game response', function(data) {
                 if (data.success) {
                     currentGameId = data.game.game_id;
                     gameData = data.game.game_data;
