@@ -379,18 +379,31 @@
                     gameData = data.game.game_data;
                     
                     if (data.game.chatHistory) {
-                        // 채팅 히스토리 표시 (정렬/역순 처리 없이 그대로 표시)
+                        // 디버깅을 위한 로그
+                        console.log('Chat history:', data.game.chatHistory);
+                        
                         data.game.chatHistory
                             .filter(msg => !msg.content.includes('New game initialization'))
                             .forEach(msg => {
                                 const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
                                 $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
+                                
+                                // 각 메시지의 내용 확인
+                                if (msg.role === 'assistant') {
+                                    console.log('Assistant message:', msg.content);
+                                    console.log('Found choices:', msg.content.match(/^\d+\.\s*(?:\*\*)?[^*]+(?:\*\*)?:?/gm));
+                                }
                             });
             
-                        // 마지막 메시지에 대한 버튼 생성
+                        // 마지막 메시지 처리 디버깅
                         const lastMessage = data.game.chatHistory[data.game.chatHistory.length - 1];
+                        console.log('Last message:', lastMessage);
+                        
                         if (lastMessage && lastMessage.role === 'assistant') {
+                            console.log('Creating buttons for message:', lastMessage.content);
                             const buttons = createChoiceButtons(lastMessage.content);
+                            console.log('Created buttons:', buttons);
+                            
                             if (buttons) {
                                 $('#chatbox').append(buttons);
                             }
