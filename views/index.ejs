@@ -370,24 +370,25 @@
             // 게임 불러오기 응답
             socket.on('load game response', function(data) {
                 if (data.success) {
+                    // 기존 UI 요소들 완전 초기화
+                    $('#chatbox').empty();
+                    $('.choice-buttons').remove(); // 선택 버튼들 제거
+                    $('#user-input').val(''); // 입력창 초기화
+                    
                     currentGameId = data.game.game_id;
                     gameData = data.game.game_data;
                     
-                    $('#chatbox').empty();
-                    
                     if (data.game.chatHistory) {
-                        // chatHistory를 역순으로 순회
-                        const chatHistory = data.game.chatHistory
+                        // 채팅 히스토리 표시
+                        data.game.chatHistory
                             .filter(msg => !msg.content.includes('New game initialization'))
-                            .reverse();  // 여기서 역순으로 변경
-                        
-                        chatHistory.forEach(msg => {
-                            const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
-                            $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
-                        });
+                            .forEach(msg => {
+                                const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
+                                $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
+                            });
             
-                        // 가장 최근 메시지(실제로는 첫 번째 메시지)가 assistant의 것인 경우 버튼 생성
-                        const lastMessage = chatHistory[0];
+                        // 마지막 메시지의 선택지 버튼 생성
+                        const lastMessage = data.game.chatHistory[data.game.chatHistory.length - 1];
                         if (lastMessage && lastMessage.role === 'assistant') {
                             const buttons = createChoiceButtons(lastMessage.content);
                             if (buttons) {
