@@ -376,16 +376,18 @@
                     $('#chatbox').empty();
                     
                     if (data.game.chatHistory) {
-                        // 이미 정렬된 채팅 히스토리를 그대로 표시
-                        data.game.chatHistory
+                        // chatHistory를 역순으로 순회
+                        const chatHistory = data.game.chatHistory
                             .filter(msg => !msg.content.includes('New game initialization'))
-                            .forEach(msg => {
-                                const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
-                                $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
-                            });
+                            .reverse();  // 여기서 역순으로 변경
+                        
+                        chatHistory.forEach(msg => {
+                            const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
+                            $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
+                        });
             
-                        // 마지막 메시지가 assistant의 것인 경우에만 버튼 생성
-                        const lastMessage = data.game.chatHistory[data.game.chatHistory.length - 1];
+                        // 가장 최근 메시지(실제로는 첫 번째 메시지)가 assistant의 것인 경우 버튼 생성
+                        const lastMessage = chatHistory[0];
                         if (lastMessage && lastMessage.role === 'assistant') {
                             const buttons = createChoiceButtons(lastMessage.content);
                             if (buttons) {
