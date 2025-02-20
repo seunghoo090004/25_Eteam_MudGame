@@ -370,25 +370,27 @@
             // 게임 불러오기 응답
             socket.on('load game response', function(data) {
                 if (data.success) {
-                    // 기존 UI 요소들 완전 초기화
+                    // UI 초기화
                     $('#chatbox').empty();
-                    $('.choice-buttons').remove(); // 선택 버튼들 제거
-                    $('#user-input').val(''); // 입력창 초기화
+                    $('.choice-buttons').remove();
+                    $('#user-input').val('');
                     
                     currentGameId = data.game.game_id;
                     gameData = data.game.game_data;
                     
                     if (data.game.chatHistory) {
-                        // 채팅 히스토리 표시
-                        data.game.chatHistory
+                        // 채팅 히스토리를 역순으로 정렬하여 표시
+                        const chatHistory = [...data.game.chatHistory]
                             .filter(msg => !msg.content.includes('New game initialization'))
-                            .forEach(msg => {
-                                const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
-                                $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
-                            });
+                            .reverse();  // 여기서 순서 뒤집기
+                        
+                        chatHistory.forEach(msg => {
+                            const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
+                            $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
+                        });
             
-                        // 마지막 메시지의 선택지 버튼 생성
-                        const lastMessage = data.game.chatHistory[data.game.chatHistory.length - 1];
+                        // 최신 메시지(마지막 메시지)는 배열의 첫 번째 요소
+                        const lastMessage = chatHistory[0];
                         if (lastMessage && lastMessage.role === 'assistant') {
                             const buttons = createChoiceButtons(lastMessage.content);
                             if (buttons) {
@@ -399,6 +401,7 @@
             
                     $('#assistant-select').prop('disabled', true);
                     $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
+                    updateGameStateDisplay();
                 } else {
                     alert('게임을 불러오는 중 오류: ' + data.error);
                 }
