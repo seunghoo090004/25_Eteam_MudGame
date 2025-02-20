@@ -69,20 +69,17 @@ class ChatService {
         const LOG_HEADER = "CHAT_SERVICE/HISTORY";
         try {
             const messages = await openai.beta.threads.messages.list(threadId);
-            const history = messages.data.map(msg => ({
-                role: msg.role,
-                content: msg.content[0].text.value,
-                created_at: new Date(msg.created_at * 1000)
-            }))
-
-            // 중복 제거 (동일한 content를 가진 메시지 제거)
-            .filter((msg, index, self) => 
-                index === self.findIndex(t => t.content === msg.content)
-            );
-
+            const history = messages.data
+                .map(msg => ({
+                    role: msg.role,
+                    content: msg.content[0].text.value,
+                    created_at: new Date(msg.created_at * 1000)
+                }))
+                .sort((a, b) => a.created_at - b.created_at); // 시간순 정렬
+    
             console.log(`[${LOG_HEADER}] Retrieved ${history.length} messages`);
             return history;
-
+    
         } catch (e) {
             console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
             throw e;
