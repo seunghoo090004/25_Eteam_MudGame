@@ -367,7 +367,6 @@
                 });
             }
         
-            // 게임 불러오기 응답
             socket.on('load game response', function(data) {
                 if (data.success) {
                     currentGameId = data.game.game_id;
@@ -376,24 +375,23 @@
                     $('#chatbox').empty();
                     
                     if (data.game.chatHistory) {
-                        // 채팅 히스토리를 역순으로 정렬하여 표시
                         const chatHistory = [...data.game.chatHistory]
                             .filter(msg => !msg.content.includes('New game initialization'))
                             .reverse();  // 여기서 순서 뒤집기
-                        
+
+                        // 채팅 히스토리 표시 (순서 유지)
                         chatHistory.forEach(msg => {
                             const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
                             $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
-                        });
             
-                        // 최신 메시지(마지막 메시지)는 배열의 첫 번째 요소
-                        const lastMessage = chatHistory[0];
-                        if (lastMessage && lastMessage.role === 'assistant') {
-                            const buttons = createChoiceButtons(lastMessage.content);
-                            if (buttons) {
-                                $('#chatbox').append(buttons);
+                            // 마지막 메시지이고 assistant의 메시지인 경우 선택지 버튼 생성
+                            if (msg === chatHistory[chatHistory.length - 1] && msg.role === 'assistant') {
+                                const buttons = createChoiceButtons(msg.content);
+                                if (buttons) {
+                                    $('#chatbox').append(buttons);
+                                }
                             }
-                        }
+                        });
                     }
             
                     $('#assistant-select').prop('disabled', true);
