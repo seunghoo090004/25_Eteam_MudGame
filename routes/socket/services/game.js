@@ -103,7 +103,8 @@ class GameService {
                 const messages = await openai.beta.threads.messages.list(gameData.thread_id);
                 const chatHistory = messages.data.map(msg => ({
                     role: msg.role,
-                    content: msg.content[0].text.value
+                    content: msg.content[0].text.value,
+                    created_at: new Date(msg.created_at * 1000)
                 }));
 
                 ret_data = {

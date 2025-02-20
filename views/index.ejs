@@ -379,18 +379,16 @@
                     gameData = data.game.game_data;
                     
                     if (data.game.chatHistory) {
-                        // 채팅 히스토리를 역순으로 정렬하여 표시
-                        const chatHistory = [...data.game.chatHistory]
+                        // 채팅 히스토리 표시 (정렬/역순 처리 없이 그대로 표시)
+                        data.game.chatHistory
                             .filter(msg => !msg.content.includes('New game initialization'))
-                            .reverse();  // 여기서 순서 뒤집기
-                        
-                        chatHistory.forEach(msg => {
-                            const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
-                            $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
-                        });
+                            .forEach(msg => {
+                                const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
+                                $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
+                            });
             
-                        // 최신 메시지(마지막 메시지)는 배열의 첫 번째 요소
-                        const lastMessage = chatHistory[0];
+                        // 마지막 메시지에 대한 버튼 생성
+                        const lastMessage = data.game.chatHistory[data.game.chatHistory.length - 1];
                         if (lastMessage && lastMessage.role === 'assistant') {
                             const buttons = createChoiceButtons(lastMessage.content);
                             if (buttons) {

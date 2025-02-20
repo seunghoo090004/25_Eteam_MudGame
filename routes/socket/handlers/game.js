@@ -63,13 +63,6 @@ const gameHandler = (io, socket) => {
             if (!data.game_id) throw "Game ID required";
     
             const gameData = await gameService.loadGame(data.game_id, userId);
-            
-            if (gameData.chatHistory) {
-                // 시간순으로 정렬 (오래된 순)
-                gameData.chatHistory.sort((a, b) => {
-                    return new Date(a.created_at) - new Date(b.created_at);
-                });
-            }
     
             console.log(LOG_SUCC_HEADER + LOG_HEADER + "status(" + ret_status + ")");
             socket.emit('load game response', {
@@ -86,7 +79,7 @@ const gameHandler = (io, socket) => {
             });
         }
     });
-    
+
     socket.on('save game', async (data) => {
         const LOG_HEADER = "GAME/SAVE";
         try {
