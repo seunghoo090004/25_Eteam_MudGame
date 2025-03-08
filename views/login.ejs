@@ -1,7 +1,7 @@
 <!-- 로그인 페이지 템플릿 -->
 
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -61,13 +61,37 @@
                 gap: 1rem;
             }
     
+            .input-group {
+                display: flex;
+                flex-direction: column;
+                text-align: left;
+            }
+
+            .input-group label {
+                margin-bottom: 0.3rem;
+                font-weight: bold;
+                font-size: 0.9rem;
+            }
+    
             input {
                 padding: 0.8rem;
-                border: none;
+                border: 1px solid #ddd;
                 border-radius: 5px;
                 font-size: 1rem;
                 background: #f0f0f0; /* 밝은 입력 필드 */
                 color: #000;
+                transition: border-color 0.3s;
+            }
+
+            input:focus {
+                outline: none;
+                border-color: #0055ff;
+                box-shadow: 0 0 5px rgba(0, 85, 255, 0.3);
+            }
+
+            input.error-field {
+                border-color: #ff5555;
+                background-color: rgba(255, 85, 85, 0.05);
             }
     
             input::placeholder {
@@ -83,12 +107,17 @@
                 background: #0055ff; /* 블루 버튼 */
                 color: #fff;
                 cursor: pointer;
-                transition: transform 0.2s, box-shadow 0.2s;
+                transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s;
             }
     
-            button:hover {
+            button:hover:not(:disabled) {
                 transform: scale(1.05);
                 box-shadow: 0 0 10px #4477ff;
+            }
+
+            button:disabled {
+                background-color: #999;
+                cursor: not-allowed;
             }
     
             a {
@@ -103,6 +132,15 @@
             p {
                 margin-top: 1rem;
                 font-size: 0.9rem;
+            }
+
+            .success-message {
+                margin-top: 1rem;
+                color: #55aa55; /* 초록색 성공 메시지 */
+                font-size: 0.9rem;
+                background: rgba(85, 170, 85, 0.1); /* 반투명 배경 */
+                padding: 0.5rem;
+                border-radius: 5px;
             }
     
             .error-message {
@@ -125,39 +163,105 @@
     </div>
     <div class="login-container">
         <h1>로그인</h1>
+        
+        <% if(locals.registered) { %>
+            <div class="success-message">
+                회원가입이 완료되었습니다. 로그인하여 게임을 시작하세요!
+            </div>
+        <% } %>
+        
         <form id="loginForm">
-            <input type="text" id="username" placeholder="아이디" required>
-            <input type="password" id="password" placeholder="비밀번호" required>
-            <button type="submit">로그인</button>
+            <!-- CSRF 토큰 추가 -->
+            <input type="hidden" name="_csrf" id="csrfToken" value="<%= csrfToken %>">
+            
+            <div class="input-group">
+                <label for="username">아이디</label>
+                <input type="text" id="username" name="username" placeholder="아이디" required>
+            </div>
+            
+            <div class="input-group">
+                <label for="password">비밀번호</label>
+                <input type="password" id="password" name="password" placeholder="비밀번호" required>
+            </div>
+            
+            <button type="submit" id="loginButton">로그인</button>
         </form>
         <p>계정이 없으신가요? <a href="/auth/signup">회원가입</a></p>
         <div id="errorMessage" class="error-message hidden"></div>
     </div>
 
     <script>
-        $('#loginForm').on('submit', function(e) {
-            e.preventDefault();
-            $('#errorMessage').addClass('hidden').text('');
+        $(document).ready(function() {
+            // 회원가입 성공 파라미터 체크
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('registered') === 'true') {
+                $('<div class="success-message">회원가입이 완료되었습니다. 로그인하여 게임을 시작하세요!</div>')
+                    .insertAfter('h1')
+                    .delay(5000)
+                    .fadeOut(500);
+            }
             
-            $.ajax({
-                url: '/auth/login',
-                method: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({
-                    username: $('#username').val(),
-                    password: $('#password').val()
-                }),
-                success: function(response) {
-                    if (response.msg.includes("SUCC")) {
-                        window.location.href = '/';
-                    } else {
-                        $('#errorMessage').removeClass('hidden').text(response.msg);
+            $('#loginForm').on('submit', function(e) {
+                e.preventDefault();
+                
+                // 에러 메시지 초기화 및 버튼 상태 변경
+                $('#errorMessage').addClass('hidden').text('');
+                $('#loginButton').prop('disabled', true).text('로그인 중...');
+                
+                // 입력 필드에서 에러 표시 제거
+                $('#username, #password').removeClass('error-field');
+                
+                $.ajax({
+                    url: '/auth/login',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    headers: {
+                        'CSRF-Token': $('#csrfToken').val()
+                    },
+                    data: JSON.stringify({
+                        username: $('#username').val(),
+                        password: $('#password').val()
+                    }),
+                    success: function(response) {
+                        if (response.code === 'LOGIN_SUCCESS' || response.msg.includes("SUCC")) {
+                            window.location.href = '/';
+                        } else {
+                            $('#errorMessage').removeClass('hidden').text(response.msg);
+                            $('#loginButton').prop('disabled', false).text('로그인');
+                        }
+                    },
+                    error: function(xhr) {
+                        // 에러 코드별 처리
+                        const response = xhr.responseJSON || {};
+                        let errorMsg = response.msg || '로그인 중 오류가 발생했습니다.';
+                        
+                        // 에러 코드에 따른 필드 강조
+                        if (response.code === 'AUTH_FAILED') {
+                            $('#username, #password').addClass('error-field');
+                            $('#username').focus();
+                        } else if (response.code === 'INVALID_INPUT') {
+                            if (response.data && response.data.username) {
+                                $('#username').addClass('error-field').focus();
+                            }
+                            if (response.data && response.data.password) {
+                                $('#password').addClass('error-field');
+                                if (!response.data.username) {
+                                    $('#password').focus();
+                                }
+                            }
+                        }
+                        
+                        // CSRF 오류 처리
+                        if (xhr.status === 403 && errorMsg.includes('CSRF')) {
+                            alert('보안 토큰이 만료되었습니다. 페이지를 새로고침합니다.');
+                            window.location.reload();
+                            return;
+                        }
+                        
+                        $('#errorMessage').removeClass('hidden').text(errorMsg);
+                        $('#loginButton').prop('disabled', false).text('로그인');
                     }
-                },
-                error: function(xhr) {
-                    const errorMsg = xhr.responseJSON?.msg || '로그인 중 오류가 발생했습니다.';
-                    $('#errorMessage').removeClass('hidden').text(errorMsg);
-                }
+                });
             });
         });
     </script>
