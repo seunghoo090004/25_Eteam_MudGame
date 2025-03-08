@@ -1,4 +1,4 @@
-<!-- views/index.ejs 원본 -->
+<!-- views/index.ejs with logout button -->
 
 <!DOCTYPE html>
 <html lang="en">
@@ -44,17 +44,45 @@
             margin-right: 10px;
             padding: 5px;
         }
-        #new-game, #save-game {
+        /* 버튼 스타일 통일 */
+        .btn {
             padding: 5px 10px;
-            background-color: #28a745;
             color: white;
             border: none;
             border-radius: 5px;
             cursor: pointer;
             margin-left: 5px;
+            transition: background-color 0.3s;
         }
-        #new-game:hover, #save-game:hover {
+        .btn-success {
+            background-color: #28a745;
+        }
+        .btn-success:hover {
             background-color: #218838;
+        }
+        .btn-danger {
+            background-color: #dc3545;
+        }
+        .btn-danger:hover {
+            background-color: #c82333;
+        }
+        .btn-primary {
+            background-color: #007bff;
+        }
+        .btn-primary:hover {
+            background-color: #0056b3;
+        }
+        /* 상단 사용자 정보 및 로그아웃 영역 */
+        .user-controls {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            padding: 5px 20px;
+            background-color: #343a40;
+            color: white;
+        }
+        .user-info {
+            margin-right: 15px;
         }
         #chatbox {
             height: 400px;
@@ -155,17 +183,25 @@
     </style>
 </head>
 <body>
+    <!-- 사용자 정보 및 로그아웃 영역 추가 -->
+    <div class="user-controls">
+        <div class="user-info">
+            <%= username %> 님 환영합니다
+        </div>
+        <a href="/auth/logout" class="btn btn-danger" id="logout-button">로그아웃</a>
+    </div>
+    
     <div class="chat-container">
         <div>
-            <h1>[2024-08-16] GPT Assistants Chat</h1>
+            <h1>[2025-03-08] GPT Assistants Chat</h1>
             <div class="controls">
                 <select id="assistant-select">
                     <% assistants.forEach(function(assistant) { %>
                         <option value="<%= assistant.id %>"><%= assistant.name %></option>
                     <% }); %>
                 </select>
-                <button id="new-game">새 게임</button>
-                <button id="save-game">게임 저장</button>
+                <button id="new-game" class="btn btn-success">새 게임</button>
+                <button id="save-game" class="btn btn-success">게임 저장</button>
             </div>
             <div id="chatbox"></div>
             <div class="input-area" style="display: none;">
@@ -465,8 +501,8 @@
                                 <span>마지막 저장: ${gameDate}</span>
                                 <span>위치: ${game.game_data.location.current}</span>
                                 <span>레벨: ${game.game_data.player.level}</span>
-                                <button onclick="loadGame('${game.game_id}')">불러오기</button>
-                                <button onclick="deleteGame('${game.game_id}')">삭제</button>
+                                <button class="btn btn-primary" onclick="loadGame('${game.game_id}')">불러오기</button>
+                                <button class="btn btn-danger" onclick="deleteGame('${game.game_id}')">삭제</button>
                             </div>
                         `);
                     });
@@ -502,6 +538,15 @@
         
             // 초기 게임 목록 로드
             loadGamesList();
+            
+            // 로그아웃 처리 - AJAX 사용
+            $('#logout-button').on('click', function(e) {
+                e.preventDefault();
+                
+                if (confirm('정말 로그아웃 하시겠습니까?')) {
+                    window.location.href = '/auth/logout';
+                }
+            });
         });
     </script>
 </body>

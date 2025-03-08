@@ -5,6 +5,7 @@
 const express = require('express');
 const router = express.Router();
 const openai = require('../config/openai');
+const pool = require('../config/database');
 
 router.get('/', async(req, res) => {
     const LOG_HEADER = "ROUTE/MAIN";
@@ -22,33 +23,56 @@ router.get('/', async(req, res) => {
             id: assistant.id,
             name: assistant.name
         }));
+        
+        // 사용자 이름 가져오기 (세션에 저장되어 있지 않은 경우)
+        let username = req.session.username;
+        
+        if (!username) {
+            // 데이터베이스에서 사용자 정보 조회
+            const connection = await pool.getConnection();
+            try {
+                const [users] = await connection.query(
+                    'SELECT username FROM users WHERE id = ?',
+                    [req.session.userId]
+                );
+                
+                if (users.length > 0) {
+                    username = users[0].username;
+                    // 세션에 사용자 이름 저장
+                    req.session.username = username;
+                }
+            } finally {
+                connection.release();
+            }
+        }
 
         console.log(`[${LOG_HEADER}] Page loaded successfully with ${assistantList.length} assistants`);
         
         return res.render('index', { 
             assistants: assistantList,
-            userId: req.session.userId
+            userId: req.session.userId,
+            username: username || '사용자' // 사용자 이름 전달 (기본값 설정)
         });
 
     } catch (e) {
         console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
         return res.redirect('/auth/login');
     }
-    });
+});
 
-    //============================================================================================
-    // 상태 확인용 핑 엔드포인트
-    //============================================================================================
-    router.get('/ping', (req, res) => {
+//============================================================================================
+// 상태 확인용 핑 엔드포인트
+//============================================================================================
+router.get('/ping', (req, res) => {
     const LOG_HEADER = "ROUTE/PING";
     console.log(`[${LOG_HEADER}] Health check`);
     res.status(200).json({ status: 'ok' });
-    });
+});
 
-    //============================================================================================
-    // 에러 핸들러
-    //============================================================================================
-    router.use((err, req, res, next) => {
+//============================================================================================
+// 에러 핸들러
+//============================================================================================
+router.use((err, req, res, next) => {
     const LOG_HEADER = "ROUTE/ERROR";
     console.error(`[${LOG_HEADER}] ${err.message || err}`);
     
