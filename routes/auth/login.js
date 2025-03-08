@@ -11,15 +11,14 @@ const csrf = require('csurf');
 const csrfProtection = csrf({ cookie: true });
 
 // 로그인 시도 로깅 함수
-async function logLoginAttempt(connection, username, ip, status, errorReason = null) {
+async function logLoginAttempt(connection, username, ip, status, userId = null, errorReason = null) {
     try {
         await connection.query(
-            'INSERT INTO login_attempts (username, ip_address, status, error_reason, attempt_time) VALUES (?, ?, ?, ?, NOW())',
-            [username, ip, status, errorReason]
+            'INSERT INTO login_attempts (user_id, username, ip_address, status, error_reason, attempt_time) VALUES (?, ?, ?, ?, ?, NOW())',
+            [userId, username, ip, status, errorReason]
         );
     } catch (error) {
         console.error('로그인 시도 로깅 실패:', error);
-        // 로깅 실패는 사용자 경험에 영향을 주지 않도록 조용히 처리
     }
 }
 
@@ -93,7 +92,8 @@ router.post('/', csrfProtection, async(req, res) => {
                 connection, 
                 username, 
                 clientIP, 
-                'FAILED', 
+                'FAILED',
+                null, // user_id는 null
                 users.length === 0 ? 'USER_NOT_FOUND' : 'INVALID_PASSWORD'
             );
             
@@ -107,7 +107,7 @@ router.post('/', csrfProtection, async(req, res) => {
         const user = users[0];
         
         // 로그인 성공 로깅
-        await logLoginAttempt(connection, username, clientIP, 'SUCCESS');
+        await logLoginAttempt(connection, username, clientIP, 'SUCCESS', user.id);
         
         // 세션에 사용자 정보 저장
         req.session.userId = user.id;
