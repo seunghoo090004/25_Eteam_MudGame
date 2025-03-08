@@ -1,7 +1,7 @@
-<!-- views/index.ejs with logout button -->
+<!-- views/index.ejs with improved UI -->
 
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,47 +12,75 @@
         body {
             font-family: Arial, sans-serif;
             margin: 0;
-            padding: 20px;
+            padding: 0;
             background-color: #f0f0f0;
+            color: #333;
         }
-        .chat-container {
-            max-width: 800px;
+        /* 컨테이너를 중앙 정렬하고 최대 너비 설정 */
+        .page-container {
+            max-width: 1000px;
             margin: 0 auto;
-            background-color: white;
-            border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            overflow: hidden;
+            box-shadow: 0 0 15px rgba(0,0,0,0.1);
+        }
+        /* 사용자 컨트롤 영역 수정 - 헤더와 통합 */
+        .user-controls {
             display: flex;
             justify-content: space-between;
-        }
-        h1 {
+            align-items: center;
+            padding: 0 20px;
             background-color: #007bff;
             color: white;
-            margin: 0;
-            padding: 20px;
-            text-align: center;
+            height: 60px;
+            border-radius: 0;
+        }
+        .title-area {
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+        }
+        .btn {
+            padding: 6px 12px;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            text-decoration: none;
+            font-size: 0.9rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .btn-logout {
+            background-color: rgba(255, 255, 255, 0.2);
+            margin-left: 10px;
+        }
+        .btn-logout:hover {
+            background-color: rgba(255, 255, 255, 0.3);
+        }
+        .chat-container {
+            background-color: white;
+            display: flex;
+            justify-content: space-between;
+            border-radius: 0;
+            overflow: hidden;
         }
         .controls {
             display: flex;
             justify-content: space-between;
-            padding: 10px;
+            padding: 10px 20px;
             background-color: #f8f9fa;
-            border-bottom: 1px solid #ddd;
+            border-bottom: 1px solid #eee;
         }
         #assistant-select {
             flex-grow: 1;
             margin-right: 10px;
-            padding: 5px;
-        }
-        /* 버튼 스타일 통일 */
-        .btn {
-            padding: 5px 10px;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            margin-left: 5px;
-            transition: background-color 0.3s;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
         }
         .btn-success {
             background-color: #28a745;
@@ -60,32 +88,8 @@
         .btn-success:hover {
             background-color: #218838;
         }
-        .btn-danger {
-            background-color: #dc3545;
-        }
-        .btn-danger:hover {
-            background-color: #c82333;
-        }
-        .btn-primary {
-            background-color: #007bff;
-        }
-        .btn-primary:hover {
-            background-color: #0056b3;
-        }
-        /* 상단 사용자 정보 및 로그아웃 영역 */
-        .user-controls {
-            display: flex;
-            justify-content: flex-end;
-            align-items: center;
-            padding: 5px 20px;
-            background-color: #343a40;
-            color: white;
-        }
-        .user-info {
-            margin-right: 15px;
-        }
         #chatbox {
-            height: 400px;
+            height: 450px; /* 높이 늘림 */
             overflow-y: scroll;
             padding: 20px;
             background-color: #f9f9f9;
@@ -93,22 +97,26 @@
         }
         .input-area {
             display: flex;
-            padding: 10px;
+            padding: 10px 20px;
+            background-color: #f8f9fa;
+            border-top: 1px solid #eee;
         }
         #user-input {
             flex-grow: 1;
             padding: 10px;
             border: 1px solid #ddd;
-            border-radius: 5px 0 0 5px;
+            border-radius: 4px;
             resize: vertical;
             min-height: 50px;
+            font-family: inherit;
         }
         #send-button {
             padding: 10px 20px;
             background-color: #007bff;
             color: white;
             border: none;
-            border-radius: 0 5px 5px 0;
+            border-radius: 4px;
+            margin-left: 10px;
             cursor: pointer;
         }
         #send-button:hover {
@@ -116,104 +124,134 @@
         }
         .message {
             margin-bottom: 10px;
-            padding: 10px;
-            border-radius: 5px;
+            padding: 10px 15px;
+            border-radius: 8px;
             white-space: pre-wrap;
             word-break: break-word;
+            max-width: 80%;
         }
         .user-message {
             background-color: #007bff;
             color: white;
             text-align: right;
+            margin-left: auto;
         }
         .assistant-message {
             background-color: #e9ecef;
             text-align: left;
         }
         .error {
-            color: red;
+            color: #dc3545;
             font-weight: bold;
         }
         #game-load-list {
-            width: 200px;
-            background-color: #f0f0f0;
+            width: 250px;
+            background-color: #f8f9fa;
             padding: 20px;
-            border-left: 1px solid #ddd;
+            border-left: 1px solid #eee;
         }
         #game-load-list h3 {
             text-align: center;
+            margin-top: 0;
+            color: #343a40;
+            font-size: 1.2rem;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
         }
         .game-entry {
-            margin-bottom: 10px;
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: white;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
         .game-entry span {
             display: block;
             margin-bottom: 5px;
+            font-size: 0.9rem;
         }
         .game-entry button {
             margin-right: 5px;
+            margin-top: 5px;
         }
         .choice-buttons {
             display: flex;
             flex-direction: column;
             gap: 8px;
-            margin: 10px 0;
-            padding: 10px;
+            margin: 15px 0;
         }
         .choice-button {
             padding: 10px 15px;
             background-color: #007bff;
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 4px;
             cursor: pointer;
             text-align: left;
             transition: background-color 0.2s;
             width: 100%;
         }
-    
         .choice-button:hover {
             background-color: #0056b3;
         }
-    
         .choice-button:disabled {
             background-color: #cccccc;
             cursor: not-allowed;
         }
+        .game-actions {
+            display: flex;
+        }
+        .game-actions button {
+            flex: 1;
+        }
+        .btn-primary {
+            background-color: #007bff;
+        }
+        .btn-primary:hover {
+            background-color: #0056b3;
+        }
+        .btn-danger {
+            background-color: #dc3545;
+        }
+        .btn-danger:hover {
+            background-color: #c82333;
+        }
     </style>
 </head>
 <body>
-    <!-- 사용자 정보 및 로그아웃 영역 추가 -->
-    <div class="user-controls">
-        <div class="user-info">
-            <%= username %> 님 환영합니다
-        </div>
-        <a href="/auth/logout" class="btn btn-danger" id="logout-button">로그아웃</a>
-    </div>
-    
-    <div class="chat-container">
-        <div>
-            <h1>[2025-03-08] GPT Assistants Chat</h1>
-            <div class="controls">
-                <select id="assistant-select">
-                    <% assistants.forEach(function(assistant) { %>
-                        <option value="<%= assistant.id %>"><%= assistant.name %></option>
-                    <% }); %>
-                </select>
-                <button id="new-game" class="btn btn-success">새 게임</button>
-                <button id="save-game" class="btn btn-success">게임 저장</button>
-            </div>
-            <div id="chatbox"></div>
-            <div class="input-area" style="display: none;">
-                <textarea id="user-input" placeholder="메세지를 입력해주세요. (Shift+Enter 줄바꿈, Enter 또는 Ctrl+Enter 보내기)"></textarea>
-                <button id="send-button">보내기</button>
+    <div class="page-container">
+        <!-- 헤더와 사용자 컨트롤 통합 -->
+        <div class="user-controls">
+            <div class="title-area">[2025-03-08] GPT Assistants Chat</div>
+            <div class="user-info">
+                <%= username %> 님 환영합니다
+                <a href="/auth/logout" class="btn btn-logout" id="logout-button">로그아웃</a>
             </div>
         </div>
+        
+        <div class="chat-container">
+            <div style="flex: 1; display: flex; flex-direction: column;">
+                <div class="controls">
+                    <select id="assistant-select">
+                        <% assistants.forEach(function(assistant) { %>
+                            <option value="<%= assistant.id %>"><%= assistant.name %></option>
+                        <% }); %>
+                    </select>
+                    <button id="new-game" class="btn btn-success">새 게임</button>
+                    <button id="save-game" class="btn btn-success" style="margin-left: 5px;">게임 저장</button>
+                </div>
+                <div id="chatbox"></div>
+                <div class="input-area" style="display: none;">
+                    <textarea id="user-input" placeholder="메세지를 입력해주세요. (Shift+Enter 줄바꿈, Enter 또는 Ctrl+Enter 보내기)"></textarea>
+                    <button id="send-button">보내기</button>
+                </div>
+            </div>
 
-        <div id="game-load-list">
-            <h3>저장된 게임 목록</h3>
-            <div id="saved_games_list">
-                <!-- 저장된 게임 리스트가 여기에 표시됩니다 -->
+            <div id="game-load-list">
+                <h3>저장된 게임 목록</h3>
+                <div id="saved_games_list">
+                    <!-- 저장된 게임 리스트가 여기에 표시됩니다 -->
+                </div>
             </div>
         </div>
     </div>
@@ -369,7 +407,7 @@
                         }
                     }, 1000);
                 } else {
-                    $('#errorMessage').removeClass('hidden').text(data.error || '게임 시작 중 오류가 발생했습니다.');
+                    alert(data.error || '게임 시작 중 오류가 발생했습니다.');
                 }
             });
         
@@ -498,11 +536,13 @@
                         const gameDate = new Date(game.last_updated).toLocaleString();
                         savedGamesList.append(`
                             <div class="game-entry">
-                                <span>마지막 저장: ${gameDate}</span>
-                                <span>위치: ${game.game_data.location.current}</span>
-                                <span>레벨: ${game.game_data.player.level}</span>
-                                <button class="btn btn-primary" onclick="loadGame('${game.game_id}')">불러오기</button>
-                                <button class="btn btn-danger" onclick="deleteGame('${game.game_id}')">삭제</button>
+                                <span><strong>마지막 저장:</strong> ${gameDate}</span>
+                                <span><strong>위치:</strong> ${game.game_data.location.current}</span>
+                                <span><strong>레벨:</strong> ${game.game_data.player.level}</span>
+                                <div class="game-actions">
+                                    <button class="btn btn-primary" onclick="loadGame('${game.game_id}')">불러오기</button>
+                                    <button class="btn btn-danger" onclick="deleteGame('${game.game_id}')" style="margin-left: 5px;">삭제</button>
+                                </div>
                             </div>
                         `);
                     });
@@ -539,7 +579,7 @@
             // 초기 게임 목록 로드
             loadGamesList();
             
-            // 로그아웃 처리 - AJAX 사용
+            // 로그아웃 처리
             $('#logout-button').on('click', function(e) {
                 e.preventDefault();
                 
