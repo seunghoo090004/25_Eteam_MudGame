@@ -9,6 +9,8 @@ const cookieParser = require('cookie-parser');
 const logger = require('morgan');
 const session = require('express-session');
 const helmet = require('helmet');
+const cors = require('cors'); // 이 줄 추가
+
 
 // 필요한 라우터만 불러오기
 const indexRouter = require('./routes/index');
