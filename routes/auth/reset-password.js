@@ -160,6 +160,12 @@ router.post('/change', csrfProtection, async(req, res) => {
             [hashedPassword, user.user_id]
         );
         
+        // 로그인 실패 기록 삭제 - 이 부분을 추가
+        await connection.query(
+            'DELETE FROM login_attempts WHERE email = ? AND status = "FAILED"',
+            [user.email]
+        );
+        
         console.log(LOG_SUCC_HEADER + LOG_HEADER + " 비밀번호 재설정 완료: " + user.email);
         
         return res.status(200).json({
