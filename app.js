@@ -50,6 +50,7 @@ app.use(helmet({
       directives: {
          defaultSrc: ["'self'"],
          scriptSrc: ["'self'", "https://ajax.googleapis.com", "https://code.jquery.com", "'unsafe-inline'"],
+         scriptSrcAttr: ["'unsafe-inline'"], // 인라인 이벤트 핸들러 허용
          styleSrc: ["'self'", "'unsafe-inline'"],
          connectSrc: ["'self'", "wss://mudgame.up.railway.app"],
          imgSrc: ["'self'", "data:"]
