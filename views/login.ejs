@@ -155,6 +155,28 @@
             .error-message.hidden {
                 display: none;
             }
+            
+            .verification-container {
+                margin-top: 1rem;
+                padding: 1rem;
+                background: rgba(255, 229, 153, 0.2);
+                border-radius: 5px;
+                display: none;
+            }
+
+            .verification-container p {
+                margin: 0 0 0.5rem 0;
+                color: #805500;
+            }
+
+            .verification-container button {
+                background-color: #ff9900;
+                margin-top: 0.5rem;
+            }
+
+            .verification-container button:hover {
+                background-color: #e68a00;
+            }
         </style>
     </head>
 <body>
@@ -166,7 +188,7 @@
         
         <% if(locals.registered) { %>
             <div class="success-message">
-                회원가입이 완료되었습니다. 로그인하여 게임을 시작하세요!
+                회원가입이 완료되었습니다. 이메일 인증 후 로그인하세요!
             </div>
         <% } %>
         
@@ -175,8 +197,8 @@
             <input type="hidden" name="_csrf" id="csrfToken" value="<%= csrfToken %>">
             
             <div class="input-group">
-                <label for="username">아이디</label>
-                <input type="text" id="username" name="username" placeholder="아이디" required>
+                <label for="email">이메일</label>
+                <input type="email" id="email" name="email" placeholder="이메일" required>
             </div>
             
             <div class="input-group">
@@ -187,7 +209,15 @@
             <button type="submit" id="loginButton">로그인</button>
         </form>
         <p>계정이 없으신가요? <a href="/auth/signup">회원가입</a></p>
+        <p><a href="#" id="forgotPasswordLink">비밀번호를 잊으셨나요?</a></p>
         <div id="errorMessage" class="error-message hidden"></div>
+        
+        <!-- 이메일 인증 안내 섹션 -->
+        <div id="verificationContainer" class="verification-container">
+            <p>이메일 인증이 필요합니다.</p>
+            <p class="email-display"></p>
+            <button id="resendVerificationButton">인증 메일 재발송</button>
+        </div>
     </div>
 
     <script>
@@ -195,7 +225,7 @@
             // 회원가입 성공 파라미터 체크
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('registered') === 'true') {
-                $('<div class="success-message">회원가입이 완료되었습니다. 로그인하여 게임을 시작하세요!</div>')
+                $('<div class="success-message">회원가입이 완료되었습니다. 이메일 인증 후 로그인하세요!</div>')
                     .insertAfter('h1')
                     .delay(5000)
                     .fadeOut(500);
@@ -207,9 +237,10 @@
                 // 에러 메시지 초기화 및 버튼 상태 변경
                 $('#errorMessage').addClass('hidden').text('');
                 $('#loginButton').prop('disabled', true).text('로그인 중...');
+                $('#verificationContainer').hide();
                 
                 // 입력 필드에서 에러 표시 제거
-                $('#username, #password').removeClass('error-field');
+                $('#email, #password').removeClass('error-field');
                 
                 $.ajax({
                     url: '/auth/login',
@@ -219,11 +250,11 @@
                         'CSRF-Token': $('#csrfToken').val()
                     },
                     data: JSON.stringify({
-                        username: $('#username').val(),
+                        email: $('#email').val(),
                         password: $('#password').val()
                     }),
                     success: function(response) {
-                        if (response.code === 'LOGIN_SUCCESS' || response.msg.includes("SUCC")) {
+                        if (response.code === 'LOGIN_SUCCESS') {
                             window.location.href = '/';
                         } else {
                             $('#errorMessage').removeClass('hidden').text(response.msg);
@@ -235,17 +266,23 @@
                         const response = xhr.responseJSON || {};
                         let errorMsg = response.msg || '로그인 중 오류가 발생했습니다.';
                         
-                        // 에러 코드에 따른 필드 강조
-                        if (response.code === 'AUTH_FAILED') {
-                            $('#username, #password').addClass('error-field');
-                            $('#username').focus();
+                        // 이메일 인증 필요 오류
+                        if (response.code === 'EMAIL_NOT_VERIFIED' && response.email) {
+                            $('#verificationContainer').show();
+                            $('#verificationContainer .email-display').text(response.email);
+                            $('#email').addClass('error-field');
+                        } 
+                        // 다른 인증 오류
+                        else if (response.code === 'AUTH_FAILED') {
+                            $('#email, #password').addClass('error-field');
+                            $('#email').focus();
                         } else if (response.code === 'INVALID_INPUT') {
-                            if (response.data && response.data.username) {
-                                $('#username').addClass('error-field').focus();
+                            if (response.data && response.data.email) {
+                                $('#email').addClass('error-field').focus();
                             }
                             if (response.data && response.data.password) {
                                 $('#password').addClass('error-field');
-                                if (!response.data.username) {
+                                if (!response.data.email) {
                                     $('#password').focus();
                                 }
                             }
@@ -262,6 +299,40 @@
                         $('#loginButton').prop('disabled', false).text('로그인');
                     }
                 });
+            });
+            
+            // 인증 메일 재발송
+            $('#resendVerificationButton').click(function() {
+                const email = $('#verificationContainer .email-display').text();
+                
+                if (!email) {
+                    alert('이메일 정보가 없습니다.');
+                    return;
+                }
+                
+                $(this).prop('disabled', true).text('발송 중...');
+                
+                $.ajax({
+                    url: '/auth/verify/resend',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ email }),
+                    success: function(response) {
+                        alert('인증 메일이 재발송되었습니다. 이메일을 확인해주세요.');
+                        $('#resendVerificationButton').prop('disabled', false).text('인증 메일 재발송');
+                    },
+                    error: function(xhr) {
+                        const response = xhr.responseJSON || {};
+                        alert(response.msg || '인증 메일 재발송 중 오류가 발생했습니다.');
+                        $('#resendVerificationButton').prop('disabled', false).text('인증 메일 재발송');
+                    }
+                });
+            });
+            
+            // 비밀번호 찾기 링크
+            $('#forgotPasswordLink').click(function(e) {
+                e.preventDefault();
+                alert('비밀번호 재설정 기능은 곧 제공될 예정입니다.');
             });
         });
     </script>

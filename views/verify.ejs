@@ -1,0 +1,201 @@
+<!-- 이메일 인증 결과 페이지 템플릿 -->
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>이메일 인증</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #f5f5f5;
+            color: #000;
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            flex-direction: column;
+        }
+
+        .title-container {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+
+        .title {
+            font-size: 4rem;
+            color: #0055ff;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px 40px;
+            border-radius: 10px;
+            box-shadow: 0 0 15px 2px #0055ff;
+            text-align: center;
+        }
+
+        .verify-container {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 0 15px 2px #0055ff;
+            text-align: center;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        h1 {
+            font-size: 2rem;
+            color: #0055ff;
+            margin-bottom: 1.5rem;
+        }
+
+        .message {
+            margin: 1.5rem 0;
+            font-size: 1.1rem;
+            line-height: 1.5;
+        }
+
+        .success-message {
+            color: #28a745;
+        }
+
+        .error-message {
+            color: #dc3545;
+        }
+
+        button {
+            padding: 0.8rem 1.5rem;
+            border: none;
+            border-radius: 5px;
+            font-size: 1rem;
+            font-weight: bold;
+            background: #0055ff;
+            color: #fff;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s;
+            margin-top: 1rem;
+        }
+
+        button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 10px #4477ff;
+        }
+
+        .resend-form {
+            margin-top: 1.5rem;
+            display: none;
+        }
+
+        input {
+            padding: 0.8rem;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .loading {
+            display: none;
+            margin-top: 1rem;
+        }
+
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #0055ff;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="title-container">
+        <div class="title">머드게임</div>
+    </div>
+    <div class="verify-container">
+        <h1>이메일 인증</h1>
+        
+        <% if(success) { %>
+            <div class="message success-message">
+                <%= message %>
+            </div>
+            <button onclick="location.href='<%= redirectUrl || '/auth/login' %>'">로그인 페이지로 이동</button>
+        <% } else { %>
+            <div class="message error-message">
+                <%= message %>
+            </div>
+            <button id="show-resend">인증 메일 다시 받기</button>
+            
+            <div id="resend-form" class="resend-form">
+                <input type="email" id="email" placeholder="가입한 이메일 주소">
+                <button id="resend-button">인증 메일 재발송</button>
+                <div class="loading">
+                    <div class="loader"></div>
+                    <p>메일 발송 중...</p>
+                </div>
+            </div>
+        <% } %>
+    </div>
+
+    <script>
+        $(document).ready(function() {
+            $('#show-resend').click(function() {
+                $(this).hide();
+                $('#resend-form').show();
+            });
+            
+            $('#resend-button').click(function() {
+                const email = $('#email').val();
+                
+                if (!email || !isValidEmail(email)) {
+                    alert('유효한 이메일 주소를 입력해주세요.');
+                    return;
+                }
+                
+                // 로딩 표시
+                $('#resend-button').prop('disabled', true);
+                $('.loading').show();
+                
+                $.ajax({
+                    url: '/auth/verify/resend',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ email: email }),
+                    success: function(response) {
+                        $('.loading').hide();
+                        $('#resend-form').html('<div class="message success-message">인증 이메일이 재발송되었습니다. 이메일을 확인해주세요.</div>');
+                    },
+                    error: function(xhr) {
+                        $('.loading').hide();
+                        $('#resend-button').prop('disabled', false);
+                        
+                        const response = xhr.responseJSON || {};
+                        alert(response.msg || '인증 메일 재발송 중 오류가 발생했습니다.');
+                    }
+                });
+            });
+            
+            // 이메일 유효성 검사
+            function isValidEmail(email) {
+                const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+                return emailRegex.test(email);
+            }
+        });
+    </script>
+</body>
+</html>
