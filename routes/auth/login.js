@@ -40,6 +40,43 @@ function validateLoginInput(username, password) {
     };
 }
 
+// 로그인 시도 제한 미들웨어
+const loginAttemptTracker = async (req, res, next) => {
+    const { username } = req.body;
+    
+    if (!username) {
+        return next();
+    }
+    
+    const connection = await pool.getConnection();
+    
+    try {
+        // 최근 30분 내 실패한 로그인 시도 횟수 조회
+        const [attempts] = await connection.query(
+            'SELECT COUNT(*) as failCount FROM login_attempts WHERE username = ? AND status = "FAILED" AND attempt_time > DATE_SUB(NOW(), INTERVAL 30 MINUTE)',
+            [username]
+        );
+        
+        const failCount = attempts[0].failCount;
+        
+        // 5회 이상 실패 시 비밀번호 재설정 메시지 표시
+        if (failCount >= 4) {
+            return res.status(403).json({
+                code: 'TOO_MANY_ATTEMPTS',
+                msg: '로그인 시도가 너무 많습니다. 비밀번호를 재설정해주세요.',
+                resetRequired: true
+            });
+        }
+        
+        next();
+    } catch (error) {
+        console.error('로그인 시도 확인 중 오류:', error);
+        next();
+    } finally {
+        connection.release();
+    }
+};
+
 // GET 요청 처리 (로그인 페이지 렌더링)
 router.get('/', csrfProtection, function(req, res) {
     // 이미 로그인된 사용자는 메인 페이지로 리다이렉트
@@ -54,7 +91,7 @@ router.get('/', csrfProtection, function(req, res) {
     });
 });
 
-router.post('/', csrfProtection, async(req, res) => {
+router.post('/', csrfProtection, loginAttemptTracker, async(req, res) => {
     const LOG_HEADER_TITLE = "LOGIN";
     const LOG_HEADER = reqinfo.get_req_url(req) + " --> " + LOG_HEADER_TITLE;
     const LOG_ERR_HEADER = "[FAIL] ";

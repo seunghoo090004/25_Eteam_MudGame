@@ -8,6 +8,7 @@ const path = require('path');
 const cookieParser = require('cookie-parser');
 const logger = require('morgan');
 const session = require('express-session');
+const helmet = require('helmet');
 
 // 필요한 라우터만 불러오기
 const indexRouter = require('./routes/index');
@@ -33,6 +34,26 @@ app.use(logger('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+app.use(helmet());
+
+// CORS 미들웨어 설정
+app.use(cors({
+   origin: process.env.NODE_ENV === 'production' ? ['https://mudgame.up.railway.app'] : '*',
+   methods: ['GET', 'POST'],
+   credentials: true
+}));
+
+app.use(helmet({
+   contentSecurityPolicy: {
+      directives: {
+         defaultSrc: ["'self'"],
+         scriptSrc: ["'self'", "https://ajax.googleapis.com", "https://code.jquery.com"],
+         styleSrc: ["'self'", "'unsafe-inline'"],
+         connectSrc: ["'self'", "wss://mudgame.up.railway.app"],
+         imgSrc: ["'self'", "data:"]
+      }
+      }
+   }));
 
 // 세션 미들웨어 설정
 const sessionMiddleware = session({
