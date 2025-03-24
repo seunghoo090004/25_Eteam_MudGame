@@ -187,7 +187,7 @@
             <button type="submit" id="loginButton">로그인</button>
         </form>
         <p>계정이 없으신가요? <a href="/auth/signup">회원가입</a></p>
-        <p><a href="#" id="forgotPasswordLink">비밀번호를 잊으셨나요?</a></p>
+        // <p><a href="/auth/reset-password" id="forgotPasswordLink">비밀번호를 잊으셨나요?</a></p>
         <div id="errorMessage" class="error-message hidden"></div>
     </div>
 
@@ -267,8 +267,8 @@
             
             // 비밀번호 찾기 링크
             $('#forgotPasswordLink').click(function(e) {
-                e.preventDefault();
-                alert('비밀번호 재설정 기능은 곧 제공될 예정입니다.');
+                // 경고창 대신 페이지 이동
+                window.location.href = '/auth/reset-password';
             });
         });
     </script>
