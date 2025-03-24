@@ -49,7 +49,7 @@ app.use(helmet({
    contentSecurityPolicy: {
       directives: {
          defaultSrc: ["'self'"],
-         scriptSrc: ["'self'", "https://ajax.googleapis.com", "https://code.jquery.com", "https://code.jquery.com"],
+         scriptSrc: ["'self'", "https://ajax.googleapis.com", "https://code.jquery.com", "'unsafe-inline'"],
          styleSrc: ["'self'", "'unsafe-inline'"],
          connectSrc: ["'self'", "wss://mudgame.up.railway.app"],
          imgSrc: ["'self'", "data:"]
