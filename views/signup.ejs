@@ -65,6 +65,7 @@
             display: flex;
             flex-direction: column;
             text-align: left;
+            position: relative;
         }
 
         .input-group label {
@@ -150,6 +151,30 @@
             cursor: not-allowed;
         }
 
+        .verify-button {
+            position: absolute;
+            right: 0;
+            top: 1.8rem;
+            padding: 0.8rem;
+            margin-top: 0;
+            width: 100px;
+            height: 40px;
+            font-size: 0.8rem;
+        }
+
+        .verified-badge {
+            position: absolute;
+            right: 0;
+            top: 1.8rem;
+            padding: 0.8rem;
+            margin-top: 0;
+            width: 100px;
+            height: 40px;
+            font-size: 0.8rem;
+            background-color: #28a745;
+            display: none;
+        }
+
         a {
             color: #0055ff;
             text-decoration: none;
@@ -182,6 +207,35 @@
             border-radius: 5px;
             display: none;
         }
+
+        .step {
+            display: none;
+        }
+
+        .step.active {
+            display: block;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin-top: 1rem;
+        }
+
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #0055ff;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -194,34 +248,55 @@
             <!-- CSRF 토큰 추가 -->
             <input type="hidden" name="_csrf" id="csrfToken" value="<%= csrfToken %>">
             
-            <div class="input-group">
-                <label for="email">이메일</label>
-                <input type="email" id="email" name="email" placeholder="이메일 주소" required>
-                <div id="emailMessage" class="field-message"></div>
-            </div>
-            
-            <div class="input-group">
-                <label for="username">아이디</label>
-                <input type="text" id="username" name="username" placeholder="영문, 숫자, 밑줄 (_) 4-20자" required>
-                <div id="usernameMessage" class="field-message"></div>
-            </div>
-            
-            <div class="input-group">
-                <label for="password">비밀번호</label>
-                <input type="password" id="password" name="password" placeholder="대소문자, 숫자 포함 8자 이상" required>
-                <div class="password-strength">
-                    <div id="passwordStrengthBar" class="password-strength-bar"></div>
+            <!-- 단계 1: 이메일 인증 -->
+            <div id="step1" class="step active">
+                <div class="input-group">
+                    <label for="email">이메일</label>
+                    <input type="email" id="email" name="email" placeholder="이메일 주소" required>
+                    <button type="button" id="verifyButton" class="verify-button">인증코드 발송</button>
+                    <button type="button" id="verifiedBadge" class="verified-badge" disabled>인증완료</button>
+                    <div id="emailMessage" class="field-message"></div>
                 </div>
-                <div id="passwordMessage" class="field-message"></div>
+                
+                <div class="input-group" id="verificationCodeGroup" style="display: none;">
+                    <label for="verificationCode">인증코드</label>
+                    <input type="text" id="verificationCode" name="verificationCode" placeholder="이메일로 받은 6자리 코드">
+                    <div id="codeMessage" class="field-message"></div>
+                </div>
+                
+                <button type="button" id="nextStep1" disabled>다음 단계</button>
+                
+                <div class="loading" id="emailLoading">
+                    <div class="loader"></div>
+                    <p>인증 코드 발송 중...</p>
+                </div>
             </div>
             
-            <div class="input-group">
-                <label for="passwordConfirm">비밀번호 확인</label>
-                <input type="password" id="passwordConfirm" name="passwordConfirm" placeholder="비밀번호 재입력" required>
-                <div id="passwordConfirmMessage" class="field-message"></div>
+            <!-- 단계 2: 닉네임 및 비밀번호 설정 -->
+            <div id="step2" class="step">
+                <div class="input-group">
+                    <label for="username">닉네임</label>
+                    <input type="text" id="username" name="username" placeholder="2~8자 한글 또는 영문" required>
+                    <div id="usernameMessage" class="field-message"></div>
+                </div>
+                
+                <div class="input-group">
+                    <label for="password">비밀번호</label>
+                    <input type="password" id="password" name="password" placeholder="대소문자, 숫자 포함 8자 이상" required>
+                    <div class="password-strength">
+                        <div id="passwordStrengthBar" class="password-strength-bar"></div>
+                    </div>
+                    <div id="passwordMessage" class="field-message"></div>
+                </div>
+                
+                <div class="input-group">
+                    <label for="passwordConfirm">비밀번호 확인</label>
+                    <input type="password" id="passwordConfirm" name="passwordConfirm" placeholder="비밀번호 재입력" required>
+                    <div id="passwordConfirmMessage" class="field-message"></div>
+                </div>
+                
+                <button type="submit" id="submitButton" disabled>회원가입</button>
             </div>
-            
-            <button type="submit" id="submitButton" disabled>회원가입</button>
         </form>
         <p>이미 계정이 있으신가요? <a href="/auth/login">로그인</a></p>
         <div id="errorContainer" class="error-container"></div>
@@ -232,19 +307,11 @@
             // 입력값 검증 상태
             let validations = {
                 email: false,
+                emailVerified: false,
                 username: false,
                 password: false,
                 passwordConfirm: false
             };
-            
-            // 제출 버튼 상태 업데이트
-            function updateSubmitButton() {
-                if (validations.email && validations.username && validations.password && validations.passwordConfirm) {
-                    $('#submitButton').prop('disabled', false);
-                } else {
-                    $('#submitButton').prop('disabled', true);
-                }
-            }
             
             // 이메일 검증
             $('#email').on('input', function() {
@@ -265,24 +332,105 @@
                     validations.email = true;
                 }
                 
-                updateSubmitButton();
+                // 이메일 인증 버튼 활성화
+                $('#verifyButton').prop('disabled', !validations.email);
             });
             
-            // 사용자명 검증
+            // 인증 코드 발송 버튼 클릭
+            $('#verifyButton').click(function() {
+                if (!validations.email) return;
+                
+                const email = $('#email').val();
+                
+                // 로딩 표시
+                $('#verifyButton').prop('disabled', true);
+                $('#emailLoading').show();
+                
+                // 서버에 인증 코드 발송 요청
+                $.ajax({
+                    url: '/auth/verify/send-code',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    headers: {
+                        'CSRF-Token': $('#csrfToken').val()
+                    },
+                    data: JSON.stringify({ email }),
+                    success: function(response) {
+                        $('#emailLoading').hide();
+                        $('#verificationCodeGroup').show();
+                        $('#emailMessage').text('인증 코드가 발송되었습니다. 이메일을 확인해주세요.').removeClass('error-message').addClass('valid-message');
+                    },
+                    error: function(xhr) {
+                        $('#emailLoading').hide();
+                        $('#verifyButton').prop('disabled', false);
+                        
+                        const response = xhr.responseJSON || {};
+                        let errorMessage = response.msg || '인증 코드 발송 중 오류가 발생했습니다.';
+                        
+                        if (response.code === 'EMAIL_EXISTS') {
+                            errorMessage = '이미 가입된 이메일입니다. 로그인해 주세요.';
+                        }
+                        
+                        $('#emailMessage').text(errorMessage).addClass('error-message').removeClass('valid-message');
+                    }
+                });
+            });
+            
+            // 인증 코드 확인
+            $('#verificationCode').on('input', function() {
+                const code = $(this).val();
+                
+                if (code.length === 6) {
+                    const email = $('#email').val();
+                    
+                    $.ajax({
+                        url: '/auth/verify/check-code',
+                        method: 'POST',
+                        contentType: 'application/json',
+                        headers: {
+                            'CSRF-Token': $('#csrfToken').val()
+                        },
+                        data: JSON.stringify({ email, code }),
+                        success: function(response) {
+                            $('#codeMessage').text('이메일 인증이 완료되었습니다.').removeClass('error-message').addClass('valid-message');
+                            $('#verifyButton').hide();
+                            $('#verifiedBadge').show();
+                            $('#verificationCodeGroup').hide();
+                            validations.emailVerified = true;
+                            $('#nextStep1').prop('disabled', false);
+                        },
+                        error: function(xhr) {
+                            const response = xhr.responseJSON || {};
+                            let errorMessage = response.msg || '인증 코드가 올바르지 않습니다.';
+                            $('#codeMessage').text(errorMessage).addClass('error-message').removeClass('valid-message');
+                        }
+                    });
+                }
+            });
+            
+            // 다음 단계로 이동
+            $('#nextStep1').click(function() {
+                if (validations.emailVerified) {
+                    $('#step1').removeClass('active');
+                    $('#step2').addClass('active');
+                }
+            });
+            
+            // 닉네임 검증
             $('#username').on('input', function() {
                 const username = $(this).val();
-                const usernameRegex = /^[a-zA-Z0-9_]{4,20}$/;
+                const usernameRegex = /^[가-힣a-zA-Z]{2,8}$/;
                 
                 if (!username) {
-                    $('#usernameMessage').text('사용자명을 입력해주세요.').addClass('error-message').removeClass('valid-message');
+                    $('#usernameMessage').text('닉네임을 입력해주세요.').addClass('error-message').removeClass('valid-message');
                     $(this).addClass('error-field');
                     validations.username = false;
                 } else if (!usernameRegex.test(username)) {
-                    $('#usernameMessage').text('사용자명은 4-20자의 영문자, 숫자, 밑줄만 사용 가능합니다.').addClass('error-message').removeClass('valid-message');
+                    $('#usernameMessage').text('닉네임은 2~8자의 한글 또는 영문만 사용 가능합니다.').addClass('error-message').removeClass('valid-message');
                     $(this).addClass('error-field');
                     validations.username = false;
                 } else {
-                    $('#usernameMessage').text('유효한 사용자명입니다.').removeClass('error-message').addClass('valid-message');
+                    $('#usernameMessage').text('유효한 닉네임입니다.').removeClass('error-message').addClass('valid-message');
                     $(this).removeClass('error-field');
                     validations.username = true;
                 }
@@ -400,9 +548,23 @@
                 updateSubmitButton();
             });
             
+            // 제출 버튼 상태 업데이트
+            function updateSubmitButton() {
+                if (validations.username && validations.password && validations.passwordConfirm) {
+                    $('#submitButton').prop('disabled', false);
+                } else {
+                    $('#submitButton').prop('disabled', true);
+                }
+            }
+            
             // 폼 제출 처리
             $('#signupForm').on('submit', function(e) {
                 e.preventDefault();
+                
+                if (!validations.emailVerified) {
+                    $('#errorContainer').text('이메일 인증이 필요합니다.').show();
+                    return;
+                }
                 
                 // 제출 버튼 비활성화 및 로딩 상태 표시
                 $('#submitButton').prop('disabled', true).text('처리 중...');
@@ -420,13 +582,14 @@
                     data: JSON.stringify({
                         email: $('#email').val(),
                         username: $('#username').val(),
-                        password: $('#password').val()
+                        password: $('#password').val(),
+                        verified: true // 이미 인증되었음을 서버에 알림
                     }),
                     success: function(response) {
                         // 서버에서 오는 응답 처리
                         if (response.code === 'SIGNUP_SUCCESS') {
                             // 회원가입 성공
-                            alert('회원가입이 완료되었습니다! 이메일을 확인하여 계정을 인증해주세요.');
+                            alert('회원가입이 완료되었습니다!');
                             window.location.href = '/auth/login?registered=true';
                         } else {
                             // 서버에서 에러가 왔지만 HTTP 상태는 성공인 경우
@@ -445,34 +608,26 @@
                         if (response.data && typeof response.data === 'object') {
                             if (response.data.email) {
                                 $('#emailMessage').text(response.data.email).addClass('error-message');
-                                $('#email').addClass('error-field').focus();
                             }
                             
                             if (response.data.username) {
                                 $('#usernameMessage').text(response.data.username).addClass('error-message');
-                                $('#username').addClass('error-field');
-                                if (!response.data.email) {
-                                    $('#username').focus();
-                                }
+                                $('#username').addClass('error-field').focus();
                             }
                             
                             if (response.data.password) {
                                 $('#passwordMessage').text(response.data.password).addClass('error-message');
                                 $('#password').addClass('error-field');
-                                if (!response.data.email && !response.data.username) {
-                                    $('#password').focus();
-                                }
                             }
                         }
                         
                         // 중복 오류 처리
                         if (response.code === 'EMAIL_EXISTS') {
                             $('#emailMessage').text('이미 사용 중인 이메일입니다.').addClass('error-message');
-                            $('#email').addClass('error-field').focus();
                         }
                         
                         if (response.code === 'USERNAME_EXISTS') {
-                            $('#usernameMessage').text('이미 사용 중인 사용자명입니다.').addClass('error-message');
+                            $('#usernameMessage').text('이미 사용 중인 닉네임입니다.').addClass('error-message');
                             $('#username').addClass('error-field').focus();
                         }
                         
