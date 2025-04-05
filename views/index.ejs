@@ -417,30 +417,77 @@
                     alert('저장할 게임이 없습니다.');
                     return;
                 }
-        
+                
+                // 저장 버튼 비활성화 및 텍스트 변경
+                $('#save-game').prop('disabled', true).text('저장 중...');
+                
                 socket.emit('save game', {
                     game_id: currentGameId,
                     game_data: gameData
                 });
             });
-        
-            // 게임 저장 응답
+            
+            // 저장 진행 상황 처리
+            socket.on('save game progress', function(data) {
+                if (data.status === 'saving') {
+                    // 저장 중 표시
+                    $('#chatbox').append(`<div class="message system-message">${data.message}</div>`);
+                    $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
+                }
+            });
+            
+            // 게임 저장 응답 처리
             socket.on('save game response', function(data) {
+                // 저장 버튼 상태 복원
+                $('#save-game').prop('disabled', false).text('게임 저장');
+                
                 if (data.success) {
-                    alert('게임이 저장되었습니다!');
+                    // 성공 메시지 표시
+                    $('#chatbox').append(`<div class="message system-message">게임이 저장되었습니다!</div>`);
+                    
+                    // 스레드가 변경된 경우 새 응답 표시
+                    if (data.threadChanged && data.initialResponse) {
+                        // 스레드 전환 안내 메시지
+                        $('#chatbox').append(`<div class="message system-message">새 세션으로 이동했습니다.</div>`);
+                        
+                        // 기존 선택지 버튼들 제거
+                        $('.choice-buttons').remove();
+                        
+                        // 새 스레드의 응답 표시
+                        $('#chatbox').append(`<div class="message assistant-message">${data.initialResponse}</div>`);
+                        
+                        // 선택지 버튼 생성
+                        const buttons = createChoiceButtons(data.initialResponse);
+                        if (buttons) {
+                            $('#chatbox').append(buttons);
+                        }
+                    }
+                    
+                    $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
+                    
+                    // 게임 목록 업데이트
                     loadGamesList();
                 } else {
                     alert('게임 저장 중 오류: ' + data.error);
                 }
             });
-        
-            // 게임 불러오기
+            
+            // 불러오기 함수 보완 (window.loadGame)
             window.loadGame = function(gameId) {
+                // 기존 게임 진행 중인지 확인
+                if (currentGameId && !confirm('다른 게임을 불러오면 현재 진행 중인 게임은 저장되지 않습니다. 계속하시겠습니까?')) {
+                    return;
+                }
+                
+                // 로딩 메시지 표시
+                $('#chatbox').empty().append(`<div class="message system-message">게임을 불러오는 중...</div>`);
+                
                 socket.emit('load game', {
                     game_id: gameId
                 });
             }
-        
+            
+            // 불러오기 응답 처리 개선
             socket.on('load game response', function(data) {
                 if (data.success) {
                     currentGameId = data.game.game_id;
@@ -448,16 +495,17 @@
                     
                     $('#chatbox').empty();
                     
-                    if (data.game.chatHistory) {
-                        const chatHistory = [...data.game.chatHistory]
-                            .filter(msg => !msg.content.includes('New game initialization'))
-                            .reverse();  // 여기서 순서 뒤집기
-
-                        // 채팅 히스토리 표시 (순서 유지)
+                    if (data.game.chatHistory && data.game.chatHistory.length > 0) {
+                        // 채팅 히스토리 표시 (최신 메시지 순으로 정렬)
+                        const chatHistory = [...data.game.chatHistory].sort((a, b) => {
+                            return new Date(a.created_at) - new Date(b.created_at);
+                        });
+                        
+                        // 대화 내용 표시
                         chatHistory.forEach(msg => {
                             const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
                             $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
-            
+                            
                             // 마지막 메시지이고 assistant의 메시지인 경우 선택지 버튼 생성
                             if (msg === chatHistory[chatHistory.length - 1] && msg.role === 'assistant') {
                                 const buttons = createChoiceButtons(msg.content);
@@ -466,12 +514,18 @@
                                 }
                             }
                         });
+                    } else {
+                        // 채팅 히스토리가 없는 경우 메시지 표시
+                        $('#chatbox').append(`<div class="message system-message">게임을 불러왔습니다. 시작하려면 메시지를 입력하세요.</div>`);
                     }
-            
+                    
                     $('#assistant-select').prop('disabled', true);
                     $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
+                    
+                    // 콘솔에 디버그 정보 출력
+                    console.log('Game loaded:', data.game);
                 } else {
-                    alert('게임을 불러오는 중 오류: ' + data.error);
+                    $('#chatbox').empty().append(`<div class="message error">게임을 불러오는 중 오류: ${data.error}</div>`);
                 }
             });
             

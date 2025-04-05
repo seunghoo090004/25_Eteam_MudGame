@@ -49,6 +49,8 @@ const gameHandler = (io, socket) => {
         }
     });
 
+    // routes/socket/handlers/game.js의 'load game' 이벤트 핸들러 수정
+
     socket.on('load game', async (data) => {
         const LOG_HEADER_TITLE = "LOAD_GAME";
         const LOG_HEADER = "GameId[" + data.game_id + "] UserId[" + socket.request.session.userId + "] --> " + LOG_HEADER_TITLE;
@@ -61,15 +63,37 @@ const gameHandler = (io, socket) => {
             const userId = socket.request.session.userId;
             if (!userId) throw "Not authenticated";
             if (!data.game_id) throw "Game ID required";
-    
+
             const gameData = await gameService.loadGame(data.game_id, userId);
-    
+
+            // 게임 로드 후 초기 응답이 없으면 생성
+            const chatService = require('../services/chat');
+            if (!gameData.chatHistory || gameData.chatHistory.length === 0) {
+                console.log(`[${LOG_HEADER}] No chat history found, creating initial response`);
+                const initialResponse = await chatService.getInitialResponse(
+                    gameData.thread_id, 
+                    gameData.assistant_id
+                );
+                
+                if (gameData.chatHistory) {
+                    gameData.chatHistory.push({
+                        role: 'assistant',
+                        content: initialResponse
+                    });
+                } else {
+                    gameData.chatHistory = [{
+                        role: 'assistant',
+                        content: initialResponse
+                    }];
+                }
+            }
+
             console.log(LOG_SUCC_HEADER + LOG_HEADER + "status(" + ret_status + ")");
             socket.emit('load game response', {
                 success: true,
                 game: gameData
             });
-    
+
         } catch (e) {
             ret_status = 501;
             console.error(LOG_ERR_HEADER + LOG_HEADER + "getBODY::status(" + ret_status + ") ==> " + e);
@@ -87,13 +111,26 @@ const gameHandler = (io, socket) => {
             if (!userId) throw "Not authenticated";
             if (!data.game_id) throw "Game ID required";
             if (!data.game_data) throw "Game data required";
-
-            await gameService.saveGame(data.game_id, userId, data.game_data);
-            console.log(`[${LOG_HEADER}] Game saved`);
-            socket.emit('save game response', {
-                success: true
+    
+            // 저장 중임을 클라이언트에 알림
+            socket.emit('save game progress', {
+                status: 'saving',
+                message: '게임 저장 중...'
             });
-
+    
+            const result = await gameService.saveGame(data.game_id, userId, data.game_data);
+            
+            if (result.success) {
+                console.log(`[${LOG_HEADER}] Game saved with new thread`);
+                socket.emit('save game response', {
+                    success: true,
+                    threadChanged: true,
+                    initialResponse: result.initialResponse
+                });
+            } else {
+                throw result.error || "Unknown error";
+            }
+    
         } catch (e) {
             console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
             socket.emit('save game response', {

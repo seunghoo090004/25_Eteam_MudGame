@@ -138,6 +138,7 @@ class GameService {
         const LOG_SUCC_HEADER = "[SUCC]";
         
         let ret_status = 200;
+        let result = { success: true };
 
         try {
             const connection = await pool.getConnection();
@@ -153,10 +154,11 @@ class GameService {
                 }
                 
                 const game = games[0];
+                const oldThreadId = game.thread_id;
                 
                 // 2. AI를 통해 게임 히스토리 요약 생성
                 const chatService = require('./chat');
-                const summary = await chatService.createGameSummary(game.thread_id, game.assistant_id);
+                const summary = await chatService.createGameSummary(oldThreadId, game.assistant_id);
                 
                 // 3. 새 스레드 생성
                 const newThread = await openai.beta.threads.create();
@@ -167,8 +169,11 @@ class GameService {
                     content: `이전 게임 요약: ${summary}\n\n계속 진행해주세요.`
                 });
                 
-                // 5. 게임 스레드 ID 업데이트 및 게임 데이터 저장
-                const [result] = await connection.query(
+                // 5. 새 스레드에서 초기 응답 가져오기
+                const initialResponse = await chatService.getInitialResponse(newThread.id, game.assistant_id);
+                
+                // 6. 게임 스레드 ID 업데이트 및 게임 데이터 저장
+                const [updateResult] = await connection.query(
                     `UPDATE game_state 
                     SET thread_id = ?,
                         game_data = ?,
@@ -177,12 +182,21 @@ class GameService {
                     [newThread.id, JSON.stringify(gameData), gameId, userId]
                 );
                 
-                if (result.affectedRows === 0) {
+                if (updateResult.affectedRows === 0) {
                     throw "Game update failed";
                 }
                 
-                // 6. 이전 스레드 삭제
-                await openai.beta.threads.del(game.thread_id);
+                // 7. 이전 스레드 삭제 (비동기로 처리)
+                openai.beta.threads.del(oldThreadId)
+                    .then(() => console.log(`${LOG_SUCC_HEADER} Old thread ${oldThreadId} deleted`))
+                    .catch(e => console.error(`${LOG_ERR_HEADER} Error deleting old thread: ${e}`));
+
+                // 8. 결과 정보 설정
+                result = {
+                    success: true,
+                    newThreadId: newThread.id,
+                    initialResponse: initialResponse
+                };
 
             } finally {
                 connection.release();
@@ -191,11 +205,14 @@ class GameService {
         } catch (e) {
             ret_status = 501;
             console.error(LOG_ERR_HEADER + LOG_HEADER + "getBODY::status(" + ret_status + ") ==> " + e);
-            throw e;
+            result = {
+                success: false,
+                error: e.message || e
+            };
         }
 
         console.log(LOG_SUCC_HEADER + LOG_HEADER + "status(" + ret_status + ")");
-        return true;
+        return result;
     }
     //============================================================================================
     async listGames(userId) {
