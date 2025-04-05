@@ -86,6 +86,56 @@ class ChatService {
         }
     }
 
+    // routes/socket/services/chat.js에 함수 추가
+    async createGameSummary(threadId, assistantId) {
+        const LOG_HEADER = "CHAT_SERVICE/CREATE_SUMMARY";
+        try {
+            // 이전 대화 내용 가져오기
+            const messages = await this.getMessageHistory(threadId);
+            
+            // 요약 메시지 생성
+            await openai.beta.threads.messages.create(threadId, {
+                role: "user",
+                content: `이 게임 세션을 새 스레드에 이어갈 수 있도록 핵심 정보를 요약해주세요:
+
+    1. 캐릭터 현황: 레벨, 체력, 보유 능력, 중요 관계
+    2. 진행 상황: 현재 퀘스트, 미완료 목표, 마지막 선택
+    3. 세계 상태: 현재 위치, 영향력 있는 결정, 중요 NPC 상호작용
+    4. 보유 자원: 중요 아이템, 골드
+    5. 추천 다음 행동: 플레이어가 취할 수 있는 2-3가지 선택지
+
+    200단어 이내로 작성하되, 다음 세션에서 일관된 경험을 제공할 수 있는 필수 내용을 포함해야 합니다.`
+            });
+            
+            // 요약 생성을 위한 실행
+            const run = await openai.beta.threads.runs.create(threadId, {
+                assistant_id: assistantId
+            });
+            
+            // 실행 완료 대기
+            let runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
+            while (runStatus.status === 'queued' || runStatus.status === 'in_progress') {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
+            }
+            
+            if (runStatus.status !== 'completed') {
+                throw `Summary generation failed with status: ${runStatus.status}`;
+            }
+            
+            // 생성된 요약 가져오기
+            const updatedMessages = await openai.beta.threads.messages.list(threadId);
+            const summary = updatedMessages.data[0].content[0].text.value;
+            
+            console.log(`[${LOG_HEADER}] Summary created successfully`);
+            return summary;
+            
+        } catch (e) {
+            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
+            throw e;
+        }
+    }
+
     async updateGameContext(threadId, gameState) {
         const LOG_HEADER = "CHAT_SERVICE/UPDATE_CONTEXT";
         try {

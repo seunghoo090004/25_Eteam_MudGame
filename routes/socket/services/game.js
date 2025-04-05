@@ -142,17 +142,47 @@ class GameService {
         try {
             const connection = await pool.getConnection();
             try {
-                const [result] = await connection.query(
-                    `UPDATE game_state 
-                    SET game_data = ?,
-                        last_updated = CURRENT_TIMESTAMP
-                    WHERE game_id = ? AND user_id = ?`,
-                    [JSON.stringify(gameData), gameId, userId]
+                // 1. 기존 게임 정보 로드
+                const [games] = await connection.query(
+                    'SELECT * FROM game_state WHERE game_id = ? AND user_id = ?',
+                    [gameId, userId]
                 );
-
-                if (result.affectedRows === 0) {
+                
+                if (games.length === 0) {
                     throw "Game not found or unauthorized";
                 }
+                
+                const game = games[0];
+                
+                // 2. AI를 통해 게임 히스토리 요약 생성
+                const chatService = require('./chat');
+                const summary = await chatService.createGameSummary(game.thread_id, game.assistant_id);
+                
+                // 3. 새 스레드 생성
+                const newThread = await openai.beta.threads.create();
+                
+                // 4. 요약 정보를 새 스레드에 초기 메시지로 전달
+                await openai.beta.threads.messages.create(newThread.id, {
+                    role: "user",
+                    content: `이전 게임 요약: ${summary}\n\n계속 진행해주세요.`
+                });
+                
+                // 5. 게임 스레드 ID 업데이트 및 게임 데이터 저장
+                const [result] = await connection.query(
+                    `UPDATE game_state 
+                    SET thread_id = ?,
+                        game_data = ?,
+                        last_updated = CURRENT_TIMESTAMP
+                    WHERE game_id = ? AND user_id = ?`,
+                    [newThread.id, JSON.stringify(gameData), gameId, userId]
+                );
+                
+                if (result.affectedRows === 0) {
+                    throw "Game update failed";
+                }
+                
+                // 6. 이전 스레드 삭제
+                await openai.beta.threads.del(game.thread_id);
 
             } finally {
                 connection.release();
