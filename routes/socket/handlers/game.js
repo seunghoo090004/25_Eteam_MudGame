@@ -104,7 +104,7 @@ const gameHandler = (io, socket) => {
         }
     });
 
-    ssocket.on('save game', async (data) => {
+    socket.on('save game', async (data) => {
         const LOG_HEADER = "GAME/SAVE";
         try {
             const userId = socket.request.session.userId;
