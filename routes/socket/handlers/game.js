@@ -104,7 +104,7 @@ const gameHandler = (io, socket) => {
         }
     });
 
-    socket.on('save game', async (data) => {
+    ssocket.on('save game', async (data) => {
         const LOG_HEADER = "GAME/SAVE";
         try {
             const userId = socket.request.session.userId;
@@ -112,12 +112,7 @@ const gameHandler = (io, socket) => {
             if (!data.game_id) throw "Game ID required";
             if (!data.game_data) throw "Game data required";
     
-            // 저장 중임을 클라이언트에 알림
-            socket.emit('save game progress', {
-                status: 'saving',
-                message: '게임 저장 중...'
-            });
-    
+            // 저장 진행 표시 없이 바로 저장 진행
             const result = await gameService.saveGame(data.game_id, userId, data.game_data);
             
             if (result.success) {
@@ -125,6 +120,7 @@ const gameHandler = (io, socket) => {
                 socket.emit('save game response', {
                     success: true,
                     threadChanged: true,
+                    summary: result.summary,
                     initialResponse: result.initialResponse
                 });
             } else {
@@ -139,6 +135,8 @@ const gameHandler = (io, socket) => {
             });
         }
     });
+    
+    
     
     socket.on('get games list', async () => {
         const LOG_HEADER = "GAME/LIST";

@@ -195,6 +195,7 @@ class GameService {
                 result = {
                     success: true,
                     newThreadId: newThread.id,
+                    summary: summary,
                     initialResponse: initialResponse
                 };
 

@@ -442,16 +442,15 @@
                 $('#save-game').prop('disabled', false).text('게임 저장');
                 
                 if (data.success) {
-                    // 성공 메시지 표시
-                    $('#chatbox').append(`<div class="message system-message">게임이 저장되었습니다!</div>`);
+                    // 간단한 성공 메시지 표시
+                    alert('게임이 저장되었습니다!');
                     
-                    // 스레드가 변경된 경우 새 응답 표시
                     if (data.threadChanged && data.initialResponse) {
-                        // 스레드 전환 안내 메시지
-                        $('#chatbox').append(`<div class="message system-message">새 세션으로 이동했습니다.</div>`);
+                        // 이전 메시지 및 버튼 제거
+                        $('#chatbox').empty();
                         
-                        // 기존 선택지 버튼들 제거
-                        $('.choice-buttons').remove();
+                        // 요약 응답 표시 (사용자 메시지로)
+                        $('#chatbox').append(`<div class="message user-message">이전 게임 요약: ${data.summary}</div>`);
                         
                         // 새 스레드의 응답 표시
                         $('#chatbox').append(`<div class="message assistant-message">${data.initialResponse}</div>`);
@@ -461,9 +460,10 @@
                         if (buttons) {
                             $('#chatbox').append(buttons);
                         }
+                        
+                        // 스크롤 조정
+                        $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
                     }
-                    
-                    $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
                     
                     // 게임 목록 업데이트
                     loadGamesList();
