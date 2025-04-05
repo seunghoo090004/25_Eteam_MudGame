@@ -50,53 +50,44 @@ const gameHandler = (io, socket) => {
     });
 
     // routes/socket/handlers/game.js의 'load game' 이벤트 핸들러 수정
-
     socket.on('load game', async (data) => {
-        const LOG_HEADER_TITLE = "LOAD_GAME";
-        const LOG_HEADER = "GameId[" + data.game_id + "] UserId[" + socket.request.session.userId + "] --> " + LOG_HEADER_TITLE;
-        const LOG_ERR_HEADER = "[FAIL]";
-        const LOG_SUCC_HEADER = "[SUCC]";
-        
-        let ret_status = 200;
-        
+        const LOG_HEADER = "GAME/LOAD";
         try {
             const userId = socket.request.session.userId;
             if (!userId) throw "Not authenticated";
             if (!data.game_id) throw "Game ID required";
-
+    
             const gameData = await gameService.loadGame(data.game_id, userId);
-
-            // 게임 로드 후 초기 응답이 없으면 생성
-            const chatService = require('../services/chat');
-            if (!gameData.chatHistory || gameData.chatHistory.length === 0) {
-                console.log(`[${LOG_HEADER}] No chat history found, creating initial response`);
-                const initialResponse = await chatService.getInitialResponse(
+            
+            // 채팅 히스토리가 비어있거나 마지막 메시지가 사용자 메시지인 경우 초기 응답 생성
+            if (!gameData.chatHistory || gameData.chatHistory.length === 0 || 
+                gameData.chatHistory[gameData.chatHistory.length - 1].role === 'user') {
+                
+                console.log(`[${LOG_HEADER}] Generating initial response for loaded game`);
+                const initialResponse = await chatService.sendMessage(
                     gameData.thread_id, 
-                    gameData.assistant_id
+                    gameData.assistant_id,
+                    "이전 대화를 기반으로 게임을 계속 진행해 주세요."
                 );
                 
-                if (gameData.chatHistory) {
-                    gameData.chatHistory.push({
-                        role: 'assistant',
-                        content: initialResponse
-                    });
-                } else {
-                    gameData.chatHistory = [{
-                        role: 'assistant',
-                        content: initialResponse
-                    }];
-                }
+                if (!gameData.chatHistory) gameData.chatHistory = [];
+                
+                // 새 응답을 채팅 히스토리에 추가
+                gameData.chatHistory.push({
+                    role: 'assistant',
+                    content: initialResponse,
+                    created_at: new Date()
+                });
             }
-
-            console.log(LOG_SUCC_HEADER + LOG_HEADER + "status(" + ret_status + ")");
+    
+            console.log(`[${LOG_HEADER}] Game loaded successfully with ${gameData.chatHistory?.length || 0} messages`);
             socket.emit('load game response', {
                 success: true,
                 game: gameData
             });
-
+    
         } catch (e) {
-            ret_status = 501;
-            console.error(LOG_ERR_HEADER + LOG_HEADER + "getBODY::status(" + ret_status + ") ==> " + e);
+            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
             socket.emit('load game response', {
                 success: false,
                 error: e.message || e

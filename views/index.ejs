@@ -494,34 +494,35 @@
                     $('#chatbox').empty();
                     
                     if (data.game.chatHistory && data.game.chatHistory.length > 0) {
-                        // 채팅 히스토리 표시 (최신 메시지 순으로 정렬)
+                        // 채팅 히스토리 표시 (시간순으로 정렬)
                         const chatHistory = [...data.game.chatHistory].sort((a, b) => {
-                            return new Date(a.created_at) - new Date(b.created_at);
+                            const dateA = new Date(a.created_at);
+                            const dateB = new Date(b.created_at);
+                            return dateA - dateB;
                         });
                         
                         // 대화 내용 표시
                         chatHistory.forEach(msg => {
                             const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
                             $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
-                            
-                            // 마지막 메시지이고 assistant의 메시지인 경우 선택지 버튼 생성
-                            if (msg === chatHistory[chatHistory.length - 1] && msg.role === 'assistant') {
-                                const buttons = createChoiceButtons(msg.content);
-                                if (buttons) {
-                                    $('#chatbox').append(buttons);
-                                }
-                            }
                         });
-                    } else {
-                        // 채팅 히스토리가 없는 경우 메시지 표시
-                        $('#chatbox').append(`<div class="message system-message">게임을 불러왔습니다. 시작하려면 메시지를 입력하세요.</div>`);
+                        
+                        // 마지막 메시지가 AI 응답인지 확인하고 선택지 버튼 생성
+                        const lastMessage = chatHistory[chatHistory.length - 1];
+                        if (lastMessage && lastMessage.role === 'assistant') {
+                            console.log('Creating choice buttons for last AI message');
+                            const buttons = createChoiceButtons(lastMessage.content);
+                            if (buttons) {
+                                $('#chatbox').append(buttons);
+                            } else {
+                                console.warn('Failed to create choice buttons');
+                            }
+                        }
                     }
                     
                     $('#assistant-select').prop('disabled', true);
                     $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
                     
-                    // 콘솔에 디버그 정보 출력
-                    console.log('Game loaded:', data.game);
                 } else {
                     $('#chatbox').empty().append(`<div class="message error">게임을 불러오는 중 오류: ${data.error}</div>`);
                 }
