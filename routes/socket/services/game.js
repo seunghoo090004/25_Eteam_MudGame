@@ -173,6 +173,9 @@ class GameService {
                 const initialResponse = await chatService.getInitialResponse(newThread.id, game.assistant_id);
                 
                 // 6. 게임 스레드 ID 업데이트 및 게임 데이터 저장
+                // 여기서 gameData를 JSON으로 직렬화하여 저장합니다
+                console.log(`${LOG_HEADER} Updating game with data:`, JSON.stringify(gameData));
+                
                 const [updateResult] = await connection.query(
                     `UPDATE game_state 
                     SET thread_id = ?,
