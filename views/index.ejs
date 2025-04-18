@@ -194,17 +194,41 @@
         .btn-danger:hover {
             background-color: #c82333;
         }
-        /* 시스템 메시지 스타일 */
         .system-message {
-            background-color: #fffde7;
-            color: #795548;
-            text-align: center;
-            font-style: italic;
-            padding: 8px 15px;
-            margin: 10px auto;
-            max-width: 80%;
-            border-radius: 8px;
-            border-left: 3px solid #ffc107;
+            background-color: #f8f9fa;
+            border-left: 4px solid #6c757d;
+            padding: 10px 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            text-align: left;
+            font-size: 0.9rem;
+        }
+        .system-message.error {
+            background-color: #fff8f8;
+            border-left: 4px solid #dc3545;
+            color: #dc3545;
+        }
+        #connection-error {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            margin: 0;
+            width: 100%;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        #manual-reconnect, #restart-button {
+            display: block;
+            margin: 8px auto 0 auto;
+        }
+        .btn-warning {
+            background-color: #ffc107;
+            color: #212529;
+        }
+        .btn-warning:hover {
+            background-color: #e0a800;
+        }
+        .mt-2 {
+            margin-top: 0.5rem !important;
         }
     </style>
 </head>
@@ -229,9 +253,9 @@
                     </select>
                     <button id="new-game" class="btn btn-success">새 게임</button>
                     <button id="save-game" class="btn btn-success" style="margin-left: 5px;">게임 저장</button>
+                    <button id="game-restart" class="btn btn-warning" style="margin-left: 5px;">게임 재시작</button>
                 </div>
                 <div id="chatbox"></div>
-                <!-- 채팅 입력란 제거 -->
             </div>
 
             <div id="game-load-list">
@@ -245,27 +269,68 @@
 
     <script>
         $(document).ready(function() {
-            // socket 초기화를 제일 먼저 수행
+            // socket 초기화 개선
             const socket = io({
                 reconnection: true,
+                reconnectionAttempts: 10,
                 reconnectionDelay: 1000,
                 reconnectionDelayMax: 5000,
-                reconnectionAttempts: 5
-            });            
-
+                timeout: 20000
+            });
+            
             let currentGameId = null;
             let gameData = null;
-                // 소켓 연결 확인
+            let isConnected = false;
+            
+            // 소켓 연결 상태 관리
             socket.on('connect', function() {
                 console.log('Socket connected successfully');
+                isConnected = true;
+                
+                // 연결 상태 표시 제거 (있는 경우)
+                $('#connection-error').remove();
+                
                 // 연결 후 즉시 게임 목록 로드
                 loadGamesList();
             });
-
-
-            // 소켓 연결 에러 처리
+            
+            socket.on('disconnect', function() {
+                console.log('Socket disconnected');
+                isConnected = false;
+                
+                // 연결 끊김 메시지 표시
+                if ($('#connection-error').length === 0) {
+                    $('#chatbox').append(`
+                        <div id="connection-error" class="system-message error">
+                            서버 연결이 끊어졌습니다. 재연결 중...
+                            <button id="manual-reconnect" class="btn btn-primary mt-2">수동 재연결</button>
+                        </div>
+                    `);
+                    
+                    $('#manual-reconnect').click(function() {
+                        $('#connection-error').text('재연결 시도 중...');
+                        socket.connect();
+                    });
+                }
+            });
+            
             socket.on('connect_error', function(error) {
                 console.error('Socket connection error:', error);
+                
+                // 연결 오류 메시지 표시
+                if ($('#connection-error').length === 0) {
+                    $('#chatbox').append(`
+                        <div id="connection-error" class="system-message error">
+                            서버 연결 오류: ${error.message || '알 수 없는 오류'}
+                            <button id="manual-reconnect" class="btn btn-primary mt-2">수동 재연결</button>
+                        </div>
+                    `);
+                    
+                    $('#manual-reconnect').click(function() {
+                        $('#connection-error').text('재연결 시도 중...');
+                        socket.connect();
+                    });
+                }
             });
 
             function loadGamesList() {
@@ -275,11 +340,61 @@
                     console.error('Socket not connected. Cannot load games list.');
                 }
             }
+            
+            // 게임 다시 시작 함수
+            function restartGame() {
+                console.log('게임 다시 시작');
+                $('#assistant-select').prop('disabled', false);
+                $('#chatbox').empty();
+                currentGameId = null;
+                gameData = null;
+                
+                // 선택지 버튼 제거
+                $('.choice-buttons').remove();
+                
+                // 시스템 메시지 표시
+                $('#chatbox').append(`
+                    <div class="system-message">
+                        게임이 초기화되었습니다. '새 게임' 버튼을 눌러 게임을 시작하세요.
+                    </div>
+                `);
+            }
+            
+            // 전역 재시작 버튼 이벤트 설정
+            $(document).on('click', '#restart-button', function() {
+                restartGame();
+            });
+            
+            // 게임 다시 시작 버튼에 공통 재시작 함수 적용
+            $('#game-restart').click(function() {
+                if (confirm('게임을 다시 시작하시겠습니까?')) {
+                    restartGame();
+                }
+            });
 
-            // 선택지 버튼 생성 함수
+            // 선택지 버튼 생성 함수 수정
             function createChoiceButtons(message) {
                 // 이전 선택지 버튼들 제거
                 $('.choice-buttons').remove();
+                
+                // 연결 상태 확인
+                if (!isConnected) {
+                    console.warn('소켓 연결이 끊어져 선택지를 생성할 수 없습니다.');
+                    
+                    const errorMessage = $(`
+                        <div class="system-message error">
+                            서버 연결이 끊어져 게임을 진행할 수 없습니다.
+                            <button id="manual-reconnect" class="btn btn-primary mt-2">재연결 시도</button>
+                        </div>
+                    `);
+                    
+                    errorMessage.find('#manual-reconnect').click(function() {
+                        $('#connection-error').text('재연결 시도 중...');
+                        socket.connect();
+                    });
+                    
+                    return errorMessage;
+                }
                 
                 // 선택지를 명확히 구분할 수 있도록 패턴 강화
                 const choicePattern = /(?:^|\n)(\d+)\.\s*([^\n.]+?)(?:$|\n|。)/g;
@@ -297,6 +412,8 @@
                     }
                 }
                 
+                console.log('찾은 선택지:', choices.length, choices);
+                
                 // 최소 1개 이상의 선택지가 있는지 확인
                 if (choices.length === 0) {
                     console.warn('유효한 선택지를 찾을 수 없습니다:', message);
@@ -304,18 +421,10 @@
                     // 선택지가 없을 경우 게임 진행 불가 알림
                     const errorMessage = $(`
                         <div class="system-message error">
-                            선택지를 찾을 수 없습니다. 게임을 다시 시작하거나 관리자에게 문의하세요.
+                            선택지를 찾을 수 없습니다. 게임을 다시 시작해주세요.
                             <button id="restart-button" class="btn btn-primary mt-2">게임 다시 시작</button>
                         </div>
                     `);
-                    
-                    // 재시작 버튼 이벤트 추가
-                    errorMessage.find('#restart-button').click(function() {
-                        $('#assistant-select').prop('disabled', false);
-                        $('#chatbox').empty();
-                        currentGameId = null;
-                        gameData = null;
-                    });
                     
                     return errorMessage;
                 }
@@ -331,6 +440,12 @@
                     
                     button.click(function() {
                         if (!currentGameId) return;
+                        
+                        // 연결 상태 확인
+                        if (!isConnected) {
+                            alert('서버 연결이 끊어져 선택을 처리할 수 없습니다.');
+                            return;
+                        }
                         
                         // 모든 버튼 비활성화
                         $('.choice-button').prop('disabled', true);
@@ -350,61 +465,101 @@
                     
                     buttonContainer.append(button);
                 });
-
+            
                 return buttonContainer;
             }
-        
-            // 소켓 연결 에러 처리
-            socket.on('error', function(error) {
-                console.error('Socket error:', error);
-                alert('연결 오류가 발생했습니다: ' + error.message);
-            });
-        
+            
             // 채팅 응답 처리
             socket.on('chat response', function(data) {
                 if (data.success) {
+                    // 오류 메시지 제거 (있는 경우)
+                    $('#connection-error').remove();
+                    
                     // 응답 메시지 표시
                     $('#chatbox').append(`<div class="message assistant-message">${data.response}</div>`);
                     
-                    // 선택지 버튼 생성 및 추가
-                    const buttons = createChoiceButtons(data.response);
-                    if (buttons) {
-                        $('#chatbox').append(buttons);
-                    }
-            
-                    // 중요: 서버로부터 받은 게임 상태 업데이트
-                    if (data.game_state) {
-                        console.log('게임 상태 업데이트됨:', data.game_state);
-                        gameData = data.game_state;
+                    // 응답 로깅
+                    console.log('AI 응답:', data.response);
+                    
+                    try {
+                        // 선택지 버튼 생성 및 추가
+                        const buttons = createChoiceButtons(data.response);
+                        if (buttons) {
+                            $('#chatbox').append(buttons);
+                        }
+                        
+                        // 중요: 서버로부터 받은 게임 상태 업데이트
+                        if (data.game_state) {
+                            console.log('게임 상태 업데이트:', data.game_state);
+                            gameData = data.game_state;
+                        }
+                    } catch (error) {
+                        console.error('선택지 처리 오류:', error);
+                        $('#chatbox').append(`
+                            <div class="system-message error">
+                                선택지 처리 중 오류가 발생했습니다: ${error.message}
+                                <button id="restart-button" class="btn btn-primary mt-2">게임 다시 시작</button>
+                            </div>
+                        `);
                     }
                 } else {
-                    $('#chatbox').append(`<div class="message error">Error: ${data.error}</div>`);
+                    $('#chatbox').append(`
+                        <div class="message error">
+                            오류: ${data.error}
+                            <button id="restart-button" class="btn btn-danger mt-2">게임 다시 시작</button>
+                        </div>
+                    `);
                 }
                 $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
             });
-        
+            
             // 새 게임 시작
             $('#new-game').click(function() {
-                if (!confirm('새 게임을 시작하시겠습니까?')) return;
-        
+                if (currentGameId && !confirm('새 게임을 시작하시겠습니까?')) return;
+                
+                if (!isConnected) {
+                    alert('서버에 연결되어 있지 않습니다. 재연결 후 다시 시도해주세요.');
+                    return;
+                }
+                
                 socket.emit('new game', {
                     assistant_id: $('#assistant-select').val()
                 });
             });
-        
+            
             // 새 게임 응답
             socket.on('new game response', function(data) {
                 if (data.success) {
+                    $('#connection-error').remove(); // 오류 메시지 제거 (있는 경우)
+                    
                     currentGameId = data.game_id;
                     gameData = data.game_data;
                     $('#chatbox').empty();
                     
                     if (data.initial_message) {
                         $('#chatbox').append(`<div class="message assistant-message">${data.initial_message}</div>`);
-                        const buttons = createChoiceButtons(data.initial_message);
-                        if (buttons) {
-                            $('#chatbox').append(buttons);
+                        
+                        try {
+                            const buttons = createChoiceButtons(data.initial_message);
+                            if (buttons) {
+                                $('#chatbox').append(buttons);
+                            }
+                        } catch (error) {
+                            console.error('초기 선택지 처리 오류:', error);
+                            $('#chatbox').append(`
+                                <div class="system-message error">
+                                    선택지 처리 중 오류가 발생했습니다: ${error.message}
+                                    <button id="restart-button" class="btn btn-primary mt-2">게임 다시 시작</button>
+                                </div>
+                            `);
                         }
+                    } else {
+                        $('#chatbox').append(`
+                            <div class="system-message">
+                                게임이 시작되었지만 초기 메시지를 받지 못했습니다.
+                                <button id="restart-button" class="btn btn-primary mt-2">게임 다시 시작</button>
+                            </div>
+                        `);
                     }
                     
                     $('#assistant-select').prop('disabled', true);
@@ -419,16 +574,13 @@
                     alert(data.error || '게임 시작 중 오류가 발생했습니다.');
                 }
             });
-        
+            
             // 게임 저장
             $('#save-game').click(function() {
                 if (!currentGameId || !gameData) {
                     alert('저장할 게임이 없습니다.');
                     return;
                 }
-                
-                // 저장 버튼 비활성화 및 텍스트 변경
-                $('#save-game').prop('disabled', true).text('저장 중...');
                 
                 try {
                     // 게임 데이터 로깅
@@ -442,6 +594,9 @@
                     
                     // 깊은 복사로 데이터 전송 - JSON 직렬화 이슈 방지
                     const gameCopy = JSON.parse(JSON.stringify(gameData));
+                    
+                    // 저장 버튼 비활성화 및 텍스트 변경
+                    $('#save-game').prop('disabled', true).text('저장 중...');
                     
                     // 서버로 전송
                     socket.emit('save game', {
@@ -491,6 +646,9 @@
                     
                     // 스크롤 조정
                     $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
+                    
+                    // 게임 목록 업데이트
+                    loadGamesList();
                 } else {
                     alert('게임 저장 중 오류: ' + data.error);
                 }
@@ -501,12 +659,12 @@
                 if (data.success) {
                     const savedGamesList = $('#saved_games_list');
                     savedGamesList.empty();
-            
+        
                     if (data.games.length === 0) {
                         savedGamesList.append('<p>저장된 게임이 없습니다.</p>');
                         return;
                     }
-            
+        
                     data.games.forEach(function(game) {
                         const gameDate = new Date(game.last_updated).toLocaleString();
                         const worldPhase = game.game_data.progress.phase || "알 수 없음";
@@ -536,7 +694,7 @@
                     alert('게임 목록을 불러오는 중 오류가 발생했습니다: ' + data.error);
                 }
             });
-        
+            
             // 불러오기 함수 보완 (window.loadGame)
             window.loadGame = function(gameId) {
                 // 기존 게임 진행 중인지 확인
