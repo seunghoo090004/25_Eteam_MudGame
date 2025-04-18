@@ -167,13 +167,13 @@ class ChatService {
             await openai.beta.threads.messages.create(threadId, {
                 role: "user",
                 content: `Game State Update:
-                    Player Level: ${gameState.player.level}
                     Location: ${gameState.location.current}
-                    Phase: ${gameState.progress.phase}`
+                    Phase: ${gameState.progress.phase}
+                    World Info: ${gameState.progress.phase}`
             });
-
+    
             console.log(`[${LOG_HEADER}] Game context updated`);
-
+    
         } catch (e) {
             console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
             throw e;
