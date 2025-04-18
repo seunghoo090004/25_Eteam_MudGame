@@ -103,7 +103,11 @@ const gameHandler = (io, socket) => {
             if (!data.game_id) throw "Game ID required";
             if (!data.game_data) throw "Game data required";
     
-            console.log(`[${LOG_HEADER}] Saving game with data:`, JSON.stringify(data.game_data));
+            console.log(`[${LOG_HEADER}] 저장 요청 받음`);
+            
+            // 게임 데이터 타입 검사 및 로깅
+            console.log(`[${LOG_HEADER}] 전달 받은 데이터 타입:`, typeof data.game_data);
+            console.log(`[${LOG_HEADER}] 전달 받은 데이터:`, data.game_data);
             
             // 저장 진행 중임을 클라이언트에 알림
             socket.emit('save game progress', {
@@ -115,7 +119,7 @@ const gameHandler = (io, socket) => {
             const result = await gameService.saveGame(data.game_id, userId, data.game_data);
             
             if (result.success) {
-                console.log(`[${LOG_HEADER}] Game saved with new thread`);
+                console.log(`[${LOG_HEADER}] 게임 저장 성공`);
                 
                 // 저장 성공 후 즉시 게임 목록 업데이트
                 const updatedGames = await gameService.listGames(userId);

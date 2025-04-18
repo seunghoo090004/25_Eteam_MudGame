@@ -139,7 +139,7 @@ class GameService {
         
         let ret_status = 200;
         let result = { success: true };
-
+    
         try {
             const connection = await pool.getConnection();
             try {
@@ -153,71 +153,89 @@ class GameService {
                     throw "Game not found or unauthorized";
                 }
                 
-                // 게임 데이터가 올바른지 확인 및 로깅
-                console.log(`${LOG_HEADER} Game data before saving:`, JSON.stringify(gameData));
-                
-                // 2. AI를 통해 게임 히스토리 요약 생성
                 const game = games[0];
                 const oldThreadId = game.thread_id;
+                
+                // 2. 게임 데이터 정규화 - 항상 객체로 변환 후 다시 직렬화
+                let gameDataObj;
+                try {
+                    gameDataObj = typeof gameData === 'string' 
+                        ? JSON.parse(gameData) 
+                        : gameData;
+                } catch(e) {
+                    console.error(`${LOG_HEADER} JSON 파싱 오류, 원본 데이터 사용:`, e);
+                    gameDataObj = gameData; // 파싱 실패 시 원본 사용
+                }
+                
+                // 데이터 로깅
+                console.log(`${LOG_HEADER} 처리된 게임 데이터 객체:`, gameDataObj);
+                
+                // 3. AI를 통해 게임 히스토리 요약 생성
                 const chatService = require('./chat');
                 const summary = await chatService.createGameSummary(oldThreadId, game.assistant_id);
                 
-                // 3. 새 스레드 생성
+                // 4. 새 스레드 생성
                 const newThread = await openai.beta.threads.create();
                 
-                // 4. 요약 정보를 새 스레드에 초기 메시지로 전달
+                // 5. 요약 정보를 새 스레드에 초기 메시지로 전달
                 await openai.beta.threads.messages.create(newThread.id, {
                     role: "user",
                     content: `이전 게임 요약: ${summary}\n\n계속 진행해주세요.`
                 });
                 
-                // 5. 새 스레드에서 초기 응답 가져오기
+                // 6. 새 스레드에서 초기 응답 가져오기
                 const initialResponse = await chatService.getInitialResponse(newThread.id, game.assistant_id);
                 
-                // 6. 게임 스레드 ID 업데이트 및 게임 데이터 저장
-                console.log(`${LOG_HEADER} Updating game with data:`, JSON.stringify(gameData));
+                // 7. 게임 데이터 직렬화
+                const gameDataToSave = JSON.stringify(gameDataObj);
+                console.log(`${LOG_HEADER} 저장할 JSON 데이터:`, gameDataToSave);
                 
+                // 8. 게임 스레드 ID 업데이트 및 게임 데이터 저장
                 const [updateResult] = await connection.query(
                     `UPDATE game_state 
                     SET thread_id = ?,
                         game_data = ?,
                         last_updated = CURRENT_TIMESTAMP
                     WHERE game_id = ? AND user_id = ?`,
-                    [newThread.id, JSON.stringify(gameData), gameId, userId]
+                    [newThread.id, gameDataToSave, gameId, userId]
                 );
                 
                 if (updateResult.affectedRows === 0) {
                     throw "Game update failed";
                 }
                 
-                // 저장 후 게임 데이터 확인
+                // 9. 저장 후 확인 (선택적)
                 const [updatedGame] = await connection.query(
                     'SELECT * FROM game_state WHERE game_id = ? AND user_id = ?',
                     [gameId, userId]
                 );
                 
                 if (updatedGame.length > 0) {
-                    const savedData = JSON.parse(updatedGame[0].game_data);
-                    console.log(`${LOG_HEADER} Game data after saving:`, JSON.stringify(savedData));
+                    try {
+                        const savedData = JSON.parse(updatedGame[0].game_data);
+                        console.log(`${LOG_HEADER} 저장 확인 - 저장된 데이터:`, savedData);
+                    } catch (e) {
+                        console.error(`${LOG_HEADER} 저장된 데이터 파싱 오류:`, e);
+                    }
                 }
                 
-                // 7. 이전 스레드 삭제 (비동기로 처리)
+                // 10. 이전 스레드 삭제 (비동기로 처리)
                 openai.beta.threads.del(oldThreadId)
                     .then(() => console.log(`${LOG_SUCC_HEADER} Old thread ${oldThreadId} deleted`))
                     .catch(e => console.error(`${LOG_ERR_HEADER} Error deleting old thread: ${e}`));
-
-                // 8. 결과 정보 설정
+    
+                // 11. 결과 정보 설정
                 result = {
                     success: true,
                     newThreadId: newThread.id,
                     summary: summary,
                     initialResponse: initialResponse
                 };
-
+    
             } finally {
                 connection.release();
             }
-
+    
         } catch (e) {
             ret_status = 501;
             console.error(LOG_ERR_HEADER + LOG_HEADER + "getBODY::status(" + ret_status + ") ==> " + e);
@@ -226,7 +244,7 @@ class GameService {
                 error: e.message || e
             };
         }
-
+    
         console.log(LOG_SUCC_HEADER + LOG_HEADER + "status(" + ret_status + ")");
         return result;
     }
