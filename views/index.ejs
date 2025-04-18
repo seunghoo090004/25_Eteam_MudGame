@@ -95,33 +95,6 @@
             background-color: #f9f9f9;
             flex-grow: 1;
         }
-        .input-area {
-            display: flex;
-            padding: 10px 20px;
-            background-color: #f8f9fa;
-            border-top: 1px solid #eee;
-        }
-        #user-input {
-            flex-grow: 1;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            resize: vertical;
-            min-height: 50px;
-            font-family: inherit;
-        }
-        #send-button {
-            padding: 10px 20px;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            margin-left: 10px;
-            cursor: pointer;
-        }
-        #send-button:hover {
-            background-color: #0056b3;
-        }
         .message {
             margin-bottom: 10px;
             padding: 10px 15px;
@@ -258,10 +231,7 @@
                     <button id="save-game" class="btn btn-success" style="margin-left: 5px;">게임 저장</button>
                 </div>
                 <div id="chatbox"></div>
-                <div class="input-area" style="display: none;">
-                    <textarea id="user-input" placeholder="메세지를 입력해주세요. (Shift+Enter 줄바꿈, Enter 또는 Ctrl+Enter 보내기)"></textarea>
-                    <button id="send-button">보내기</button>
-                </div>
+                <!-- 채팅 입력란 제거 -->
             </div>
 
             <div id="game-load-list">
@@ -415,7 +385,6 @@
                     }
                     
                     $('#assistant-select').prop('disabled', true);
-                    $('.input-area').show();
                     
                     // 게임 목록 업데이트 체크
                     setTimeout(() => {
@@ -570,7 +539,6 @@
                     }
                     
                     $('#assistant-select').prop('disabled', true);
-                    $('.input-area').show();
                     $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
                     
                 } else {
