@@ -183,8 +183,26 @@ class GameService {
                     content: `이전 게임 요약: ${summary}\n\n계속 진행해주세요.`
                 });
                 
-                // 6. 새 스레드에서 초기 응답 가져오기
-                const initialResponse = await chatService.getInitialResponse(newThread.id, game.assistant_id);
+                // 6. 새 스레드에서 초기 응답 가져오기 - 수정된 부분
+                const run = await openai.beta.threads.runs.create(newThread.id, {
+                    assistant_id: game.assistant_id
+                });
+                
+                // 실행 완료 대기
+                let runStatus;
+                do {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    runStatus = await openai.beta.threads.runs.retrieve(newThread.id, run.id);
+                } while (runStatus.status === 'queued' || runStatus.status === 'in_progress');
+                
+                let initialResponse = "";
+                if (runStatus.status === 'completed') {
+                    const messages = await openai.beta.threads.messages.list(newThread.id);
+                    initialResponse = messages.data[0].content[0].text.value;
+                } else {
+                    console.error(`${LOG_ERR_HEADER} 초기 응답 생성 실패: ${runStatus.status}`);
+                    initialResponse = "게임을 이어서 진행합니다. 다음 행동을 선택해주세요.";
+                }
                 
                 // 7. 게임 데이터 직렬화
                 const gameDataToSave = JSON.stringify(gameDataObj);
