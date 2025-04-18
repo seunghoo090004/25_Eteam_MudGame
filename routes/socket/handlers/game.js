@@ -149,17 +149,35 @@ const gameHandler = (io, socket) => {
     
     
     
-    socket.on('get games list', async () => {
+    socket.on('get games list', async (data) => {
         const LOG_HEADER = "GAME/LIST";
         try {
             const userId = socket.request.session.userId;
             if (!userId) throw "Not authenticated";
     
+            // 강제 갱신 여부 확인 (기본값: false)
+            const forceRefresh = data && data.forceRefresh === true;
+            
+            if (forceRefresh) {
+                console.log(`[${LOG_HEADER}] 강제 갱신으로 게임 목록 요청됨`);
+            }
+    
+            // 게임 목록 가져오기
             const games = await gameService.listGames(userId);
-            console.log(`[${LOG_HEADER}] Games list retrieved`);
+            console.log(`[${LOG_HEADER}] Games list retrieved (${games.length} games)`);
+            
+            // 추가 로깅 - 목록 내용 세부 확인
+            games.forEach((game, index) => {
+                console.log(`[${LOG_HEADER}] Game #${index + 1}: ID=${game.game_id}, 
+                    Location=${game.game_data?.location?.current || 'Unknown'}, 
+                    Phase=${game.game_data?.progress?.phase || 'Unknown'},
+                    Updated=${game.last_updated}`);
+            });
+            
             socket.emit('games list response', {
                 success: true,
-                games: games
+                games: games,
+                forceRefresh: forceRefresh
             });
     
         } catch (e) {
@@ -170,7 +188,7 @@ const gameHandler = (io, socket) => {
             });
         }
     });
-
+    
     socket.on('delete game', async (data) => {
         const LOG_HEADER = "GAME/DELETE";
         try {

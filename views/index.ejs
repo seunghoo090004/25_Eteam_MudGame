@@ -282,6 +282,21 @@
             border-top: 2px solid white;
             animation: spin 1s linear infinite;
         }
+        .game-entry.current-game {
+            border-left: 4px solid #007bff;
+            background-color: rgba(0, 123, 255, 0.05);
+            box-shadow: 0 2px 5px rgba(0, 123, 255, 0.2);
+        }
+        
+        /* 애니메이션 효과로 변경 사항 강조 */
+        @keyframes highlight-update {
+            0% { background-color: rgba(0, 123, 255, 0.3); }
+            100% { background-color: rgba(0, 123, 255, 0.05); }
+        }
+        
+        .game-entry.updated {
+            animation: highlight-update 2s ease-out;
+        }
     </style>
 </head>
 <body>
@@ -409,9 +424,18 @@
                 }
             }
 
-            function loadGamesList() {
+            function loadGamesList(forceRefresh = false) {
                 if (socket && socket.connected) {
-                    socket.emit('get games list');
+                    console.log('게임 목록 로드 요청' + (forceRefresh ? ' (강제 갱신)' : ''));
+                    
+                    // 강제 새로고침 시 UI 먼저 초기화
+                    if (forceRefresh) {
+                        const savedGamesList = $('#saved_games_list');
+                        savedGamesList.empty();
+                        savedGamesList.append('<p>게임 목록 업데이트 중...</p>');
+                    }
+                    
+                    socket.emit('get games list', { forceRefresh: forceRefresh });
                 } else {
                     console.error('Socket not connected. Cannot load games list.');
                 }
@@ -805,8 +829,23 @@
                     // 스크롤 조정
                     $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
                     
-                    // 게임 목록 업데이트
-                    loadGamesList();
+                    // 중요: 게임 데이터 업데이트 - 새로운 스레드ID와 데이터 반영
+                    if (data.newThreadId) {
+                        console.log('새 스레드 ID로 게임 데이터 업데이트:', data.newThreadId);
+                        
+                        // 기존 게임 데이터 업데이트하여 UI 반영을 위한 준비
+                        if (gameData) {
+                            // 위치와 세계관 정보 보존
+                            const updatedGameData = { ...gameData };
+                            
+                            // 업데이트된 게임 데이터 저장
+                            gameData = updatedGameData;
+                        }
+                    }
+                    
+                    // 게임 목록 강제 갱신 - 캐시를 무시하고 새로운 데이터 요청
+                    console.log('게임 목록 강제 갱신 요청');
+                    loadGamesList(true);
                 } else {
                     alert('게임 저장 중 오류: ' + data.error);
                 }
@@ -817,27 +856,37 @@
                 if (data.success) {
                     const savedGamesList = $('#saved_games_list');
                     savedGamesList.empty();
-        
+            
                     if (data.games.length === 0) {
                         savedGamesList.append('<p>저장된 게임이 없습니다.</p>');
                         return;
                     }
-        
+            
+                    // 디버깅을 위한 전체 게임 데이터 로깅
+                    console.log('불러온 전체 게임 목록:', data.games);
+            
                     data.games.forEach(function(game) {
                         const gameDate = new Date(game.last_updated).toLocaleString();
-                        const worldPhase = game.game_data.progress.phase || "알 수 없음";
-                        const currentLocation = game.game_data.location.current || "알 수 없음";
                         
-                        console.log('불러온 게임 데이터:', {
-                            id: game.game_id,
-                            lastUpdated: game.last_updated,
-                            world: worldPhase,
-                            location: currentLocation
-                        });
+                        // 데이터 로깅 강화
+                        console.log(`게임 ID ${game.game_id} 데이터:`, game.game_data);
+                        
+                        // 필요한 데이터 추출 및 기본값 설정
+                        const worldPhase = (game.game_data && game.game_data.progress && game.game_data.progress.phase) 
+                            ? game.game_data.progress.phase 
+                            : "알 수 없음";
+                            
+                        const currentLocation = (game.game_data && game.game_data.location && game.game_data.location.current) 
+                            ? game.game_data.location.current 
+                            : "알 수 없음";
+                        
+                        // 현재 게임 데이터인 경우 하이라이트 표시
+                        const isCurrentGame = (game.game_id === currentGameId);
+                        const highlightClass = isCurrentGame ? 'current-game' : '';
                         
                         // 간소화된 게임 정보 표시
                         savedGamesList.append(`
-                            <div class="game-entry">
+                            <div class="game-entry ${highlightClass}" data-game-id="${game.game_id}">
                                 <span><strong>마지막 저장:</strong> ${gameDate}</span>
                                 <span><strong>세계관:</strong> ${worldPhase}</span>
                                 <span><strong>위치:</strong> ${currentLocation}</span>
@@ -848,6 +897,14 @@
                             </div>
                         `);
                     });
+                    
+                    // 현재 선택된 게임으로 스크롤
+                    if (currentGameId) {
+                        const currentGameElement = $(`.game-entry[data-game-id="${currentGameId}"]`);
+                        if (currentGameElement.length) {
+                            $('#game-load-list').scrollTop(currentGameElement.position().top);
+                        }
+                    }
                 } else {
                     alert('게임 목록을 불러오는 중 오류가 발생했습니다: ' + data.error);
                 }
