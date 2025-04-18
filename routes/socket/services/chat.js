@@ -14,7 +14,7 @@ class ChatService {
             const activeRun = runs.data.find(run => run.status === 'in_progress');
             
             if (activeRun) {
-                console.log(`[${LOG_HEADER}] Waiting for previous run to complete`);
+                console.log(`[${LrOG_HEADER}] Waiting for previous run to complete`);
                 let runStatus;
                 do {
                     await new Promise(resolve => setTimeout(resolve, 1000));
