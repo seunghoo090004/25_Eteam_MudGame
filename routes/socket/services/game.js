@@ -153,10 +153,12 @@ class GameService {
                     throw "Game not found or unauthorized";
                 }
                 
-                const game = games[0];
-                const oldThreadId = game.thread_id;
+                // 게임 데이터가 올바른지 확인 및 로깅
+                console.log(`${LOG_HEADER} Game data before saving:`, JSON.stringify(gameData));
                 
                 // 2. AI를 통해 게임 히스토리 요약 생성
+                const game = games[0];
+                const oldThreadId = game.thread_id;
                 const chatService = require('./chat');
                 const summary = await chatService.createGameSummary(oldThreadId, game.assistant_id);
                 
@@ -173,7 +175,6 @@ class GameService {
                 const initialResponse = await chatService.getInitialResponse(newThread.id, game.assistant_id);
                 
                 // 6. 게임 스레드 ID 업데이트 및 게임 데이터 저장
-                // 여기서 gameData를 JSON으로 직렬화하여 저장합니다
                 console.log(`${LOG_HEADER} Updating game with data:`, JSON.stringify(gameData));
                 
                 const [updateResult] = await connection.query(
@@ -187,6 +188,17 @@ class GameService {
                 
                 if (updateResult.affectedRows === 0) {
                     throw "Game update failed";
+                }
+                
+                // 저장 후 게임 데이터 확인
+                const [updatedGame] = await connection.query(
+                    'SELECT * FROM game_state WHERE game_id = ? AND user_id = ?',
+                    [gameId, userId]
+                );
+                
+                if (updatedGame.length > 0) {
+                    const savedData = JSON.parse(updatedGame[0].game_data);
+                    console.log(`${LOG_HEADER} Game data after saving:`, JSON.stringify(savedData));
                 }
                 
                 // 7. 이전 스레드 삭제 (비동기로 처리)

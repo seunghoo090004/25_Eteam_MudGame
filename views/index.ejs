@@ -350,8 +350,10 @@
                     if (buttons) {
                         $('#chatbox').append(buttons);
                     }
-        
+            
+                    // 중요: 서버로부터 받은 게임 상태 업데이트
                     if (data.game_state) {
+                        console.log('게임 상태 업데이트됨:', data.game_state);
                         gameData = data.game_state;
                     }
                 } else {
@@ -406,6 +408,9 @@
                 
                 // 저장 버튼 비활성화 및 텍스트 변경
                 $('#save-game').prop('disabled', true).text('저장 중...');
+                
+                // 현재 게임 데이터 로깅
+                console.log('저장할 게임 데이터:', gameData);
                 
                 socket.emit('save game', {
                     game_id: currentGameId,
@@ -470,13 +475,21 @@
                     data.games.forEach(function(game) {
                         const gameDate = new Date(game.last_updated).toLocaleString();
                         const worldPhase = game.game_data.progress.phase || "알 수 없음";
+                        const currentLocation = game.game_data.location.current || "알 수 없음";
                         
-                        // 간소화된 게임 정보 표시 (레벨 제거, 세계관/현재 위치 표시)
+                        console.log('불러온 게임 데이터:', {
+                            id: game.game_id,
+                            lastUpdated: game.last_updated,
+                            world: worldPhase,
+                            location: currentLocation
+                        });
+                        
+                        // 간소화된 게임 정보 표시
                         savedGamesList.append(`
                             <div class="game-entry">
                                 <span><strong>마지막 저장:</strong> ${gameDate}</span>
                                 <span><strong>세계관:</strong> ${worldPhase}</span>
-                                <span><strong>위치:</strong> ${game.game_data.location.current}</span>
+                                <span><strong>위치:</strong> ${currentLocation}</span>
                                 <div class="game-actions">
                                     <button class="btn btn-primary" onclick="loadGame('${game.game_id}')">불러오기</button>
                                     <button class="btn btn-danger" onclick="deleteGame('${game.game_id}')" style="margin-left: 5px;">삭제</button>
