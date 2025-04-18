@@ -164,6 +164,11 @@
             background-color: white;
             border-radius: 4px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            transition: all 0.2s ease;
+        }
+        .game-entry:hover {
+            box-shadow: 0 3px 8px rgba(0,0,0,0.2);
+            transform: translateY(-2px);
         }
         .game-entry span {
             display: block;
@@ -216,90 +221,6 @@
         .btn-danger:hover {
             background-color: #c82333;
         }
-
-        /* index.ejs 파일의 <style> 태그 내에 추가할 CSS */
-
-        .game-entry {
-            margin-bottom: 15px;
-            padding: 10px;
-            background-color: white;
-            border-radius: 4px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            transition: all 0.3s ease;
-        }
-
-        .game-entry:hover {
-            box-shadow: 0 3px 8px rgba(0,0,0,0.2);
-            transform: translateY(-2px);
-        }
-
-        .game-entry span {
-            display: block;
-            margin-bottom: 5px;
-            font-size: 0.9rem;
-            line-height: 1.4;
-        }
-
-        .game-entry span strong {
-            display: inline-block;
-            min-width: 60px;
-            color: #0056b3;
-        }
-
-        .game-actions {
-            display: flex;
-            margin-top: 10px;
-        }
-
-        .game-actions button {
-            flex: 1;
-        }
-
-        /* 모바일 화면에서 저장된 게임 목록 반응형 처리 */
-        @media (max-width: 768px) {
-            .chat-container {
-                flex-direction: column;
-            }
-            
-            #game-load-list {
-                width: 100%;
-                border-left: none;
-                border-top: 1px solid #eee;
-            }
-            
-            .game-entry span {
-                font-size: 0.85rem;
-            }
-        }
-
-        /* 게임 상태 표시 영역 */
-        .game-state-display {
-            padding: 10px;
-            background-color: #f8f9fa;
-            border-bottom: 1px solid #eee;
-            font-size: 0.9rem;
-            display: none; /* 처음에는 숨김, JS에서 표시 */
-        }
-
-        .game-state-display.active {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: space-between;
-        }
-
-        .game-state-item {
-            margin-right: 10px;
-            background-color: #e9ecef;
-            padding: 5px 10px;
-            border-radius: 3px;
-            margin-bottom: 5px;
-        }
-
-        .game-state-item .label {
-            font-weight: bold;
-            color: #007bff;
-        }
-
         /* 시스템 메시지 스타일 */
         .system-message {
             background-color: #fffde7;
@@ -336,33 +257,13 @@
                     <button id="new-game" class="btn btn-success">새 게임</button>
                     <button id="save-game" class="btn btn-success" style="margin-left: 5px;">게임 저장</button>
                 </div>
-                
-                <!-- 게임 상태 표시 영역 추가 -->
-                <div id="game-state-display" class="game-state-display">
-                    <div class="game-state-item">
-                        <span class="label">레벨:</span> <span id="player-level">1</span>
-                    </div>
-                    <div class="game-state-item">
-                        <span class="label">위치:</span> <span id="player-location">시작마을</span>
-                    </div>
-                    <div class="game-state-item">
-                        <span class="label">체력:</span> <span id="player-health">100</span>/100
-                    </div>
-                    <div class="game-state-item">
-                        <span class="label">골드:</span> <span id="player-gold">0</span>
-                    </div>
-                    <div class="game-state-item">
-                        <span class="label">아이템:</span> <span id="player-items">없음</span>
-                    </div>
-                </div>
-                
                 <div id="chatbox"></div>
                 <div class="input-area" style="display: none;">
                     <textarea id="user-input" placeholder="메세지를 입력해주세요. (Shift+Enter 줄바꿈, Enter 또는 Ctrl+Enter 보내기)"></textarea>
                     <button id="send-button">보내기</button>
                 </div>
             </div>
-        
+
             <div id="game-load-list">
                 <h3>저장된 게임 목록</h3>
                 <div id="saved_games_list">
@@ -381,22 +282,22 @@
                 reconnectionDelayMax: 5000,
                 reconnectionAttempts: 5
             });            
-        
+
             let currentGameId = null;
             let gameData = null;
-            
-            // 소켓 연결 확인
+                // 소켓 연결 확인
             socket.on('connect', function() {
                 console.log('Socket connected successfully');
                 // 연결 후 즉시 게임 목록 로드
                 loadGamesList();
             });
-        
+
+
             // 소켓 연결 에러 처리
             socket.on('connect_error', function(error) {
                 console.error('Socket connection error:', error);
             });
-        
+
             function loadGamesList() {
                 if (socket && socket.connected) {
                     socket.emit('get games list');
@@ -404,7 +305,7 @@
                     console.error('Socket not connected. Cannot load games list.');
                 }
             }
-        
+
             // 선택지 버튼 생성 함수
             function createChoiceButtons(message) {
                 // 이전 선택지 버튼들 제거
@@ -451,7 +352,7 @@
                             message: choice.number,
                             game_id: currentGameId
                         });
-                
+            
                         // 채팅창 스크롤
                         $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
                     });
@@ -480,11 +381,8 @@
                         $('#chatbox').append(buttons);
                     }
         
-                    // 중요: 서버로부터 받은 게임 상태 업데이트
                     if (data.game_state) {
                         gameData = data.game_state;
-                        updateGameStateDisplay();
-                        console.log('Game state updated:', gameData);
                     }
                 } else {
                     $('#chatbox').append(`<div class="message error">Error: ${data.error}</div>`);
@@ -519,10 +417,12 @@
                     $('#assistant-select').prop('disabled', true);
                     $('.input-area').show();
                     
-                    // 게임 UI 활성화
-                    $('#save-game').prop('disabled', false);
-                    
-                    console.log('New game created:', gameData);
+                    // 게임 목록 업데이트 체크
+                    setTimeout(() => {
+                        if (!$('#saved_games_list').children().length) {
+                            loadGamesList();
+                        }
+                    }, 1000);
                 } else {
                     alert(data.error || '게임 시작 중 오류가 발생했습니다.');
                 }
@@ -537,9 +437,6 @@
                 
                 // 저장 버튼 비활성화 및 텍스트 변경
                 $('#save-game').prop('disabled', true).text('저장 중...');
-                
-                // 중요: 현재 최신 게임 상태 데이터를 서버로 전송
-                console.log('Saving game with data:', gameData);
                 
                 socket.emit('save game', {
                     game_id: currentGameId,
@@ -590,6 +487,38 @@
                 }
             });
             
+            // 저장된 게임 목록 응답
+            socket.on('games list response', function(data) {
+                if (data.success) {
+                    const savedGamesList = $('#saved_games_list');
+                    savedGamesList.empty();
+        
+                    if (data.games.length === 0) {
+                        savedGamesList.append('<p>저장된 게임이 없습니다.</p>');
+                        return;
+                    }
+        
+                    data.games.forEach(function(game) {
+                        const gameDate = new Date(game.last_updated).toLocaleString();
+                        
+                        // 간소화된 게임 정보 표시
+                        savedGamesList.append(`
+                            <div class="game-entry">
+                                <span><strong>마지막 저장:</strong> ${gameDate}</span>
+                                <span><strong>위치:</strong> ${game.game_data.location.current}</span>
+                                <span><strong>레벨:</strong> ${game.game_data.player.level}</span>
+                                <div class="game-actions">
+                                    <button class="btn btn-primary" onclick="loadGame('${game.game_id}')">불러오기</button>
+                                    <button class="btn btn-danger" onclick="deleteGame('${game.game_id}')" style="margin-left: 5px;">삭제</button>
+                                </div>
+                            </div>
+                        `);
+                    });
+                } else {
+                    alert('게임 목록을 불러오는 중 오류가 발생했습니다.');
+                }
+            });
+        
             // 불러오기 함수 보완 (window.loadGame)
             window.loadGame = function(gameId) {
                 // 기존 게임 진행 중인지 확인
@@ -642,118 +571,13 @@
                     
                     $('#assistant-select').prop('disabled', true);
                     $('.input-area').show();
-                    $('#save-game').prop('disabled', false);
                     $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
-                    
-                    // 게임 상태 표시 업데이트
-                    updateGameStateDisplay();
                     
                 } else {
                     $('#chatbox').empty().append(`<div class="message error">게임을 불러오는 중 오류: ${data.error}</div>`);
                 }
             });
             
-            // 선택지 파싱 함수
-            function parseChoices(content) {
-                const lines = content.split('\n');
-                return lines
-                    .filter(line => /^\d+\.\s*\**[^*]+\**/.test(line))
-                    .map(line => {
-                        const match = line.match(/^(\d+)\.\s*\**([^*]+?)\**(?::|$)/);
-                        if (match) {
-                            return {
-                                number: match[1].trim(),
-                                text: match[2].trim()
-                            };
-                        }
-                        return null;
-                    })
-                    .filter(choice => choice !== null);
-            }
-            
-            // 선택 처리 함수
-            function handleChoice(number, text) {
-                if (!currentGameId) return;
-                
-                $('.choice-button').prop('disabled', true);
-                
-                $('#chatbox').append(`<div class="message user-message">${number}. ${text}</div>`);
-                
-                socket.emit('chat message', {
-                    message: number,
-                    game_id: currentGameId
-                });
-            
-                $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
-            }
-        
-            // 게임 상태 표시 업데이트
-            function updateGameStateDisplay() {
-                if (!gameData) return;
-                
-                // 게임 상태 표시 영역을 보이게 함
-                $('#game-state-display').addClass('active');
-                
-                // 각 상태 값 업데이트
-                $('#player-level').text(gameData.player.level);
-                $('#player-location').text(gameData.location.current);
-                $('#player-health').text(gameData.player.health);
-                $('#player-gold').text(gameData.inventory.gold);
-                
-                // 아이템 목록 표시
-                const itemsText = gameData.inventory.items.length > 0 
-                    ? gameData.inventory.items.join(', ') 
-                    : '없음';
-                $('#player-items').text(itemsText);
-            }
-        
-            // 게임 목록 불러오기
-            function loadGamesList() {
-                socket.emit('get games list');
-            }
-        
-             // 저장된 게임 목록 응답
-            socket.on('games list response', function(data) {
-                if (data.success) {
-                    const savedGamesList = $('#saved_games_list');
-                    savedGamesList.empty();
-
-                    if (data.games.length === 0) {
-                        savedGamesList.append('<p>저장된 게임이 없습니다.</p>');
-                        return;
-                    }
-
-                    // 각 게임 정보를 더 상세하게 표시
-                    data.games.forEach(function(game) {
-                        const gameDate = new Date(game.last_updated).toLocaleString();
-                        const playerLevel = game.game_data.player.level;
-                        const playerHealth = game.game_data.player.health;
-                        const currentLocation = game.game_data.location.current;
-                        const goldAmount = game.game_data.inventory.gold;
-                        const items = game.game_data.inventory.items.length > 0 
-                            ? game.game_data.inventory.items.join(', ') 
-                            : '없음';
-                        
-                        savedGamesList.append(`
-                            <div class="game-entry">
-                                <span><strong>마지막 저장:</strong> ${gameDate}</span>
-                                <span><strong>위치:</strong> ${currentLocation}</span>
-                                <span><strong>레벨:</strong> ${playerLevel}</span>
-                                <span><strong>체력:</strong> ${playerHealth}/100</span>
-                                <span><strong>골드:</strong> ${goldAmount}</span>
-                                <span><strong>아이템:</strong> ${items}</span>
-                                <div class="game-actions">
-                                    <button class="btn btn-primary" onclick="loadGame('${game.game_id}')">불러오기</button>
-                                    <button class="btn btn-danger" onclick="deleteGame('${game.game_id}')" style="margin-left: 5px;">삭제</button>
-                                </div>
-                            </div>
-                        `);
-                    });
-                } else {
-                    alert('게임 목록을 불러오는 중 오류가 발생했습니다: ' + data.error);
-                }
-            });
-        
             // 게임 삭제
             window.deleteGame = function(gameId) {
                 if (!confirm('정말 이 게임을 삭제하시겠습니까?')) return;
@@ -762,7 +586,7 @@
                     game_id: gameId
                 });
             }
-            
+        
             // 게임 삭제 응답
             socket.on('delete game response', function(data) {
                 if (data.success) {
@@ -771,7 +595,6 @@
                         gameData = null;
                         $('#chatbox').empty();
                         $('#assistant-select').prop('disabled', false);
-                        $('.input-area').hide();
                     }
                     alert('게임이 삭제되었습니다.');
                     loadGamesList();
