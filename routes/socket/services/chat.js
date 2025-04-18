@@ -31,7 +31,18 @@ class ChatService {
             // 게임 형식을 유지하기 위한 지침 추가
             await openai.beta.threads.messages.create(threadId, {
                 role: "user",
-                content: `[시스템 지침: 응답에는 반드시 1-4개의 명확한 선택지를 제공하세요. 선택지는 각각 "1.", "2." 등으로 시작하고 각각 새 줄에 배치합니다. 응답 중 선택지가 아닌 부분에는 절대로 숫자+마침표 형식을 사용하지 마세요. 예를 들어 "1. 마을로 가기"와 같은 형식은 오직 선택지에만 사용합니다.]`
+                content: `[시스템 지침: 다음 규칙을 반드시 준수하세요:
+    
+    1. 선택지 형식:
+       - 모든 선택지는 "숫자. 텍스트" 형식으로 제공 (예: "1. 마을로 이동한다")
+       - 각 선택지는 새 줄에 시작
+       - 절대 "숫자. 텍스트." 형식 사용 금지 (선택지 끝에 마침표 넣지 말 것)
+       - 선택지 외 텍스트에서는 절대로 "숫자." 형식 사용 금지
+       - 반드시 1-4개의 명확한 선택지 제공
+    
+    2. 응답 형식:
+       - 상황 설명 (1-3문단)
+       - 그 다음 선택지 (반드시 1-4개)]`
             });
     
             // 새로운 run 시작
@@ -62,9 +73,11 @@ class ChatService {
                 const response = messages.data[0].content[0].text.value;
                 
                 // 선택지 형식 검증
-                const choicePattern = /(?:^|\n)(\d+)\.\s*([^\n.]+?)(?:$|\n)/g;
+                const choicePattern = /(?:^|\n)(\d+)[\.\)]\s*([^\n\.]+?)(?=$|\n|\.)/g;
                 let choices = [];
                 let match;
+                
+                console.log(`[${LOG_HEADER}] 응답 검사:`, response);
                 
                 while ((match = choicePattern.exec(response)) !== null) {
                     if (['1', '2', '3', '4'].includes(match[1])) {
@@ -79,7 +92,20 @@ class ChatService {
                     // 선택지 생성 요청
                     await openai.beta.threads.messages.create(threadId, {
                         role: "user",
-                        content: `이전 응답에 선택지가 없습니다. 플레이어가 선택할 수 있는 1-4개의 선택지를 반드시 제공해주세요. 각 선택지는 "1.", "2." 등으로 시작하고 각각 새 줄에 작성해주세요.`
+                        content: `이전 응답에서 선택지를 찾을 수 없습니다. 다음 규칙에 따라 1-4개의 선택지를 제공해주세요:
+    
+    1. 선택지 형식:
+       - 각 선택지는 반드시 "숫자. 텍스트" 형식으로 제공 (예: "1. 마을로 이동한다")
+       - 각 선택지는 새 줄에 시작
+       - 선택지 끝에 마침표를 넣지 마세요
+       - 선택지 번호는 1, 2, 3, 4만 사용하세요
+    
+    상황에 맞는 선택지 4개를 아래 형식으로 제공해주세요:
+    
+    1. [선택지 1]
+    2. [선택지 2]
+    3. [선택지 3]
+    4. [선택지 4]`
                     });
                     
                     // 선택지 생성 실행
@@ -190,28 +216,6 @@ class ChatService {
             throw e;
         }
     }
-    
-    // 초기 대화 응답 조회 함수 추가
-    async getInitialResponse(threadId, assistantId) {
-        const LOG_HEADER = "CHAT_SERVICE/GET_INITIAL_RESPONSE";
-        try {
-            // 메시지 조회 시도
-            const messages = await openai.beta.threads.messages.list(threadId);
-            
-            if (messages.data.length > 0) {
-                console.log(`[${LOG_HEADER}] Initial response found`);
-                return messages.data[0].content[0].text.value;
-            }
-            
-            // 메시지가 없으면 초기 메시지 생성
-            console.log(`[${LOG_HEADER}] No messages found, creating initial response`);
-            return await this.sendMessage(threadId, assistantId, "게임을 계속 진행해주세요");
-            
-        } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
-            throw e;
-        }
-    }
 
     async updateGameContext(threadId, gameState) {
         const LOG_HEADER = "CHAT_SERVICE/UPDATE_CONTEXT";
@@ -240,20 +244,23 @@ class ChatService {
                 role: "user",
                 content: `게임 초기화를 시작합니다. RPG 게임 마스터로서 다음 규칙을 엄격히 준수해주세요:
     
-    1. 규칙적인 선택지 형식:
-       - 모든 선택지는 반드시 숫자 + 마침표 + 텍스트 형식으로 제공 (예: "1. 마을로 이동한다")
-       - 각 선택지는 항상 새 줄에 배치
-       - 각 응답에는 1-4개의 명확한 선택지 제공
-       - 선택지 외에는 절대로 숫자 + 마침표 형식 사용 금지
+    1. 선택지 형식:
+       - 모든 선택지는 "숫자. 텍스트" 형식으로 제공 (예: "1. 마을로 이동한다")
+       - 각 선택지는 새 줄에 시작해야 함
+       - 절대 "숫자. 텍스트." 형식 사용 금지 (선택지 텍스트 끝에 마침표 넣지 말 것)
+       - 선택지는 항상 1-4번으로 제공할 것
+       - 선택지 형식을 사용할 때 숫자 뒤에는 반드시 점(.)만 사용할 것, 괄호()) 사용 금지
     
-    2. 게임 상태 정보:
+    2. 선택지 외 텍스트에서는 절대로 "숫자." 형식 사용 금지
+    
+    3. 게임 상태 정보:
        - 세계관: 튜토리얼
        - 초기 위치: 시작마을
        - 플레이어는 레벨 1에서 시작
     
-    3. 응답 형식:
+    4. 응답 형식:
        - 상황 설명 (2-3문단)
-       - 선택지 (1-4개)
+       - 선택지 (반드시 1-4개)
        
     지금 바로 게임을 시작하고 플레이어에게 첫 번째 선택지를 제시해주세요.`
             });
