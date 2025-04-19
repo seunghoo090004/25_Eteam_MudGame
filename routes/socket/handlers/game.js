@@ -49,7 +49,6 @@ const gameHandler = (io, socket) => {
         }
     });
 
-    // routes/socket/handlers/game.js의 'load game' 이벤트 핸들러 수정
     socket.on('load game', async (data) => {
         const LOG_HEADER = "GAME/LOAD";
         try {
@@ -132,6 +131,7 @@ const gameHandler = (io, socket) => {
                     success: true,
                     threadChanged: true,
                     summary: result.summary,
+                    extractedLocation: result.extractedLocation, // 추출된 위치 정보 포함
                     initialResponse: result.initialResponse
                 });
             } else {
@@ -146,8 +146,6 @@ const gameHandler = (io, socket) => {
             });
         }
     });
-    
-    
     
     socket.on('get games list', async (data) => {
         const LOG_HEADER = "GAME/LIST";
@@ -188,7 +186,7 @@ const gameHandler = (io, socket) => {
             });
         }
     });
-    
+
     socket.on('delete game', async (data) => {
         const LOG_HEADER = "GAME/DELETE";
         try {

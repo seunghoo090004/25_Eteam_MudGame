@@ -14,7 +14,7 @@ class ChatService {
             const activeRun = runs.data.find(run => run.status === 'in_progress');
             
             if (activeRun) {
-                console.log(`[${LrOG_HEADER}] Waiting for previous run to complete`);
+                console.log(`[${LOG_HEADER}] Waiting for previous run to complete`);
                 let runStatus;
                 do {
                     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -166,7 +166,6 @@ class ChatService {
         }
     }
 
-    // routes/socket/services/chat.js에 함수 추가
     async createGameSummary(threadId, assistantId) {
         const LOG_HEADER = "CHAT_SERVICE/CREATE_SUMMARY";
         try {

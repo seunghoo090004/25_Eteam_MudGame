@@ -139,7 +139,7 @@ class GameService {
         
         let ret_status = 200;
         let result = { success: true };
-    
+
         try {
             const connection = await pool.getConnection();
             try {
@@ -174,16 +174,34 @@ class GameService {
                 const chatService = require('./chat');
                 const summary = await chatService.createGameSummary(oldThreadId, game.assistant_id);
                 
-                // 4. 새 스레드 생성
+                // 4. 요약 정보에서 위치 추출
+                const locationFromSummary = this.extractLocationFromSummary(summary);
+                console.log(`${LOG_HEADER} 요약에서 추출한 위치: ${locationFromSummary}`);
+                
+                // 추출된 위치 정보가 있으면 게임 데이터 업데이트
+                if (locationFromSummary && gameDataObj && gameDataObj.location) {
+                    gameDataObj.location.current = locationFromSummary;
+                    
+                    // 위치 정보 추가 되었는지 검증 및 로깅
+                    console.log(`${LOG_HEADER} 위치 정보 업데이트: ${gameDataObj.location.current}`);
+                    
+                    // 발견한 위치 목록에 추가
+                    if (Array.isArray(gameDataObj.location.discovered) && 
+                        !gameDataObj.location.discovered.includes(locationFromSummary)) {
+                        gameDataObj.location.discovered.push(locationFromSummary);
+                    }
+                }
+                
+                // 5. 새 스레드 생성
                 const newThread = await openai.beta.threads.create();
                 
-                // 5. 요약 정보를 새 스레드에 초기 메시지로 전달
+                // 6. 요약 정보를 새 스레드에 초기 메시지로 전달
                 await openai.beta.threads.messages.create(newThread.id, {
                     role: "user",
                     content: `이전 게임 요약: ${summary}\n\n계속 진행해주세요.`
                 });
                 
-                // 6. 새 스레드에서 초기 응답 가져오기 - 수정된 부분
+                // 7. 새 스레드에서 초기 응답 가져오기
                 const run = await openai.beta.threads.runs.create(newThread.id, {
                     assistant_id: game.assistant_id
                 });
@@ -204,11 +222,11 @@ class GameService {
                     initialResponse = "게임을 이어서 진행합니다. 다음 행동을 선택해주세요.";
                 }
                 
-                // 7. 게임 데이터 직렬화
+                // 8. 게임 데이터 직렬화
                 const gameDataToSave = JSON.stringify(gameDataObj);
                 console.log(`${LOG_HEADER} 저장할 JSON 데이터:`, gameDataToSave);
                 
-                // 8. 게임 스레드 ID 업데이트 및 게임 데이터 저장
+                // 9. 게임 스레드 ID 업데이트 및 게임 데이터 저장
                 const [updateResult] = await connection.query(
                     `UPDATE game_state 
                     SET thread_id = ?,
@@ -222,38 +240,24 @@ class GameService {
                     throw "Game update failed";
                 }
                 
-                // 9. 저장 후 확인 (선택적)
-                const [updatedGame] = await connection.query(
-                    'SELECT * FROM game_state WHERE game_id = ? AND user_id = ?',
-                    [gameId, userId]
-                );
-                
-                if (updatedGame.length > 0) {
-                    try {
-                        const savedData = JSON.parse(updatedGame[0].game_data);
-                        console.log(`${LOG_HEADER} 저장 확인 - 저장된 데이터:`, savedData);
-                    } catch (e) {
-                        console.error(`${LOG_HEADER} 저장된 데이터 파싱 오류:`, e);
-                    }
-                }
-                
                 // 10. 이전 스레드 삭제 (비동기로 처리)
                 openai.beta.threads.del(oldThreadId)
                     .then(() => console.log(`${LOG_SUCC_HEADER} Old thread ${oldThreadId} deleted`))
                     .catch(e => console.error(`${LOG_ERR_HEADER} Error deleting old thread: ${e}`));
-    
+
                 // 11. 결과 정보 설정
                 result = {
                     success: true,
                     newThreadId: newThread.id,
                     summary: summary,
+                    extractedLocation: locationFromSummary, // 추출된 위치 정보 추가
                     initialResponse: initialResponse
                 };
-    
+
             } finally {
                 connection.release();
             }
-    
+
         } catch (e) {
             ret_status = 501;
             console.error(LOG_ERR_HEADER + LOG_HEADER + "getBODY::status(" + ret_status + ") ==> " + e);
@@ -262,7 +266,7 @@ class GameService {
                 error: e.message || e
             };
         }
-    
+
         console.log(LOG_SUCC_HEADER + LOG_HEADER + "status(" + ret_status + ")");
         return result;
     }
@@ -305,7 +309,7 @@ class GameService {
 
     console.log(LOG_SUCC_HEADER + LOG_HEADER + "status(" + ret_status + ")");
     return ret_data;
-}
+    }
 
     //============================================================================================
     async deleteGame(gameId, userId) {
@@ -354,6 +358,37 @@ class GameService {
 
         console.log(LOG_SUCC_HEADER + LOG_HEADER + "status(" + ret_status + ")");
         return true;
+    }
+
+    // 요약 정보에서 위치 추출 함수 추가
+    extractLocationFromSummary(summary) {
+        if (!summary) return null;
+        
+        console.log("요약 정보 분석:", summary);
+        
+        // 패턴 1: "현재 위치는 [위치]" 패턴
+        let locationPattern1 = /현재\s*위치(?:는|:)\s*([^,.]+?)(?:로|에서|입니다|에|이며|\.|\,|$)/i;
+        let match1 = summary.match(locationPattern1);
+        
+        // 패턴 2: "위치: [위치]" 패턴
+        let locationPattern2 = /위치\s*:\s*([^,.]+?)(?:로|에서|입니다|에|이며|\.|\,|$)/i;
+        let match2 = summary.match(locationPattern2);
+        
+        // 패턴 3: "위치는 [위치]" 패턴
+        let locationPattern3 = /위치는\s*([^,.]+?)(?:로|에서|입니다|에|이며|\.|\,|$)/i;
+        let match3 = summary.match(locationPattern3);
+        
+        // 매칭 결과 로깅
+        if (match1) console.log("패턴1 매칭 결과:", match1[1]);
+        if (match2) console.log("패턴2 매칭 결과:", match2[1]);
+        if (match3) console.log("패턴3 매칭 결과:", match3[1]);
+        
+        // 매칭된 패턴 중 첫 번째 것 사용
+        if (match1) return match1[1].trim();
+        if (match2) return match2[1].trim();
+        if (match3) return match3[1].trim();
+        
+        return null;
     }
 }
 
