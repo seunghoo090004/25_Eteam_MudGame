@@ -61,6 +61,11 @@
         .btn-logout:hover {
             background-color: rgba(255, 255, 255, 0.3);
         }
+        .btn-disabled {
+            opacity: 0.6;
+            cursor: not-allowed !important;
+            pointer-events: none;
+        }
         .chat-container {
             background-color: white;
             display: flex;
@@ -392,6 +397,41 @@
 
     <script>
         $(document).ready(function() {
+            // 전역 상태 변수 추가
+            window.actionInProgress = false;
+
+            // 모든 버튼 비활성화/활성화 함수
+            function setAllButtonsState(disabled) {
+                // 선택지 버튼들 비활성화
+                $('.choice-button').prop('disabled', disabled);
+                
+                // 게임 조작 버튼들 비활성화
+                $('#new-game').prop('disabled', disabled);
+                $('#save-game').prop('disabled', disabled);
+                
+                // 저장된 게임 목록의 버튼들 비활성화
+                $('.game-entry button').prop('disabled', disabled);
+                
+                // 로그아웃 버튼도 비활성화
+                $('#logout-button').prop('disabled', disabled);
+                
+                // 어시스턴트 선택 드롭다운 비활성화
+                $('#assistant-select').prop('disabled', disabled);
+                
+                // 비활성화 시 시각적 표시 추가
+                if (disabled) {
+                    $('.btn, .choice-button').addClass('btn-disabled');
+                } else {
+                    $('.btn, .choice-button').removeClass('btn-disabled');
+                }
+                
+                // 전역 상태 업데이트
+                window.actionInProgress = disabled;
+                
+                // 디버그 로그
+                console.log(`모든 버튼 상태 변경: ${disabled ? '비활성화' : '활성화'}`);
+            }
+            
             // socket 초기화 개선
             const socket = io({
                 reconnection: true,
@@ -418,6 +458,11 @@
                 
                 // 연결 후 즉시 게임 목록 로드
                 loadGamesList();
+                
+                // 버튼 상태 초기화
+                if (window.actionInProgress) {
+                    setAllButtonsState(false);
+                }
             });
             
             socket.on('disconnect', function() {
@@ -514,6 +559,9 @@
                         게임이 초기화되었습니다. '새 게임' 버튼을 눌러 게임을 시작하세요.
                     </div>
                 `);
+                
+                // 모든 버튼 활성화
+                setAllButtonsState(false);
             }
             
             // 전역 재시작 버튼 이벤트 설정
@@ -670,7 +718,7 @@
                 return buttonContainer;
             }
             
-            // 선택지 처리를 별도 함수로 분리
+            // 선택지 처리를 별도 함수로 분리 - 액션 진행 중 체크 추가
             function handleChoiceSelection(e) {
                 e.preventDefault();
                 
@@ -680,13 +728,13 @@
                 }
                 
                 // 이미 처리 중인 선택이 있으면 무시
-                if (window.processingChoice) {
-                    console.log('이미 선택지 처리 중입니다. 중복 선택 무시');
+                if (window.actionInProgress) {
+                    console.log('액션이 이미 진행 중입니다. 중복 선택 무시');
                     return;
                 }
                 
-                // 모든 선택지 버튼 비활성화 - 중복 선택 방지
-                $('.choice-button').prop('disabled', true);
+                // 모든 버튼 비활성화
+                setAllButtonsState(true);
                 
                 // 현재 선택한 버튼과 선택지 정보
                 const selectedButton = $(this);
@@ -770,6 +818,9 @@
                             </div>
                         `);
                     }
+                    
+                    // 모든 버튼 활성화
+                    setAllButtonsState(false);
                 } else {
                     // 로딩 숨기기
                     hideLoading();
@@ -780,6 +831,9 @@
                             <button id="restart-button" class="btn btn-danger mt-2">게임 다시 시작</button>
                         </div>
                     `);
+                    
+                    // 모든 버튼 활성화
+                    setAllButtonsState(false);
                 }
                 $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
             });
@@ -787,7 +841,7 @@
             // 방향키 이벤트 처리 개선
             $(document).on('keydown', function(e) {
                 // 선택지 처리 중이거나 선택지가 없는 경우 방향키 무시
-                if (window.processingChoice || $('.choice-button').length === 0) {
+                if (window.actionInProgress || $('.choice-button').length === 0) {
                     return;
                 }
                 
@@ -831,6 +885,9 @@
                     alert('서버에 연결되어 있지 않습니다. 재연결 후 다시 시도해주세요.');
                     return;
                 }
+                
+                // 모든 버튼 비활성화
+                setAllButtonsState(true);
                 
                 // 버튼 로딩 상태 설정
                 setButtonLoading($(this), true);
@@ -892,11 +949,17 @@
                             loadGamesList();
                         }
                     }, 1000);
+                    
+                    // 모든 버튼 활성화
+                    setAllButtonsState(false);
                 } else {
                     // 로딩 숨기기
                     hideLoading();
                     
                     alert(data.error || '게임 시작 중 오류가 발생했습니다.');
+                    
+                    // 모든 버튼 활성화
+                    setAllButtonsState(false);
                 }
             });
             
@@ -907,13 +970,16 @@
                     return;
                 }
                 
-                // 이미 선택지 처리 중인 경우 저장 불가
-                if (window.processingChoice) {
-                    alert('현재 선택지를 처리하는 중입니다. 응답을 받은 후 저장해주세요.');
+                // 이미 액션이 진행 중인 경우 저장 불가
+                if (window.actionInProgress) {
+                    alert('현재 다른 작업이 진행 중입니다. 완료 후 다시 시도해주세요.');
                     return;
                 }
                 
                 try {
+                    // 모든 버튼 비활성화
+                    setAllButtonsState(true);
+                    
                     // 버튼 로딩 상태 설정
                     setButtonLoading($(this), true);
                     
@@ -948,6 +1014,9 @@
                     hideLoading();
                     
                     alert('게임 데이터 처리 중 오류가 발생했습니다: ' + err.message);
+                    
+                    // 모든 버튼 활성화
+                    setAllButtonsState(false);
                 }
             });
             
@@ -1004,8 +1073,14 @@
                     // 게임 목록 강제 갱신
                     console.log('게임 목록 강제 갱신 요청');
                     loadGamesList(true);
+                    
+                    // 모든 버튼 활성화
+                    setAllButtonsState(false);
                 } else {
                     alert('게임 저장 중 오류: ' + data.error);
+                    
+                    // 모든 버튼 활성화
+                    setAllButtonsState(false);
                 }
             });
             
@@ -1066,9 +1141,9 @@
             
             // 불러오기 함수 보완 (window.loadGame)
             window.loadGame = function(gameId) {
-                // 이미 선택지 처리 중인 경우 로드 불가
-                if (window.processingChoice) {
-                    alert('현재 선택지를 처리하는 중입니다. 응답을 받은 후 다시 시도해주세요.');
+                // 이미 액션이 진행 중인 경우 로드 불가
+                if (window.actionInProgress) {
+                    alert('현재 다른 작업이 진행 중입니다. 완료 후 다시 시도해주세요.');
                     return;
                 }
                 
@@ -1076,6 +1151,9 @@
                 if (currentGameId && !confirm('다른 게임을 불러오면 현재 진행 중인 게임은 저장되지 않습니다. 계속하시겠습니까?')) {
                     return;
                 }
+                
+                // 모든 버튼 비활성화
+                setAllButtonsState(true);
                 
                 // 로딩 오버레이 표시
                 showLoading('게임을 불러오는 중...');
@@ -1129,20 +1207,29 @@
                     $('#assistant-select').prop('disabled', true);
                     $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
                     
+                    // 모든 버튼 활성화
+                    setAllButtonsState(false);
+                    
                 } else {
                     $('#chatbox').empty().append(`<div class="message error">게임을 불러오는 중 오류: ${data.error}</div>`);
+                    
+                    // 모든 버튼 활성화
+                    setAllButtonsState(false);
                 }
             });
             
             // 게임 삭제
             window.deleteGame = function(gameId) {
-                // 선택지 처리 중인 경우 삭제 불가
-                if (window.processingChoice) {
-                    alert('현재 선택지를 처리하는 중입니다. 응답을 받은 후 다시 시도해주세요.');
+                // 액션이 진행 중인 경우 삭제 불가
+                if (window.actionInProgress) {
+                    alert('현재 다른 작업이 진행 중입니다. 완료 후 다시 시도해주세요.');
                     return;
                 }
                 
                 if (!confirm('정말 이 게임을 삭제하시겠습니까?')) return;
+                
+                // 모든 버튼 비활성화
+                setAllButtonsState(true);
                 
                 socket.emit('delete game', {
                     game_id: gameId
@@ -1161,8 +1248,14 @@
                     }
                     alert('게임이 삭제되었습니다.');
                     loadGamesList();
+                    
+                    // 모든 버튼 활성화
+                    setAllButtonsState(false);
                 } else {
                     alert('게임 삭제 중 오류: ' + data.error);
+                    
+                    // 모든 버튼 활성화
+                    setAllButtonsState(false);
                 }
             });
         
@@ -1172,6 +1265,12 @@
             // 로그아웃 처리
             $('#logout-button').on('click', function(e) {
                 e.preventDefault();
+                
+                // 액션이 진행 중인 경우 로그아웃 불가
+                if (window.actionInProgress) {
+                    alert('현재 진행 중인 작업이 있습니다. 완료 후 다시 시도해주세요.');
+                    return;
+                }
                 
                 if (confirm('정말 로그아웃 하시겠습니까?')) {
                     window.location.href = '/auth/logout';
