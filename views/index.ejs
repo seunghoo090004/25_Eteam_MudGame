@@ -312,6 +312,48 @@
         .location-info.updated {
             animation: highlight-update 2s ease-out;
         }
+        
+        /* 방향키 아이콘 스타일 */
+        .direction-icon {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            line-height: 20px;
+            text-align: center;
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            margin-right: 8px;
+            font-weight: bold;
+        }
+        
+        /* 버튼 하이라이트 효과 */
+        .highlight-button {
+            transform: scale(1.05);
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.7);
+            transition: all 0.2s ease;
+        }
+        
+        /* 키보드 가이드 스타일 */
+        .key-guide {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            line-height: 24px;
+            text-align: center;
+            background-color: #007bff;
+            color: white;
+            border-radius: 4px;
+            margin: 0 3px;
+            font-weight: bold;
+        }
+        
+        #keyboard-guide {
+            background-color: rgba(0, 123, 255, 0.1);
+            border-left: 4px solid #007bff;
+            padding: 8px 12px;
+            margin: 8px 0;
+            font-size: 0.9rem;
+        }
     </style>
 </head>
 <body>
@@ -623,10 +665,14 @@
                 
                 // 선택지 버튼 생성
                 const buttonContainer = $('<div class="choice-buttons"></div>');
-                choices.forEach(choice => {
+                choices.forEach((choice, index) => {
+                    // 방향키 아이콘 추가
+                    const directionIcons = ['↑', '↓', '←', '→'];
+                    const directionIcon = index < 4 ? directionIcons[index] : '';
+                    
                     const button = $(`
                         <button class="choice-button">
-                            ${choice.number}. ${choice.text}
+                            <span class="direction-icon">${directionIcon}</span> ${choice.number}. ${choice.text}
                         </button>
                     `);
                     
@@ -657,8 +703,68 @@
                     
                     buttonContainer.append(button);
                 });
-            
+                
+                // 방향키 안내 메시지 추가
+                addKeyboardGuide();
+                
                 return buttonContainer;
+            }
+            
+            // 방향키 안내 메시지 추가 함수
+            function addKeyboardGuide() {
+                if ($('#keyboard-guide').length === 0) {
+                    const guideHtml = `
+                        <div id="keyboard-guide" class="system-message">
+                            <p>방향키로 선택할 수 있습니다: 
+                                <span class="key-guide">↑</span> 첫 번째, 
+                                <span class="key-guide">↓</span> 두 번째, 
+                                <span class="key-guide">←</span> 세 번째, 
+                                <span class="key-guide">→</span> 네 번째 선택지
+                            </p>
+                        </div>
+                    `;
+                    $('#chatbox').append(guideHtml);
+                    $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
+                }
+            }
+            
+            // 방향키 이벤트 리스너 추가 - 키보드 입력 처리
+            $(document).on('keydown', function(e) {
+                // 선택지 버튼이 있는 경우에만 방향키 처리
+                if ($('.choice-button').length > 0) {
+                    // 방향키에 따른 선택지 처리
+                    switch(e.key) {
+                        case 'ArrowUp':    // 위쪽 방향키
+                            $('.choice-button').eq(0).click();
+                            highlightButton(0);
+                            break;
+                        case 'ArrowDown':  // 아래쪽 방향키
+                            $('.choice-button').eq(1).click();
+                            highlightButton(1);
+                            break;
+                        case 'ArrowLeft':  // 왼쪽 방향키
+                            $('.choice-button').eq(2).click();
+                            highlightButton(2);
+                            break;
+                        case 'ArrowRight': // 오른쪽 방향키
+                            $('.choice-button').eq(3).click();
+                            highlightButton(3);
+                            break;
+                    }
+                }
+            });
+            
+            // 버튼 하이라이트 효과 함수
+            function highlightButton(index) {
+                // 모든 버튼의 하이라이트 제거
+                $('.choice-button').removeClass('highlight-button');
+                // 선택된 버튼 하이라이트
+                $('.choice-button').eq(index).addClass('highlight-button');
+                
+                // 짧은 시간 후 하이라이트 제거 (효과 표시용)
+                setTimeout(function() {
+                    $('.choice-button').removeClass('highlight-button');
+                }, 300);
             }
             
             // 채팅 응답 처리
