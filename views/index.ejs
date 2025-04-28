@@ -178,6 +178,12 @@
             background-color: #cccccc;
             cursor: not-allowed;
         }
+        /* 처리 중인 선택지 스타일 */
+        .choice-button.processing {
+            background-color: #6c757d;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
         .game-actions {
             display: flex;
         }
@@ -333,25 +339,13 @@
             transition: all 0.2s ease;
         }
         
-        /* 키보드 가이드 스타일 */
-        .key-guide {
-            display: inline-block;
-            width: 24px;
-            height: 24px;
-            line-height: 24px;
-            text-align: center;
-            background-color: #007bff;
-            color: white;
-            border-radius: 4px;
-            margin: 0 3px;
-            font-weight: bold;
-        }
-        
-        #keyboard-guide {
+        /* 대기 메시지 스타일 */
+        #waiting-response {
             background-color: rgba(0, 123, 255, 0.1);
             border-left: 4px solid #007bff;
             padding: 8px 12px;
             margin: 8px 0;
+            font-style: italic;
             font-size: 0.9rem;
         }
     </style>
@@ -410,6 +404,9 @@
             let currentGameId = null;
             let gameData = null;
             let isConnected = false;
+            
+            // 선택지 처리 상태 변수 추가
+            window.processingChoice = false;
             
             // 소켓 연결 상태 관리
             socket.on('connect', function() {
@@ -506,6 +503,7 @@
                 $('#chatbox').empty();
                 currentGameId = null;
                 gameData = null;
+                window.processingChoice = false; // 처리 상태 초기화
                 
                 // 선택지 버튼 제거
                 $('.choice-buttons').remove();
@@ -627,34 +625,21 @@
                         ];
                         
                         const buttonContainer = $('<div class="choice-buttons"></div>');
-                        defaultChoices.forEach(choice => {
+                        defaultChoices.forEach((choice, index) => {
+                            const directionIcons = ['↑', '↓', '←', '→'];
+                            const directionIcon = directionIcons[index];
+                            
                             const button = $(`
-                                <button class="choice-button">
-                                    ${choice.number}. ${choice.text}
+                                <button class="choice-button" data-choice="${choice.number}">
+                                    <span class="direction-icon">${directionIcon}</span> ${choice.number}. ${choice.text}
                                 </button>
                             `);
                             
-                            button.click(function() {
-                                if (!currentGameId) return;
-                                
-                                // 모든 버튼 비활성화
-                                $('.choice-button').prop('disabled', true);
-                                
-                                // 선택한 메시지를 채팅창에 추가
-                                $('#chatbox').append(`<div class="message user-message">${choice.number}. ${choice.text}</div>`);
-                                
-                                // 서버에 메시지 전송
-                                socket.emit('chat message', {
-                                    message: choice.number,
-                                    game_id: currentGameId
-                                });
-                        
-                                // 채팅창 스크롤
-                                $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
-                            });
-                            
                             buttonContainer.append(button);
                         });
+                        
+                        // 모든 버튼에 클릭 이벤트 한 번에 바인딩
+                        buttonContainer.on('click', '.choice-button', handleChoiceSelection);
                         
                         // 오류 메시지 제거 후 기본 선택지 추가
                         errorMessage.replaceWith(buttonContainer);
@@ -671,67 +656,64 @@
                     const directionIcon = index < 4 ? directionIcons[index] : '';
                     
                     const button = $(`
-                        <button class="choice-button">
+                        <button class="choice-button" data-choice="${choice.number}">
                             <span class="direction-icon">${directionIcon}</span> ${choice.number}. ${choice.text}
                         </button>
                     `);
                     
-                    button.click(function() {
-                        if (!currentGameId) return;
-                        
-                        // 연결 상태 확인
-                        if (!isConnected) {
-                            alert('서버 연결이 끊어져 선택을 처리할 수 없습니다.');
-                            return;
-                        }
-                        
-                        // 모든 버튼 비활성화
-                        $('.choice-button').prop('disabled', true);
-                        
-                        // 선택한 메시지를 채팅창에 추가
-                        $('#chatbox').append(`<div class="message user-message">${choice.number}. ${choice.text}</div>`);
-                        
-                        // 서버에 메시지 전송
-                        socket.emit('chat message', {
-                            message: choice.number,
-                            game_id: currentGameId
-                        });
-                
-                        // 채팅창 스크롤
-                        $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
-                    });
-                    
                     buttonContainer.append(button);
                 });
+                
+                // 모든 버튼에 클릭 이벤트 한 번에 바인딩
+                buttonContainer.on('click', '.choice-button', handleChoiceSelection);
                 
                 return buttonContainer;
             }
             
-            // 방향키 이벤트 리스너 추가 - 키보드 입력 처리
-            $(document).on('keydown', function(e) {
-                // 선택지 버튼이 있는 경우에만 방향키 처리
-                if ($('.choice-button').length > 0) {
-                    // 방향키에 따른 선택지 처리
-                    switch(e.key) {
-                        case 'ArrowUp':    // 위쪽 방향키
-                            $('.choice-button').eq(0).click();
-                            highlightButton(0);
-                            break;
-                        case 'ArrowDown':  // 아래쪽 방향키
-                            $('.choice-button').eq(1).click();
-                            highlightButton(1);
-                            break;
-                        case 'ArrowLeft':  // 왼쪽 방향키
-                            $('.choice-button').eq(2).click();
-                            highlightButton(2);
-                            break;
-                        case 'ArrowRight': // 오른쪽 방향키
-                            $('.choice-button').eq(3).click();
-                            highlightButton(3);
-                            break;
-                    }
+            // 선택지 처리를 별도 함수로 분리
+            function handleChoiceSelection(e) {
+                e.preventDefault();
+                
+                if (!currentGameId || !isConnected) {
+                    alert('게임 상태가 유효하지 않거나 서버 연결이 끊어졌습니다.');
+                    return;
                 }
-            });
+                
+                // 이미 처리 중인 선택이 있으면 무시
+                if (window.processingChoice) {
+                    console.log('이미 선택지 처리 중입니다. 중복 선택 무시');
+                    return;
+                }
+                
+                // 모든 선택지 버튼 비활성화 - 중복 선택 방지
+                $('.choice-button').prop('disabled', true);
+                
+                // 현재 선택한 버튼과 선택지 정보
+                const selectedButton = $(this);
+                const choiceNumber = selectedButton.data('choice');
+                const choiceText = selectedButton.text().trim();
+                
+                // 현재 처리 중인 선택지 표시
+                selectedButton.addClass('processing');
+                
+                // 전역 변수로 현재 선택 처리 중임을 표시
+                window.processingChoice = true;
+                
+                // 선택한 메시지를 채팅창에 추가
+                $('#chatbox').append(`<div class="message user-message">${choiceText}</div>`);
+                
+                // 서버에 메시지 전송
+                socket.emit('chat message', {
+                    message: choiceNumber,
+                    game_id: currentGameId
+                });
+                
+                // 서버 응답 대기 메시지 추가
+                $('#chatbox').append(`<div id="waiting-response" class="system-message">서버 응답 대기 중...</div>`);
+                
+                // 채팅창 스크롤
+                $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
+            }
             
             // 버튼 하이라이트 효과 함수
             function highlightButton(index) {
@@ -748,6 +730,12 @@
             
             // 채팅 응답 처리
             socket.on('chat response', function(data) {
+                // 대기 메시지 제거
+                $('#waiting-response').remove();
+                
+                // 선택지 처리 상태 해제
+                window.processingChoice = false;
+                
                 if (data.success) {
                     // 로딩 숨기기
                     hideLoading();
@@ -794,6 +782,45 @@
                     `);
                 }
                 $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
+            });
+            
+            // 방향키 이벤트 처리 개선
+            $(document).on('keydown', function(e) {
+                // 선택지 처리 중이거나 선택지가 없는 경우 방향키 무시
+                if (window.processingChoice || $('.choice-button').length === 0) {
+                    return;
+                }
+                
+                // 활성화된 버튼만 선택 가능
+                const enabledButtons = $('.choice-button:not(:disabled)');
+                if (enabledButtons.length === 0) return;
+                
+                switch(e.key) {
+                    case 'ArrowUp':    // 위쪽 방향키
+                        highlightButton(0);
+                        setTimeout(function() {
+                            enabledButtons.eq(0).trigger('click');
+                        }, 100);
+                        break;
+                    case 'ArrowDown':  // 아래쪽 방향키
+                        highlightButton(1);
+                        setTimeout(function() {
+                            enabledButtons.eq(1).trigger('click');
+                        }, 100);
+                        break;
+                    case 'ArrowLeft':  // 왼쪽 방향키
+                        highlightButton(2);
+                        setTimeout(function() {
+                            enabledButtons.eq(2).trigger('click');
+                        }, 100);
+                        break;
+                    case 'ArrowRight': // 오른쪽 방향키
+                        highlightButton(3);
+                        setTimeout(function() {
+                            enabledButtons.eq(3).trigger('click');
+                        }, 100);
+                        break;
+                }
             });
             
             // 새 게임 시작
@@ -877,6 +904,12 @@
             $('#save-game').click(function() {
                 if (!currentGameId || !gameData) {
                     alert('저장할 게임이 없습니다.');
+                    return;
+                }
+                
+                // 이미 선택지 처리 중인 경우 저장 불가
+                if (window.processingChoice) {
+                    alert('현재 선택지를 처리하는 중입니다. 응답을 받은 후 저장해주세요.');
                     return;
                 }
                 
@@ -1033,6 +1066,12 @@
             
             // 불러오기 함수 보완 (window.loadGame)
             window.loadGame = function(gameId) {
+                // 이미 선택지 처리 중인 경우 로드 불가
+                if (window.processingChoice) {
+                    alert('현재 선택지를 처리하는 중입니다. 응답을 받은 후 다시 시도해주세요.');
+                    return;
+                }
+                
                 // 기존 게임 진행 중인지 확인
                 if (currentGameId && !confirm('다른 게임을 불러오면 현재 진행 중인 게임은 저장되지 않습니다. 계속하시겠습니까?')) {
                     return;
@@ -1097,6 +1136,12 @@
             
             // 게임 삭제
             window.deleteGame = function(gameId) {
+                // 선택지 처리 중인 경우 삭제 불가
+                if (window.processingChoice) {
+                    alert('현재 선택지를 처리하는 중입니다. 응답을 받은 후 다시 시도해주세요.');
+                    return;
+                }
+                
                 if (!confirm('정말 이 게임을 삭제하시겠습니까?')) return;
                 
                 socket.emit('delete game', {
@@ -1110,6 +1155,7 @@
                     if (currentGameId === data.game_id) {
                         currentGameId = null;
                         gameData = null;
+                        window.processingChoice = false; // 처리 상태 초기화
                         $('#chatbox').empty();
                         $('#assistant-select').prop('disabled', false);
                     }
