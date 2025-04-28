@@ -704,28 +704,7 @@
                     buttonContainer.append(button);
                 });
                 
-                // 방향키 안내 메시지 추가
-                addKeyboardGuide();
-                
                 return buttonContainer;
-            }
-            
-            // 방향키 안내 메시지 추가 함수
-            function addKeyboardGuide() {
-                if ($('#keyboard-guide').length === 0) {
-                    const guideHtml = `
-                        <div id="keyboard-guide" class="system-message">
-                            <p>방향키로 선택할 수 있습니다: 
-                                <span class="key-guide">↑</span> 첫 번째, 
-                                <span class="key-guide">↓</span> 두 번째, 
-                                <span class="key-guide">←</span> 세 번째, 
-                                <span class="key-guide">→</span> 네 번째 선택지
-                            </p>
-                        </div>
-                    `;
-                    $('#chatbox').append(guideHtml);
-                    $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
-                }
             }
             
             // 방향키 이벤트 리스너 추가 - 키보드 입력 처리
