@@ -8,9 +8,17 @@ const chatHandler = (io, socket) => {
         const LOG_HEADER = "CHAT/MESSAGE";
         try {
             const userId = socket.request.session.userId;
-            if (!userId) throw "Not authenticated";
-            if (!data.game_id) throw "Game ID required";
-            if (!data.message) throw "Message required";
+            if (!userId) throw new Error("Not authenticated");
+            if (!data.game_id) throw new Error("Game ID required");
+            if (!data.message) throw new Error("Message required");
+
+            // 메시지 형식 검증
+            let safeMessage = data.message;
+            if (typeof safeMessage !== 'string') {
+                // 문자열이 아닌 경우 안전하게 변환
+                safeMessage = String(safeMessage);
+                console.log(`[${LOG_HEADER}] 메시지 형식 변환: ${typeof data.message} -> string`);
+            }
 
             // 현재 게임 상태 조회
             const game = await gameService.loadGame(data.game_id, userId);
@@ -19,7 +27,7 @@ const chatHandler = (io, socket) => {
             const response = await chatService.sendMessage(
                 game.thread_id,
                 game.assistant_id,
-                data.message
+                safeMessage
             );
 
             // 게임 상태 업데이트
@@ -103,7 +111,12 @@ const chatHandler = (io, socket) => {
                 gameData = updatedGameData;
                 
                 // 컨텍스트 업데이트
-                await chatService.updateGameContext(game.thread_id, updatedGameData);
+                try {
+                    await chatService.updateGameContext(game.thread_id, updatedGameData);
+                } catch (contextError) {
+                    console.error(`[${LOG_HEADER}] 컨텍스트 업데이트 오류:`, contextError);
+                    // 오류가 발생해도 계속 진행
+                }
             }
 
             console.log(`[${LOG_HEADER}] 응답 전송`);
@@ -126,14 +139,20 @@ const chatHandler = (io, socket) => {
         const LOG_HEADER = "CHAT/HISTORY";
         try {
             const userId = socket.request.session.userId;
-            if (!userId) throw "Not authenticated";
-            if (!data.game_id) throw "Game ID required";
+            if (!userId) throw new Error("Not authenticated");
+            if (!data.game_id) throw new Error("Game ID required");
 
             // 게임 정보 확인
             const game = await gameService.loadGame(data.game_id, userId);
             
             // 채팅 기록 가져오기
-            const history = await chatService.getMessageHistory(game.thread_id);
+            let history;
+            try {
+                history = await chatService.getMessageHistory(game.thread_id);
+            } catch (historyError) {
+                console.error(`[${LOG_HEADER}] History retrieval error:`, historyError);
+                history = []; // 오류 시 빈 배열 반환
+            }
             
             console.log(`[${LOG_HEADER}] History retrieved`);
             socket.emit('chat history response', {

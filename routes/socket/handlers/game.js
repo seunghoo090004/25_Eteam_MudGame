@@ -16,8 +16,8 @@ const gameHandler = (io, socket) => {
         
         try {
             const userId = socket.request.session.userId;
-            if (!userId) throw "Not authenticated";
-            if (!data.assistant_id) throw "Assistant ID required";
+            if (!userId) throw new Error("Not authenticated");
+            if (!data.assistant_id) throw new Error("Assistant ID required");
     
             const game = await gameService.createNewGame(userId, data.assistant_id);
             const initialResponse = await chatService.initializeChat(game.threadId, data.assistant_id);
@@ -53,8 +53,8 @@ const gameHandler = (io, socket) => {
         const LOG_HEADER = "GAME/LOAD";
         try {
             const userId = socket.request.session.userId;
-            if (!userId) throw "Not authenticated";
-            if (!data.game_id) throw "Game ID required";
+            if (!userId) throw new Error("Not authenticated");
+            if (!data.game_id) throw new Error("Game ID required");
     
             const gameData = await gameService.loadGame(data.game_id, userId);
             
@@ -98,15 +98,33 @@ const gameHandler = (io, socket) => {
         const LOG_HEADER = "GAME/SAVE";
         try {
             const userId = socket.request.session.userId;
-            if (!userId) throw "Not authenticated";
-            if (!data.game_id) throw "Game ID required";
-            if (!data.game_data) throw "Game data required";
+            if (!userId) throw new Error("Not authenticated");
+            if (!data.game_id) throw new Error("Game ID required");
+            if (!data.game_data) throw new Error("Game data required");
     
             console.log(`[${LOG_HEADER}] 저장 요청 받음`);
             
             // 게임 데이터 타입 검사 및 로깅
             console.log(`[${LOG_HEADER}] 전달 받은 데이터 타입:`, typeof data.game_data);
-            console.log(`[${LOG_HEADER}] 전달 받은 데이터:`, data.game_data);
+            
+            // 데이터가 문자열이 아닌 경우 문자열로 변환
+            let gameDataToSave = data.game_data;
+            if (typeof gameDataToSave !== 'string') {
+                try {
+                    gameDataToSave = JSON.stringify(gameDataToSave);
+                } catch (err) {
+                    console.error(`[${LOG_HEADER}] JSON 변환 오류:`, err);
+                    throw new Error("Game data format error");
+                }
+            }
+            
+            // JSON 유효성 검사 (파싱해보고 에러가 없으면 유효)
+            try {
+                JSON.parse(gameDataToSave);
+            } catch (err) {
+                console.error(`[${LOG_HEADER}] 유효하지 않은 JSON 데이터:`, err);
+                throw new Error("Invalid JSON format");
+            }
             
             // 저장 진행 중임을 클라이언트에 알림
             socket.emit('save game progress', {
@@ -115,7 +133,7 @@ const gameHandler = (io, socket) => {
             });
             
             // 게임 데이터를 저장하고 결과 반환
-            const result = await gameService.saveGame(data.game_id, userId, data.game_data);
+            const result = await gameService.saveGame(data.game_id, userId, gameDataToSave);
             
             if (result.success) {
                 console.log(`[${LOG_HEADER}] 게임 저장 성공`);
@@ -131,11 +149,11 @@ const gameHandler = (io, socket) => {
                     success: true,
                     threadChanged: true,
                     summary: result.summary,
-                    extractedLocation: result.extractedLocation, // 추출된 위치 정보 포함
+                    extractedLocation: result.extractedLocation,
                     initialResponse: result.initialResponse
                 });
             } else {
-                throw result.error || "Unknown error";
+                throw new Error(result.error || "Unknown error");
             }
     
         } catch (e) {
@@ -151,7 +169,7 @@ const gameHandler = (io, socket) => {
         const LOG_HEADER = "GAME/LIST";
         try {
             const userId = socket.request.session.userId;
-            if (!userId) throw "Not authenticated";
+            if (!userId) throw new Error("Not authenticated");
     
             // 강제 갱신 여부 확인 (기본값: false)
             const forceRefresh = data && data.forceRefresh === true;
@@ -191,8 +209,8 @@ const gameHandler = (io, socket) => {
         const LOG_HEADER = "GAME/DELETE";
         try {
             const userId = socket.request.session.userId;
-            if (!userId) throw "Not authenticated";
-            if (!data.game_id) throw "Game ID required";
+            if (!userId) throw new Error("Not authenticated");
+            if (!data.game_id) throw new Error("Game ID required");
 
             await gameService.deleteGame(data.game_id, userId);
             console.log(`[${LOG_HEADER}] Game deleted`);
