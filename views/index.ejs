@@ -156,11 +156,22 @@
             margin-bottom: 10px;
         }
         .save-timestamp {
+            text-align: center;
             font-size: 0.9rem;
             color: #555;
-            margin-bottom: 8px;
+            margin-bottom: 10px;
             padding-bottom: 8px;
             border-bottom: 1px solid #f0f0f0;
+            line-height: 1.4;
+        }
+        
+        .save-timestamp strong {
+            display: block;
+            margin-bottom: 3px;
+        }
+        
+        .save-timestamp .date-info {
+            display: block;
         }
         .location-info {
             background-color: #f8f9fa;
@@ -361,7 +372,7 @@
     <div class="page-container">
         <!-- 헤더와 사용자 컨트롤 통합 -->
         <div class="user-controls">
-            <div class="title-area">MUD Game</div>
+            <div class="title-area">                    MUD Game</div>
             <div class="user-info">
                 <%= username %> 님 환영합니다
                 <a href="/auth/logout" class="btn btn-logout" id="logout-button">로그아웃</a>
@@ -1120,7 +1131,10 @@
                         savedGamesList.append(`
                             <div class="game-entry ${highlightClass}" data-game-id="${game.game_id}">
                                 <div class="save-info">
-                                    <span class="save-timestamp"><strong>마지막 저장:</strong> ${gameDate}</span>
+                                    <span class="save-timestamp">
+                                        <strong>마지막 저장:</strong>
+                                        <span class="date-info">${gameDate}</span>
+                                    </span>
                                     <span class="location-info"><strong>위치:</strong> ${currentLocation}</span>
                                 </div>
                                 <div class="game-actions">
