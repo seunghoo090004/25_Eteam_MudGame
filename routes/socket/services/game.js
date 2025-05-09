@@ -23,29 +23,39 @@ class GameService {
             const thread = await openai.beta.threads.create();
             const gameId = uuidv4();
             
-            const initialGameData = {
-                player: {
-                    name: "플레이어",
-                    level: 1,
-                    exp: 0,
-                    health: 100
-                },
-                location: {
-                    current: "시작마을",
-                    discovered: ["시작마을"]
-                },
-                inventory: {
-                    items: [],
-                    gold: 0
-                },
-                progress: {
-                    phase: "튜토리얼",
-                    flags: {
-                        tutorialComplete: false,
-                        metNPC: false
-                    }
+        const initialGameData = {
+            player: {
+                name: "플레이어",
+                level: 1,
+                exp: 0,
+                health: 100
+            },
+            resources: {
+                torches: 2,
+                torchTurns: 10,
+                food: 3,
+                water: 5
+            },
+            location: {
+                current: "던전 최하층 감옥",
+                level: 1,
+                maxLevel: 5,
+                discovered: ["던전 최하층 감옥"]
+            },
+            inventory: {
+                items: [],
+                gold: 0
+            },
+            progress: {
+                turns: 0,
+                riskLevel: "높음",
+                phase: "탈출",
+                flags: {
+                    tutorialComplete: false,
+                    metNPC: false
                 }
-            };
+            }
+        };
 
             const connection = await pool.getConnection();
             try {
