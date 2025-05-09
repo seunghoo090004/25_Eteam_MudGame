@@ -64,7 +64,7 @@ const sessionMiddleware = session({
    resave: true,
    saveUninitialized: true,
    cookie: { 
-      secure: false,  // HTTPS 요구사항 비활성화
+      secure: true,
       maxAge: 1 * 60 * 60 * 1000, // 24시간
       httpOnly: true,
       sameSite: 'lax'
