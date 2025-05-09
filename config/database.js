@@ -13,19 +13,12 @@ const dbConfig = {
     ssl: {
         rejectUnauthorized: false
     },
-    connectTimeout: 60000,
+    connectTimeout: 60000, // 타임아웃 60초로 증가
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
-    debug: ['ComQueryPacket', 'RowDataPacket']
+    debug: ['ComQueryPacket', 'RowDataPacket'] // 디버그 모드 활성화
 };
-console.log('DB 연결 시도:', {
-    host: process.env.MYSQLHOST,
-    user: process.env.MYSQLUSER,
-    database: process.env.MYSQLDATABASE,
-    port: process.env.MYSQLPORT,
-    ssl_enabled: !!dbConfig.ssl
-});
 
 // 개발 환경에서는 SSL 설정 제거
 if (isDevelopment) {
