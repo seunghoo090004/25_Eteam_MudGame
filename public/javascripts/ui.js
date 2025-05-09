@@ -5,7 +5,19 @@ const GameUI = (function() {
         bindUIEvents();
         setupEventHandlers();
     }
-    
+    // 버튼 비활성화 처리
+    function disableAllButtons() {
+        $('#new-game, #save-game').prop('disabled', true);
+        $('.game-actions button').prop('disabled', true);
+        $('.choice-button').prop('disabled', true);
+    }
+
+    function enableAllButtons() {
+        $('#new-game, #save-game').prop('disabled', false);
+        $('.game-actions button').prop('disabled', false);
+        $('.choice-button').prop('disabled', false);
+    }
+
     // UI 이벤트 바인딩
     function bindUIEvents() {
         // 새 게임 버튼
@@ -173,9 +185,9 @@ const GameUI = (function() {
             console.log('이미 선택지 처리 중입니다. 중복 선택 무시');
             return;
         }
-        
-        // 모든 선택지 버튼 비활성화
-        $('.choice-button').prop('disabled', true);
+
+        // 모든 버튼 비활성화 추가
+        disableAllButtons();1
         
         // 현재 선택 버튼과 텍스트
         const selectedButton = $(this);
@@ -398,6 +410,8 @@ const GameUI = (function() {
         // 선택지 처리 상태 해제
         GameState.setProcessingChoice(false);
         
+        enableAllButtons();
+
         if (data.success) {
             // 로딩 숨기기
             hideLoading();
