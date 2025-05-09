@@ -10,9 +10,7 @@ const dbConfig = {
     password: process.env.MYSQLPASSWORD,
     database: process.env.MYSQLDATABASE,
     port: process.env.MYSQLPORT,
-    ssl: {
-        rejectUnauthorized: false
-    },
+    ssl: true,
     connectTimeout: 60000, // 타임아웃 60초로 증가
     waitForConnections: true,
     connectionLimit: 10,
