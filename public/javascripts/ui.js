@@ -1,10 +1,11 @@
-// public/js/game/ui.js
+// public/javascripts/game/ui.js
 const GameUI = (function() {
     // UI 초기화
     function initialize() {
         bindUIEvents();
         setupEventHandlers();
     }
+    
     // 버튼 비활성화 처리
     function disableAllButtons() {
         $('#new-game, #save-game').prop('disabled', true);
@@ -187,7 +188,7 @@ const GameUI = (function() {
         }
 
         // 모든 버튼 비활성화 추가
-        disableAllButtons();1
+        disableAllButtons();
         
         // 현재 선택 버튼과 텍스트
         const selectedButton = $(this);
@@ -277,6 +278,9 @@ const GameUI = (function() {
             return;
         }
         
+        // 모든 버튼 비활성화 추가
+        disableAllButtons();
+        
         // 버튼 로딩 상태 설정
         setButtonLoading($(this), true);
         
@@ -305,6 +309,9 @@ const GameUI = (function() {
         }
         
         try {
+            // 모든 버튼 비활성화 추가
+            disableAllButtons();
+            
             // 버튼 로딩 상태 설정
             setButtonLoading($(this), true);
             
@@ -338,6 +345,9 @@ const GameUI = (function() {
             // 로딩 숨기기
             hideLoading();
             
+            // 버튼 다시 활성화
+            enableAllButtons();
+            
             alert('게임 데이터 처리 중 오류가 발생했습니다: ' + err.message);
         }
     }
@@ -354,6 +364,10 @@ const GameUI = (function() {
     // 게임 재시작 처리
     function handleRestartGame() {
         console.log('게임 다시 시작');
+        
+        // 모든 버튼 비활성화 후 곧바로 다시 활성화
+        disableAllButtons();
+        setTimeout(enableAllButtons, 100);
         
         $('#assistant-select').prop('disabled', false);
         $('#chatbox').empty();
@@ -373,6 +387,9 @@ const GameUI = (function() {
     
     // 게임 계속 진행 처리
     function handleGameContinue() {
+        // 모든 버튼 비활성화
+        disableAllButtons();
+        
         // 기본 선택지 제공
         const defaultChoices = [
             { number: '1', text: '계속 진행하기' },
@@ -400,6 +417,9 @@ const GameUI = (function() {
         
         // 오류 메시지 제거 후 기본 선택지 추가
         $(this).closest('.system-message').replaceWith(buttonContainer);
+        
+        // 일정 시간 후 버튼 활성화
+        setTimeout(enableAllButtons, 100);
     }
     
     // 채팅 응답 처리
@@ -410,6 +430,7 @@ const GameUI = (function() {
         // 선택지 처리 상태 해제
         GameState.setProcessingChoice(false);
         
+        // 모든 버튼 다시 활성화
         enableAllButtons();
 
         if (data.success) {
@@ -557,6 +578,9 @@ const GameUI = (function() {
             
             $('#assistant-select').prop('disabled', true);
             
+            // 버튼 다시 활성화
+            enableAllButtons();
+            
             // 게임 목록 업데이트 체크
             setTimeout(() => {
                 if (!$('#saved_games_list').children().length) {
@@ -567,6 +591,9 @@ const GameUI = (function() {
             // 로딩 숨기기
             hideLoading();
             
+            // 버튼 다시 활성화
+            enableAllButtons();
+            
             alert(data.error || '게임 시작 중 오류가 발생했습니다.');
         }
     }
@@ -575,6 +602,9 @@ const GameUI = (function() {
     function handleGameLoad(event, data) {
         // 로딩 숨기기
         hideLoading();
+        
+        // 버튼 다시 활성화
+        enableAllButtons();
         
         if (data.success) {
             // 게임 상태 설정
@@ -635,6 +665,9 @@ const GameUI = (function() {
         // 로딩 숨기기
         hideLoading();
         
+        // 버튼 다시 활성화
+        enableAllButtons();
+        
         if (data.success) {
             // 성공 메시지 표시
             alert('게임이 저장되었습니다!');
@@ -676,6 +709,9 @@ const GameUI = (function() {
     
     // 게임 삭제 응답 처리
     function handleGameDelete(event, data) {
+        // 버튼 다시 활성화
+        enableAllButtons();
+        
         if (data.success) {
             if (GameState.getCurrentGameId() === data.game_id) {
                 // 현재 게임이 삭제된 경우, 상태 초기화
@@ -699,6 +735,8 @@ const GameUI = (function() {
         showLoading: showLoading,
         hideLoading: hideLoading,
         setButtonLoading: setButtonLoading,
-        createChoiceButtons: createChoiceButtons
+        createChoiceButtons: createChoiceButtons,
+        disableAllButtons: disableAllButtons,
+        enableAllButtons: enableAllButtons
     };
 })();
