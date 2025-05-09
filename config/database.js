@@ -19,6 +19,13 @@ const dbConfig = {
     queueLimit: 0,
     debug: ['ComQueryPacket', 'RowDataPacket'] // 디버그 모드 활성화
 };
+console.log('DB 연결 시도:', {
+    host: process.env.MYSQLHOST,
+    user: process.env.MYSQLUSER,
+    database: process.env.MYSQLDATABASE,
+    port: process.env.MYSQLPORT,
+    ssl_enabled: !!dbConfig.ssl
+});
 
 // 개발 환경에서는 SSL 설정 제거
 if (isDevelopment) {
