@@ -28,27 +28,26 @@ class GameService {
                 name: "플레이어",
                 level: 1,
                 exp: 0,
-                health: 100
-            },
-            resources: {
-                torches: 2,
-                torchTurns: 10,
-                food: 3,
-                water: 5
+                health: 100,
+                effects: '없음'
             },
             location: {
-                current: "던전 최하층 감옥",
+                roomId: '001',
+                roomName: '던전 최하층 감옥',
                 level: 1,
                 maxLevel: 5,
+                current: "던전 최하층 감옥",
                 discovered: ["던전 최하층 감옥"]
             },
             inventory: {
+                keyItems: '횃불(2)',
                 items: [],
                 gold: 0
             },
             progress: {
-                turns: 0,
-                riskLevel: "높음",
+                deathCount: 0,
+                discoveries: '없음',
+                puzzlesSolved: 0,
                 phase: "탈출",
                 flags: {
                     tutorialComplete: false,
@@ -56,7 +55,6 @@ class GameService {
                 }
             }
         };
-
             const connection = await pool.getConnection();
             try {
                 await connection.query(
@@ -566,31 +564,14 @@ class GameService {
 
     // 요약 정보에서 위치 추출 함수 추가
     extractLocationFromSummary(summary) {
-        if (!summary) return null;
+        const locationPattern = /현재\s*위치:\s*([^,]+),\s*([^,]+),\s*던전\s*레벨\s*(\d+)/;
+        const match = summary.match(locationPattern);
         
-        console.log("요약 정보 분석:", summary);
-        
-        // 패턴 1: "현재 위치는 [위치]" 패턴
-        let locationPattern1 = /현재\s*위치(?:는|:)\s*([^,.]+?)(?:로|에서|입니다|에|이며|\.|\,|$)/i;
-        let match1 = summary.match(locationPattern1);
-        
-        // 패턴 2: "위치: [위치]" 패턴
-        let locationPattern2 = /위치\s*:\s*([^,.]+?)(?:로|에서|입니다|에|이며|\.|\,|$)/i;
-        let match2 = summary.match(locationPattern2);
-        
-        // 패턴 3: "위치는 [위치]" 패턴
-        let locationPattern3 = /위치는\s*([^,.]+?)(?:로|에서|입니다|에|이며|\.|\,|$)/i;
-        let match3 = summary.match(locationPattern3);
-        
-        // 매칭 결과 로깅
-        if (match1) console.log("패턴1 매칭 결과:", match1[1]);
-        if (match2) console.log("패턴2 매칭 결과:", match2[1]);
-        if (match3) console.log("패턴3 매칭 결과:", match3[1]);
-        
-        // 매칭된 패턴 중 첫 번째 것 사용
-        if (match1) return match1[1].trim();
-        if (match2) return match2[1].trim();
-        if (match3) return match3[1].trim();
+        if (match) {
+            // 객체가 아닌 문자열로 반환
+            const roomName = match[2].trim();
+            return roomName;
+        }
         
         return null;
     }

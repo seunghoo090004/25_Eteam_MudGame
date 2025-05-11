@@ -108,26 +108,27 @@ const GameUI = (function() {
         }
         
         // 선택지 패턴 매칭
-        const choicePattern = /(?:^|\n)(\d+)[\.\)]\s*([^\n\.]+?)(?=$|\n|\.)/g;
+        const choicePattern = /([↑↓←→])\s*([^\n]+)/g;
         let choices = [];
         let match;
         
-        console.log('선택지 검색 시작:', message);
-        
-        // 모든 선택지 찾기
         while ((match = choicePattern.exec(message)) !== null) {
-            // 선택지 번호가 1-4 사이여야 함
-            if (['1', '2', '3', '4'].includes(match[1])) {
-                const number = match[1].trim();
-                const text = match[2].trim();
-                
-                console.log(`선택지 발견: ${number}. ${text}`);
-                
-                choices.push({
-                    number: number,
-                    text: text
-                });
+            const direction = match[1];
+            const text = match[2].trim();
+            
+            let number;
+            switch(direction) {
+                case '↑': number = '1'; break;
+                case '↓': number = '2'; break;
+                case '←': number = '3'; break;
+                case '→': number = '4'; break;
             }
+            
+            choices.push({
+                number: number,
+                text: text,
+                direction: direction
+            });
         }
         
         console.log('찾은 선택지:', choices.length, choices);
@@ -150,23 +151,16 @@ const GameUI = (function() {
         
         // 선택지 버튼 생성
         const buttonContainer = $('<div class="choice-buttons"></div>');
-        choices.forEach((choice, index) => {
-            // 방향키 아이콘 추가
-            const directionIcons = ['↑', '↓', '←', '→'];
-            const directionIcon = index < 4 ? directionIcons[index] : '';
-            
+        choices.forEach((choice) => {
             const button = $(`
                 <button class="choice-button" data-choice="${choice.number}">
-                    <span class="direction-icon">${directionIcon}</span> ${choice.number}. ${choice.text}
+                    <span class="direction-icon">${choice.direction}</span> ${choice.text}
                 </button>
             `);
-            
             buttonContainer.append(button);
         });
         
-        // 모든 버튼에 클릭 이벤트 바인딩
         buttonContainer.on('click', '.choice-button', handleChoiceSelection);
-        
         return buttonContainer;
     }
     
