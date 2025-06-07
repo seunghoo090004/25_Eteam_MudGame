@@ -1,4 +1,5 @@
-// public/javascripts/game/ui.js
+// public/javascripts/ui.js - 최신 응답만 표시, 진행률 제거
+
 const GameUI = (function() {
     // UI 초기화
     function initialize() {
@@ -107,14 +108,15 @@ const GameUI = (function() {
             return errorMessage;
         }
         
-        // 선택지 패턴 매칭
-        const choicePattern = /([↑↓←→])\s*([^\n]+)/g;
+        // 선택지 패턴 매칭 (자연스러운 형식 지원)
+        const choicePattern = /([↑↓←→])\s*([^-\n]+?)\s*-\s*([^\n]+)/g;
         let choices = [];
         let match;
         
         while ((match = choicePattern.exec(message)) !== null) {
             const direction = match[1];
-            const text = match[2].trim();
+            const action = match[2].trim();
+            const feeling = match[3].trim();
             
             let number;
             switch(direction) {
@@ -126,7 +128,7 @@ const GameUI = (function() {
             
             choices.push({
                 number: number,
-                text: text,
+                text: `${action} - ${feeling}`,
                 direction: direction
             });
         }
@@ -181,7 +183,7 @@ const GameUI = (function() {
             return;
         }
 
-        // 모든 버튼 비활성화 추가
+        // 모든 버튼 비활성화
         disableAllButtons();
         
         // 현재 선택 버튼과 텍스트
@@ -194,6 +196,11 @@ const GameUI = (function() {
         
         // 선택 처리 상태 설정
         GameState.setProcessingChoice(true);
+        
+        // **이전 메시지들 제거 - 최신 내용만 유지**
+        $('#chatbox .message').remove();
+        $('.choice-buttons').remove();
+        $('.system-message').remove();
         
         // 선택 메시지 채팅창에 추가
         $('#chatbox').append(`<div class="message user-message">${choiceText}</div>`);
@@ -272,7 +279,7 @@ const GameUI = (function() {
             return;
         }
         
-        // 모든 버튼 비활성화 추가
+        // 모든 버튼 비활성화
         disableAllButtons();
         
         // 버튼 로딩 상태 설정
@@ -303,7 +310,7 @@ const GameUI = (function() {
         }
         
         try {
-            // 모든 버튼 비활성화 추가
+            // 모든 버튼 비활성화
             disableAllButtons();
             
             // 버튼 로딩 상태 설정
@@ -321,7 +328,7 @@ const GameUI = (function() {
                 throw new Error('게임 데이터가 없습니다');
             }
             
-            // 깊은 복사로 데이터 전송 - JSON 직렬화 이슈 방지
+            // 깊은 복사로 데이터 전송
             const gameCopy = JSON.parse(JSON.stringify(gameData));
             
             // 서버로 전송
@@ -475,7 +482,7 @@ const GameUI = (function() {
         $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
     }
     
-    // 게임 목록 처리
+    // 게임 목록 처리 (진행률 제거)
     function handleGamesList(event, data) {
         if (data.success) {
             const savedGamesList = $('#saved_games_list');
@@ -493,20 +500,40 @@ const GameUI = (function() {
                 // 마지막 저장 시간 포맷팅
                 const gameDate = new Date(game.last_updated).toLocaleString();
                 
-                // 위치 정보 추출 (없으면 기본값)
-                const currentLocation = (game.game_data && game.game_data.location && game.game_data.location.current) 
-                    ? game.game_data.location.current 
-                    : "알 수 없음";
+                // 게임 정보 추출
+                const gameData = game.game_data || {};
+                const player = gameData.player || {};
+                const location = gameData.location || {};
+                const inventory = gameData.inventory || {};
+                const progress = gameData.progress || {};
+                
+                // 상태 정보 생성
+                const currentLocation = location.current || "알 수 없음";
+                const health = player.health || 100;
+                const maxHealth = player.maxHealth || 100;
+                const status = player.status || '양호';
+                const mental = player.mental || '안정';
+                const keyItems = inventory.keyItems || '없음';
+                const playTime = progress.playTime || "방금 시작";
+                const deathCount = progress.deathCount || 0;
+                
+                // 상태 아이콘 생성
+                let statusIcon = '✅';
+                if (health <= 20) statusIcon = '🔥';
+                else if (health <= 50) statusIcon = '⚠️';
                 
                 // 현재 게임 여부에 따른 강조 표시
                 const isCurrentGame = (game.game_id === GameState.getCurrentGameId());
                 const highlightClass = isCurrentGame ? 'current-game' : '';
                 
-                // 위치 정보를 강조한 게임 항목 생성
+                // 상세한 게임 정보 표시 (진행률 제거)
                 savedGamesList.append(`
                     <div class="game-entry ${highlightClass}" data-game-id="${game.game_id}">
                         <span><strong>마지막 저장:</strong> ${gameDate}</span>
                         <span class="location-info"><strong>위치:</strong> ${currentLocation}</span>
+                        <span>❤️ ${health}/${maxHealth} 🧠 ${status} 💰 ${keyItems}</span>
+                        <span>⏰ 플레이시간: ${playTime}</span>
+                        ${deathCount > 0 ? `<span>💀 사망: ${deathCount}회</span>` : ''}
                         <div class="game-actions">
                             <button class="btn btn-primary" onclick="loadGame('${game.game_id}')">불러오기</button>
                             <button class="btn btn-danger" onclick="deleteGame('${game.game_id}')" style="margin-left: 5px;">삭제</button>
@@ -592,7 +619,7 @@ const GameUI = (function() {
         }
     }
     
-    // 게임 로드 응답 처리
+    // 게임 로드 응답 처리 (최신 메시지만 표시)
     function handleGameLoad(event, data) {
         // 로딩 숨기기
         hideLoading();
@@ -608,30 +635,33 @@ const GameUI = (function() {
             $('#chatbox').empty();
             
             if (data.game.chatHistory && data.game.chatHistory.length > 0) {
-                // 채팅 히스토리 표시 (시간순으로 정렬)
+                // 채팅 히스토리에서 마지막 AI 응답만 표시
                 const chatHistory = [...data.game.chatHistory].sort((a, b) => {
                     const dateA = new Date(a.created_at);
                     const dateB = new Date(b.created_at);
                     return dateA - dateB;
                 });
                 
-                // 대화 내용 표시
-                chatHistory.forEach(msg => {
-                    const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
-                    $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
-                });
+                // 마지막 AI 메시지만 찾아서 표시
+                const lastAIMessage = chatHistory.reverse().find(msg => msg.role === 'assistant');
                 
-                // 마지막 메시지가 AI 응답인지 확인하고 선택지 버튼 생성
-                const lastMessage = chatHistory[chatHistory.length - 1];
-                if (lastMessage && lastMessage.role === 'assistant') {
+                if (lastAIMessage) {
+                    $('#chatbox').append(`<div class="message assistant-message">${lastAIMessage.content}</div>`);
+                    
+                    // 선택지 버튼 생성
                     console.log('Creating choice buttons for last AI message');
-                    const buttons = createChoiceButtons(lastMessage.content);
+                    const buttons = createChoiceButtons(lastAIMessage.content);
                     if (buttons) {
                         $('#chatbox').append(buttons);
                     } else {
                         console.warn('Failed to create choice buttons');
                     }
+                } else {
+                    // AI 메시지가 없으면 새로운 응답 요청
+                    $('#chatbox').append(`<div class="system-message">게임을 이어서 진행합니다...</div>`);
                 }
+            } else {
+                $('#chatbox').append(`<div class="system-message">게임을 이어서 진행합니다...</div>`);
             }
             
             $('#assistant-select').prop('disabled', true);
@@ -668,15 +698,6 @@ const GameUI = (function() {
             
             // 이전 메시지 및 버튼 제거
             $('#chatbox').empty();
-            
-            // 요약 정보에서 위치 정보 추출
-            let locationFromSummary = GameState.extractLocationFromSummary(data.summary);
-            console.log('요약에서 추출한 위치 정보:', locationFromSummary);
-            
-            // 현재 게임 데이터 업데이트
-            if (locationFromSummary) {
-                GameState.updateGameLocation(locationFromSummary);
-            }
             
             // 요약 응답 표시 (사용자 메시지로)
             $('#chatbox').append(`<div class="message user-message">이전 게임 요약: ${data.summary}</div>`);

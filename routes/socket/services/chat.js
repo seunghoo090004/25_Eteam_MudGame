@@ -1,367 +1,461 @@
-// routes/socket/services/chat.js
-// AI 어시스턴트와의 대화 처리 및 컨텍스트 관리
+// routes/socket/services/chat.js - 최종 개선된 버전
+// Game State Update 제거 + 자연스러운 선택지
 
 const pool = require('../../../config/database');
 const openai = require('../../../config/openai');
 
 class ChatService {
-   async sendMessage(threadId, assistantId, message) {
-       const LOG_HEADER = "CHAT_SERVICE/SEND";
-       try {
-           // 현재 실행 중인 run이 있는지 확인 및 완료 대기
-           const runs = await openai.beta.threads.runs.list(threadId);
-           const activeRun = runs.data.find(run => ['in_progress', 'queued'].includes(run.status));
-           
-           if (activeRun) {
-               console.log(`[${LOG_HEADER}] Waiting for previous run to complete: ${activeRun.id}`);
-               let runStatus;
-               do {
-                   await new Promise(resolve => setTimeout(resolve, 1000));
-                   runStatus = await openai.beta.threads.runs.retrieve(threadId, activeRun.id);
-                   console.log(`[${LOG_HEADER}] Run status: ${runStatus.status}`);
-               } while (['in_progress', 'queued'].includes(runStatus.status));
-           }
+    async sendMessage(threadId, assistantId, message) {
+        const LOG_HEADER = "CHAT_SERVICE/SEND";
+        try {
+            // 현재 실행 중인 run이 있는지 확인 및 완료 대기
+            const runs = await openai.beta.threads.runs.list(threadId);
+            const activeRun = runs.data.find(run => ['in_progress', 'queued'].includes(run.status));
+            
+            if (activeRun) {
+                console.log(`[${LOG_HEADER}] Waiting for previous run to complete: ${activeRun.id}`);
+                let runStatus;
+                do {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    runStatus = await openai.beta.threads.runs.retrieve(threadId, activeRun.id);
+                    console.log(`[${LOG_HEADER}] Run status: ${runStatus.status}`);
+                } while (['in_progress', 'queued'].includes(runStatus.status));
+            }
 
-           // 메시지 추가 - 문자열 확인 및 변환
-           const safeMessage = typeof message === 'string' ? message : String(message);
-           
-           // 메시지 추가 시도
-           try {
-               await openai.beta.threads.messages.create(threadId, {
-                   role: "user",
-                   content: safeMessage
-               });
-           } catch (msgError) {
-               console.error(`[${LOG_HEADER}] Failed to add message: ${msgError.message}`);
-               // 다시 시도 - 10초 대기 후
-               await new Promise(resolve => setTimeout(resolve, 10000));
-               await openai.beta.threads.messages.create(threadId, {
-                   role: "user",
-                   content: safeMessage
-               });
-           }
+            // 메시지 추가
+            const safeMessage = typeof message === 'string' ? message : String(message);
+            
+            try {
+                await openai.beta.threads.messages.create(threadId, {
+                    role: "user",
+                    content: safeMessage
+                });
+            } catch (msgError) {
+                console.error(`[${LOG_HEADER}] Failed to add message: ${msgError.message}`);
+                await new Promise(resolve => setTimeout(resolve, 10000));
+                await openai.beta.threads.messages.create(threadId, {
+                    role: "user",
+                    content: safeMessage
+                });
+            }
 
-           // 게임 형식을 유지하기 위한 지침 추가
-           await openai.beta.threads.messages.create(threadId, {
-               role: "user",
-               content: `[시스템 지침: 다음 규칙을 반드시 준수하세요:
+            // 최종 게임 형식 지침 - 자연스러운 선택지
+            await openai.beta.threads.messages.create(threadId, {
+                role: "user",
+                content: `[FINAL SYSTEM DIRECTIVE - NATURAL CHOICE FORMAT]
 
-1. 던전 환경:
-  - 반드시 던전 내부 환경만 묘사할 것
-  - 항상 [위치: 방ID|방이름] 형식으로 위치 표시
-  - 모든 묘사에 던전 요소 5가지 이상 포함할 것
+**던전 탈출 게임 - 자연스러운 선택지 형식**
 
-2. 선택지 형식:
-  - 모든 선택지는 다음과 같은 형식으로 제공:
-    다음 행동을 선택하세요:
-    ↑ [선택지 내용]
-    ↓ [선택지 내용]
-    ← [선택지 내용]
-    → [선택지 내용]
-  - 반드시 4개의 방향키 선택지 제공
+반드시 다음 형식으로 응답하세요:
 
-3. 상태 표시:
-  - 마지막에 [상태: 체력%|아이템|효과|발견사항] 형식으로 표시]`
-           });
+===============================================
+         던전 탈출 - 지하 [층수]층
+===============================================
 
-           // 새로운 run 시작 - 실행 중 확인 재시도
-           let run;
-           try {
-               run = await openai.beta.threads.runs.create(threadId, {
-                   assistant_id: assistantId
-               });
-           } catch (runError) {
-               if (runError.message.includes('while a run is active')) {
-                   console.log(`[${LOG_HEADER}] Run already active, waiting 15 seconds and retrying`);
-                   await new Promise(resolve => setTimeout(resolve, 15000));
-                   run = await openai.beta.threads.runs.create(threadId, {
-                       assistant_id: assistantId
-                   });
-               } else {
-                   throw runError;
-               }
-           }
+>> 위치: [방ID] - [방이름]
 
-           // 실행 완료 대기 (최대 2분) - 상태 체크 개선
-           let runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
-           const startTime = Date.now();
-           const timeout = 120000; // 2분
-           
-           while (['queued', 'in_progress'].includes(runStatus.status)) {
-               if (Date.now() - startTime > timeout) {
-                   throw new Error("Response timeout");
-               }
-               await new Promise(resolve => setTimeout(resolve, 1000));
-               runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
-               console.log(`[${LOG_HEADER}] Run status: ${runStatus.status}`);
-           }
+[환경 묘사 - 2-3문장으로 몰입감 있게]
+[감각적 세부사항과 즉각적 위험 포함]
 
-           if (runStatus.status === 'failed') {
-               throw new Error(runStatus.last_error?.message || 'Assistant run failed');
-           }
+STATS ================================
+체력: [현재]/[최대]  체력상태: [상태]  정신: [상태]
+소지품: [아이템 목록]
+골드: [수량]  시간: [게임시간]
+위치: [층 정보]
 
-           if (runStatus.status === 'completed') {
-               // 타임아웃 추가하여 메시지 동기화 보장
-               await new Promise(resolve => setTimeout(resolve, 2000));
-               
-               const messages = await openai.beta.threads.messages.list(threadId);
-               
-               if (!messages.data || messages.data.length === 0) {
-                   throw new Error("No messages received after completion");
-               }
-               
-               // 첫 번째 메시지 내용 추출 안전 처리
-               const firstMessage = messages.data[0];
-               if (!firstMessage.content || !firstMessage.content[0] || !firstMessage.content[0].text) {
-                   throw new Error("Invalid message format received");
-               }
-               
-               const response = firstMessage.content[0].text.value;
-               
-               // 선택지 형식 검증
-               const choicePattern = /↑.*\n↓.*\n←.*\n→.*/;
-               
-               console.log(`[${LOG_HEADER}] 응답 검사:`, response);
-               
-               // 선택지가 없으면 선택지 생성 요청
-               if (!choicePattern.test(response)) {
-                   console.log(`[${LOG_HEADER}] No valid choices found in response, requesting choices`);
-                   
-                   // 선택지 생성 요청 - 기존 run이 완전히 완료될 때까지 기다린 후
-                   await new Promise(resolve => setTimeout(resolve, 5000));
-                   
-                   await openai.beta.threads.messages.create(threadId, {
-                       role: "user",
-                       content: `이전 응답에서 선택지를 찾을 수 없습니다. 다음 규칙에 따라 선택지를 제공해주세요:
+위험도: [낮음/중간/높음/매우높음]
+경고: [즉각적 위험 또는 특별한 상태]
 
-다음 행동을 선택하세요:
-↑ [선택지 1]
-↓ [선택지 2]
-← [선택지 3]
-→ [선택지 4]`
-                   });
-                   
-                   // 선택지 생성 실행 - 이전 실행 완료 확인
-                   await new Promise(resolve => setTimeout(resolve, 5000));
-                   
-                   const choiceRun = await openai.beta.threads.runs.create(threadId, {
-                       assistant_id: assistantId
-                   });
-                   
-                   // 실행 완료 대기
-                   let choiceRunStatus = await openai.beta.threads.runs.retrieve(threadId, choiceRun.id);
-                   const choiceStartTime = Date.now();
-                   
-                   while (['queued', 'in_progress'].includes(choiceRunStatus.status)) {
-                       if (Date.now() - choiceStartTime > timeout) {
-                           throw new Error("Choice generation timeout");
-                       }
-                       await new Promise(resolve => setTimeout(resolve, 1000));
-                       choiceRunStatus = await openai.beta.threads.runs.retrieve(threadId, choiceRun.id);
-                   }
-                   
-                   if (choiceRunStatus.status === 'completed') {
-                       // 완료 후 잠시 대기하여 메시지 동기화
-                       await new Promise(resolve => setTimeout(resolve, 2000));
-                       
-                       const updatedMessages = await openai.beta.threads.messages.list(threadId);
-                       
-                       if (!updatedMessages.data || updatedMessages.data.length === 0) {
-                           throw new Error("No messages received after choice generation");
-                       }
-                       
-                       return updatedMessages.data[0].content[0].text.value;
-                   } else {
-                       throw new Error(`Choice generation failed with status: ${choiceRunStatus.status}`);
-                   }
-               }
-               
-               console.log(`[${LOG_HEADER}] Message processed successfully`);
-               return response;
-           }
+===============================================
 
-           throw new Error(`Unexpected run status: ${runStatus.status}`);
+**중요: 선택지는 반드시 이 형식으로!**
 
-       } catch (e) {
-           console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
-           throw e;
-       }
-   }
+↑ [간단한 행동] - [자연스러운 느낌 표현]
+↓ [간단한 행동] - [자연스러운 느낌 표현]
+← [간단한 행동] - [자연스러운 느낌 표현]
+→ [간단한 행동] - [자연스러운 느낌 표현]
 
-   async getMessageHistory(threadId) {
-       const LOG_HEADER = "CHAT_SERVICE/HISTORY";
-       try {
-           const messages = await openai.beta.threads.messages.list(threadId);
-           const history = messages.data
-               .map(msg => ({
-                   role: msg.role,
-                   content: msg.content[0].text.value,
-                   created_at: new Date(msg.created_at * 1000)
-               }))
-               .sort((a, b) => a.created_at - b.created_at); // 시간순 정렬
-   
-           console.log(`[${LOG_HEADER}] Retrieved ${history.length} messages`);
-           return history;
-   
-       } catch (e) {
-           console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
-           throw e;
-       }
-   }
+**좋은 느낌 표현 예시:**
+- 안전: "안전해 보임", "무난할 듯", "괜찮을 것 같음"
+- 주의: "신중하게", "조심스럽게", "살펴보며"
+- 위험: "위험한 느낌", "불안한 기운", "조심해야 할 것 같음"
+- 매우위험: "매우 위험할 것 같음", "목숨을 걸고", "용기가 필요함"
 
-   async createGameSummary(threadId, assistantId) {
-       const LOG_HEADER = "CHAT_SERVICE/CREATE_SUMMARY";
-       try {
-           // 요약 메시지 생성 - 응답 형식 명확화
-           await openai.beta.threads.messages.create(threadId, {
-               role: "user",
-               content: `### 게임 세션 요약
-   이 게임 세션을 새 스레드에 이어갈 수 있도록 핵심 정보를 요약해주세요:
-   
-   다음 내용을 작성하세요 (번호 없이):
-   - 캐릭터 현황: 레벨, 체력, 보유 능력, 중요 관계
-   - 현재 위치: 방ID, 방이름, 던전 레벨
-   - 진행 상황: 현재 퀘스트, 미완료 목표, 마지막 선택
-   - 세계 상태: 영향력 있는 결정, 중요 NPC 상호작용
-   - 보유 자원: 중요 아이템, 골드, 발견사항
-   
-   ※ 중요: 요약에는 절대로 '1.', '2.' 같은 번호가 붙은 내용을 포함하지 마세요.
-   
-   150단어 이내로 작성하되, 다음 세션에서 일관된 경험을 제공할 수 있는 필수 내용을 포함해야 합니다.`
-           });
-           
-           // 기존 실행 중인 프로세스가 있으면 완료 대기
-           const runs = await openai.beta.threads.runs.list(threadId);
-           const activeRun = runs.data.find(run => ['in_progress', 'queued'].includes(run.status));
-           
-           if (activeRun) {
-               console.log(`[${LOG_HEADER}] 기존 실행 중인 프로세스 대기: ${activeRun.id}`);
-               let runStatus;
-               do {
-                   await new Promise(resolve => setTimeout(resolve, 2000));
-                   runStatus = await openai.beta.threads.runs.retrieve(threadId, activeRun.id);
-               } while (['in_progress', 'queued'].includes(runStatus.status));
-           }
-           
-           // 요약 생성을 위한 실행 - 충분한 대기 시간 추가
-           await new Promise(resolve => setTimeout(resolve, 3000));
-           
-           const run = await openai.beta.threads.runs.create(threadId, {
-               assistant_id: assistantId
-           });
-           
-           // 실행 완료 대기
-           let runStatus;
-           do {
-               await new Promise(resolve => setTimeout(resolve, 1000));
-               runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
-               console.log(`[${LOG_HEADER}] Run status: ${runStatus.status}`);
-           } while (['queued', 'in_progress'].includes(runStatus.status));
-           
-           if (runStatus.status !== 'completed') {
-               throw new Error(`Summary generation failed with status: ${runStatus.status}`);
-           }
-           
-           // 생성된 요약 가져오기 - 메시지 동기화를 위한 대기 시간 추가
-           await new Promise(resolve => setTimeout(resolve, 2000));
-           
-           const updatedMessages = await openai.beta.threads.messages.list(threadId);
-           
-           if (!updatedMessages.data || updatedMessages.data.length === 0) {
-               throw new Error("No messages received after summary generation");
-           }
-           
-           // 첫 번째 메시지 내용 추출 안전 처리
-           const firstMessage = updatedMessages.data[0];
-           if (!firstMessage.content || !firstMessage.content[0] || !firstMessage.content[0].text) {
-               throw new Error("Invalid message format received");
-           }
-           
-           const summary = firstMessage.content[0].text.value;
-           
-           console.log(`[${LOG_HEADER}] Summary created successfully`);
-           return summary;
-           
-       } catch (e) {
-           console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
-           throw e;
-       }
-   }
+**절대 하지 말 것:**
+- (위험), (안전) 같은 괄호 표현 금지
+- [위로], [아래로] 같은 대괄호 금지
+- 너무 긴 설명 금지
 
-   async updateGameContext(threadId, gameState) {
-       const LOG_HEADER = "CHAT_SERVICE/UPDATE_CONTEXT";
-       try {
-           // 문자열이 아닌 경우 안전하게 문자열로 변환
-           let gameStateStr;
-           
-           try {
-               gameStateStr = typeof gameState === 'string' 
-                   ? gameState 
-                   : JSON.stringify(gameState);
-           } catch (err) {
-               console.error(`[${LOG_HEADER}] Error stringifying game state:`, err);
-               gameStateStr = "Game state update error";
-           }
-           
-           await openai.beta.threads.messages.create(threadId, {
-               role: "user",
-               content: `Game State Update:
-                   Location: ${gameState.location?.current || "알 수 없음"}
-                   Phase: ${gameState.progress?.phase || "튜토리얼"}
-                   World Info: ${gameState.progress?.phase || "튜토리얼"}`
-           });
-   
-           console.log(`[${LOG_HEADER}] Game context updated`);
-   
-       } catch (e) {
-           console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
-           throw e;
-       }
-   }
+**규칙:**
+1. 모든 텍스트는 한국어
+2. 선택지는 간결하고 자연스럽게
+3. 느낌 표현으로 위험도 전달
+4. 몰입감 있는 환경 묘사
+5. 실제 위험과 결과 제공
 
-   async initializeChat(threadId, assistantId) {
-       const LOG_HEADER = "CHAT_SERVICE/INIT";
-       try {
-           // 초기 시스템 메시지 설정 - 게임 형식을 명확히 지정
-           await openai.beta.threads.messages.create(threadId, {
-               role: "user",
-               content: `***던전 탈출 게임 시스템 지침***
+지금부터 이 형식으로만 응답하세요.`
+            });
 
-당신은 던전의 가장 깊은 곳, 축축하고 어두운 돌 감옥에서 깨어납니다. 당신의 유일한 목표는 출구를 찾아 이 던전에서 탈출하는 것입니다.
+            // 새로운 run 시작
+            let run;
+            try {
+                run = await openai.beta.threads.runs.create(threadId, {
+                    assistant_id: assistantId
+                });
+            } catch (runError) {
+                if (runError.message.includes('while a run is active')) {
+                    console.log(`[${LOG_HEADER}] Run already active, waiting 15 seconds and retrying`);
+                    await new Promise(resolve => setTimeout(resolve, 15000));
+                    run = await openai.beta.threads.runs.create(threadId, {
+                        assistant_id: assistantId
+                    });
+                } else {
+                    throw runError;
+                }
+            }
 
-축축한 돌벽이 당신을 둘러싸고 있습니다. 멀리서 물방울 떨어지는 소리가 들리며, 차가운 공기가 폐를 찌릅니다. 벽에는 녹슨 사슬이 걸려 있고, 바닥에는 이끼가 자라고 있습니다. 희미한 빛이 작은 창틈으로 새어들어 오고, 쥐들이 구석에서 바스락거립니다.
+            // 실행 완료 대기
+            let runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
+            const startTime = Date.now();
+            const timeout = 120000; // 2분
+            
+            while (['queued', 'in_progress'].includes(runStatus.status)) {
+                if (Date.now() - startTime > timeout) {
+                    throw new Error("Response timeout");
+                }
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
+                console.log(`[${LOG_HEADER}] Run status: ${runStatus.status}`);
+            }
 
-**핵심 규칙:**
-- 모든 게임은 100% 한국어로 진행되며 던전 내부에서만 이루어집니다
-- 위치 표시: [위치: 방ID|방이름]
-- 상태 표시: [상태: 체력%|아이템|효과|발견사항]
+            if (runStatus.status === 'failed') {
+                throw new Error(runStatus.last_error?.message || 'Assistant run failed');
+            }
 
-**선택지 형식:**
-다음 행동을 선택하세요:
-↑ [위쪽/위험한 선택]
-↓ [아래쪽/안전한 선택]  
-← [탐색/조사 선택]
-→ [직진/적극적 선택]
+            if (runStatus.status === 'completed') {
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                const messages = await openai.beta.threads.messages.list(threadId);
+                
+                if (!messages.data || messages.data.length === 0) {
+                    throw new Error("No messages received after completion");
+                }
+                
+                const firstMessage = messages.data[0];
+                if (!firstMessage.content || !firstMessage.content[0] || !firstMessage.content[0].text) {
+                    throw new Error("Invalid message format received");
+                }
+                
+                let response = firstMessage.content[0].text.value;
+                
+                // 응답 후처리 - 자연스러운 형식으로 변환
+                response = this.processNaturalChoices(response);
+                
+                console.log(`[${LOG_HEADER}] Message processed with natural choices`);
+                return response;
+            }
 
-게임을 시작하고 플레이어에게 첫 번째 선택지를 제시해주세요.`
-           });
-   
-           console.log(`[${LOG_HEADER}] Chat initialized with improved prompting`);
-           // 초기 응답 받기 - 실행 중 오류 대응 추가
-           try {
-               return await this.sendMessage(threadId, assistantId, "게임을 시작합니다");
-           } catch (initError) {
-               console.error(`[${LOG_HEADER}] Initial message error: ${initError.message}`);
-               // 10초 대기 후 재시도
-               await new Promise(resolve => setTimeout(resolve, 10000));
-               return await this.sendMessage(threadId, assistantId, "게임을 시작합니다");
-           }
-   
-       } catch (e) {
-           console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
-           throw e;
-       }
-   }
+            throw new Error(`Unexpected run status: ${runStatus.status}`);
+
+        } catch (e) {
+            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
+            throw e;
+        }
+    }
+
+    // 자연스러운 선택지로 변환
+    processNaturalChoices(response) {
+        const LOG_HEADER = "CHAT_SERVICE/NATURAL_CHOICES";
+        
+        let processedResponse = response;
+        
+        // 기존 형식을 자연스러운 형식으로 변환
+        const oldChoicePattern = /(\[(?:위로|아래로|왼쪽|오른쪽)\]|↑|↓|←|→)\s*([^-\n]+)\s*[-–]\s*\(([^)]+)\)/g;
+        
+        processedResponse = processedResponse.replace(oldChoicePattern, (match, direction, action, risk) => {
+            // 방향 기호로 통일
+            let arrow;
+            if (direction.includes('위로') || direction === '↑') arrow = '↑';
+            else if (direction.includes('아래로') || direction === '↓') arrow = '↓';
+            else if (direction.includes('왼쪽') || direction === '←') arrow = '←';
+            else if (direction.includes('오른쪽') || direction === '→') arrow = '→';
+            
+            // 행동 정리
+            let cleanAction = action.trim();
+            
+            // 위험도를 자연스러운 표현으로 변환
+            let naturalFeeling;
+            const riskLower = risk.toLowerCase();
+            
+            if (riskLower.includes('안전') || riskLower.includes('무해')) {
+                naturalFeeling = Math.random() > 0.5 ? '안전해 보임' : '무난할 듯';
+            } else if (riskLower.includes('주의') || riskLower.includes('조심')) {
+                naturalFeeling = Math.random() > 0.5 ? '신중하게' : '조심스럽게';
+            } else if (riskLower.includes('위험') && !riskLower.includes('매우')) {
+                naturalFeeling = Math.random() > 0.5 ? '위험한 느낌' : '불안한 기운';
+            } else if (riskLower.includes('매우') || riskLower.includes('치명') || riskLower.includes('극도')) {
+                naturalFeeling = Math.random() > 0.5 ? '매우 위험할 것 같음' : '용기가 필요함';
+            } else {
+                naturalFeeling = '살펴보며';
+            }
+            
+            return `${arrow} ${cleanAction} - ${naturalFeeling}`;
+        });
+        
+        // 괄호 형식 제거
+        processedResponse = processedResponse.replace(/\(위험\)|(\(안전\))|(\(주의\))|(\(매우위험\))/g, '');
+        
+        console.log(`[${LOG_HEADER}] Converted to natural choice format`);
+        return processedResponse;
+    }
+
+    // 게임 응답에서 상태 정보 파싱
+    parseGameResponse(response) {
+        const LOG_HEADER = "CHAT_SERVICE/PARSE_RESPONSE";
+        
+        try {
+            const gameState = {
+                location: { current: "알 수 없음" },
+                player: { health: 100, maxHealth: 100, status: '양호', mental: '안정' },
+                inventory: { items: [], gold: 0 }
+            };
+
+            // 위치 정보 추출: >> 위치: [ID] - [방이름]
+            const locationPattern = />>\s*위치:\s*([^-]+)\s*-\s*([^\n]+)/;
+            const locationMatch = response.match(locationPattern);
+            if (locationMatch) {
+                gameState.location.roomId = locationMatch[1].trim();
+                gameState.location.current = locationMatch[2].trim();
+            }
+
+            // STATS 섹션 파싱
+            const statsPattern = /STATS[^=]*={3,}([\s\S]*?)={3,}/;
+            const statsMatch = response.match(statsPattern);
+            
+            if (statsMatch) {
+                const statsContent = statsMatch[1];
+                
+                // 체력 정보
+                const healthPattern = /체력:\s*(\d+)\/(\d+)/;
+                const healthMatch = statsContent.match(healthPattern);
+                if (healthMatch) {
+                    gameState.player.health = parseInt(healthMatch[1]);
+                    gameState.player.maxHealth = parseInt(healthMatch[2]);
+                }
+                
+                // 체력상태
+                const statusPattern = /체력상태:\s*([^\s]+)/;
+                const statusMatch = statsContent.match(statusPattern);
+                if (statusMatch) {
+                    gameState.player.status = statusMatch[1];
+                }
+                
+                // 정신상태
+                const mentalPattern = /정신:\s*([^\s]+)/;
+                const mentalMatch = statsContent.match(mentalPattern);
+                if (mentalMatch) {
+                    gameState.player.mental = mentalMatch[1];
+                }
+                
+                // 소지품
+                const itemsPattern = /소지품:\s*([^\n]+)/;
+                const itemsMatch = statsContent.match(itemsPattern);
+                if (itemsMatch) {
+                    gameState.inventory.keyItems = itemsMatch[1].trim();
+                }
+                
+                // 골드
+                const goldPattern = /골드:\s*(\d+)/;
+                const goldMatch = statsContent.match(goldPattern);
+                if (goldMatch) {
+                    gameState.inventory.gold = parseInt(goldMatch[1]);
+                }
+            }
+
+            console.log(`[${LOG_HEADER}] Parsed game state:`, gameState);
+            return gameState;
+
+        } catch (e) {
+            console.error(`[${LOG_HEADER}] Parse error:`, e);
+            return null;
+        }
+    }
+
+    async initializeChat(threadId, assistantId) {
+        const LOG_HEADER = "CHAT_SERVICE/INIT";
+        try {
+            // 최종 초기화 설정
+            await openai.beta.threads.messages.create(threadId, {
+                role: "user",
+                content: `***던전 탈출 게임 - 최종 시스템 초기화***
+
+당신은 극도로 위험한 던전 탈출 게임의 게임 마스터입니다.
+
+**핵심 설정:**
+- 플레이어는 던전 최하층 감옥에서 시작
+- 목표: 던전 탈출 (극도로 어려움)
+- 모든 선택에는 실제 위험이 따름
+- 체력 0 = 사망
+- 분위기: 어둡고 위험한 서바이벌 호러
+
+**필수 응답 형식:**
+
+===============================================
+         던전 탈출 - 지하 [층]층
+===============================================
+
+>> 위치: [ID] - [방이름]
+
+[몰입감 있는 환경 묘사 2-3문장]
+
+STATS ================================
+체력: [현재]/[최대]  체력상태: [상태]  정신: [상태]
+소지품: [아이템들]
+골드: [수량]  시간: [게임시간]
+위치: [층 정보]
+
+위험도: [레벨]  경고: [즉각적 위험]
+
+===============================================
+
+**선택지 형식 (반드시 지켜야 함):**
+↑ [간단한 행동] - [자연스러운 느낌]
+↓ [간단한 행동] - [자연스러운 느낌]
+← [간단한 행동] - [자연스러운 느낌]
+→ [간단한 행동] - [자연스러운 느낌]
+
+**중요 규칙:**
+1. 괄호 형식 (위험) 절대 사용 금지
+2. 화살표 기호 사용 필수
+3. 자연스러운 느낌 표현으로 위험도 전달
+4. 모든 선택에 실제 결과
+5. 한국어로만 작성
+
+지금 게임을 시작하세요. 플레이어가 차가운 돌 감옥에서 깨어납니다.`
+            });
+
+            console.log(`[${LOG_HEADER}] Final system initialized with natural choices`);
+            
+            // 초기 응답 받기
+            try {
+                return await this.sendMessage(threadId, assistantId, "게임을 시작합니다. 자연스러운 선택지로 진행해주세요.");
+            } catch (initError) {
+                console.error(`[${LOG_HEADER}] Initial message error: ${initError.message}`);
+                await new Promise(resolve => setTimeout(resolve, 10000));
+                return await this.sendMessage(threadId, assistantId, "게임을 시작합니다.");
+            }
+
+        } catch (e) {
+            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
+            throw e;
+        }
+    }
+
+    async getMessageHistory(threadId) {
+        const LOG_HEADER = "CHAT_SERVICE/HISTORY";
+        try {
+            const messages = await openai.beta.threads.messages.list(threadId);
+            const history = messages.data
+                .map(msg => ({
+                    role: msg.role,
+                    content: msg.content[0].text.value,
+                    created_at: new Date(msg.created_at * 1000)
+                }))
+                .sort((a, b) => a.created_at - b.created_at);
+
+            console.log(`[${LOG_HEADER}] Retrieved ${history.length} messages`);
+            return history;
+
+        } catch (e) {
+            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
+            throw e;
+        }
+    }
+
+    async createGameSummary(threadId, assistantId) {
+        const LOG_HEADER = "CHAT_SERVICE/CREATE_SUMMARY";
+        try {
+            await openai.beta.threads.messages.create(threadId, {
+                role: "user",
+                content: `### 게임 세션 요약 생성
+
+이 게임 세션을 새 스레드에 이어갈 수 있도록 핵심 정보만 간략히 요약해주세요:
+
+**요약 형식:**
+캐릭터: [레벨, 체력, 주요 능력]
+위치: [현재 방ID, 방이름, 던전 레벨]
+진행: [주요 퀘스트, 마지막 행동]
+세계: [중요한 변화, NPC 상호작용]
+자원: [핵심 아이템, 발견사항]
+
+150단어 이내로 작성하되, 게임 연속성에 필요한 정보만 포함하세요.`
+            });
+
+            // 기존 실행 중인 프로세스가 있으면 완료 대기
+            const runs = await openai.beta.threads.runs.list(threadId);
+            const activeRun = runs.data.find(run => ['in_progress', 'queued'].includes(run.status));
+            
+            if (activeRun) {
+                console.log(`[${LOG_HEADER}] 기존 실행 중인 프로세스 대기: ${activeRun.id}`);
+                let runStatus;
+                do {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    runStatus = await openai.beta.threads.runs.retrieve(threadId, activeRun.id);
+                } while (['in_progress', 'queued'].includes(runStatus.status));
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            
+            const run = await openai.beta.threads.runs.create(threadId, {
+                assistant_id: assistantId
+            });
+            
+            let runStatus;
+            do {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
+                console.log(`[${LOG_HEADER}] Run status: ${runStatus.status}`);
+            } while (['queued', 'in_progress'].includes(runStatus.status));
+            
+            if (runStatus.status !== 'completed') {
+                throw new Error(`Summary generation failed with status: ${runStatus.status}`);
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            const updatedMessages = await openai.beta.threads.messages.list(threadId);
+            
+            if (!updatedMessages.data || updatedMessages.data.length === 0) {
+                throw new Error("No messages received after summary generation");
+            }
+            
+            const firstMessage = updatedMessages.data[0];
+            if (!firstMessage.content || !firstMessage.content[0] || !firstMessage.content[0].text) {
+                throw new Error("Invalid message format received");
+            }
+            
+            const summary = firstMessage.content[0].text.value;
+            
+            console.log(`[${LOG_HEADER}] Summary created successfully`);
+            return summary;
+            
+        } catch (e) {
+            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
+            throw e;
+        }
+    }
+
+    async updateGameContext(threadId, gameState) {
+        const LOG_HEADER = "CHAT_SERVICE/UPDATE_CONTEXT";
+        try {
+            // Game State Update 메시지는 더 이상 생성하지 않음
+            console.log(`[${LOG_HEADER}] Game context updated (no state update box)`);
+
+        } catch (e) {
+            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
+            throw e;
+        }
+    }
 }
 
 module.exports = new ChatService();
