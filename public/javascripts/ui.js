@@ -108,15 +108,14 @@ const GameUI = (function() {
             return errorMessage;
         }
         
-        // 선택지 패턴 매칭 (자연스러운 형식 지원)
-        const choicePattern = /([↑↓←→])\s*([^-\n]+?)\s*-\s*([^\n]+)/g;
+        // 선택지 패턴 매칭 - 더 유연한 방식
+        const choicePattern = /([↑↓←→])\s*([^\n↑↓←→]+)/g;
         let choices = [];
         let match;
         
         while ((match = choicePattern.exec(message)) !== null) {
             const direction = match[1];
-            const action = match[2].trim();
-            const feeling = match[3].trim();
+            const fullText = match[2].trim();
             
             let number;
             switch(direction) {
@@ -128,7 +127,7 @@ const GameUI = (function() {
             
             choices.push({
                 number: number,
-                text: `${action} - ${feeling}`,
+                text: fullText,
                 direction: direction
             });
         }
