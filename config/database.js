@@ -1,7 +1,8 @@
 // config/database.js
-// MySQL 설정 (레퍼런스 패턴 적용)
+// MySQL 설정 (프로시저 지원 확장 - 레퍼런스 패턴 적용)
 
 const mysql = require('mysql2/promise');
+const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 
 const LOG_FAIL_HEADER = "[FAIL]";
@@ -10,6 +11,9 @@ const LOG_INFO_HEADER = "[INFO]";
 
 const isDevelopment = process.env.NODE_ENV !== 'production';
 
+// ============================================================================
+// 데이터베이스 연결 설정
+// ============================================================================
 const dbConfig = {
     host: process.env.MYSQLHOST,
     user: process.env.MYSQLUSER,
@@ -23,7 +27,10 @@ const dbConfig = {
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
-    debug: ['ComQueryPacket', 'RowDataPacket']
+    acquireTimeout: 60000,
+    timeout: 60000,
+    reconnect: true,
+    multipleStatements: true  // 프로시저 호출을 위해 필요
 };
 
 // 개발 환경에서는 SSL 설정 제거
@@ -35,9 +42,13 @@ let pool;
 let connectionStatus = {
     connected: false,
     lastError: null,
-    connectionTime: null
+    connectionTime: null,
+    reconnectAttempts: 0
 };
 
+// ============================================================================
+// 연결 풀 생성 및 초기화
+// ============================================================================
 try {
     pool = mysql.createPool(dbConfig);
     
@@ -47,6 +58,7 @@ try {
             try {
                 connectionStatus.connected = true;
                 connectionStatus.connectionTime = new Date();
+                connectionStatus.reconnectAttempts = 0;
                 
                 console.log(LOG_SUCC_HEADER + " Database connected successfully", {
                     mode: isDevelopment ? 'development' : 'production',
@@ -63,6 +75,17 @@ try {
                 
                 const [version] = await connection.query('SELECT VERSION() as version');
                 console.log(LOG_INFO_HEADER + " Database version:", version[0].version);
+                
+                // 프로시저 확인
+                const [procedures] = await connection.query(`
+                    SELECT ROUTINE_NAME as procedure_name, ROUTINE_TYPE as type
+                    FROM INFORMATION_SCHEMA.ROUTINES 
+                    WHERE ROUTINE_SCHEMA = DATABASE() 
+                      AND ROUTINE_TYPE = 'PROCEDURE'
+                      AND ROUTINE_NAME LIKE 'pc%'
+                    ORDER BY ROUTINE_NAME
+                `);
+                console.log(LOG_INFO_HEADER + " Available procedures:", procedures.length);
                 
                 connection.release();
             } catch (infoError) {
@@ -107,12 +130,455 @@ try {
     throw poolError;
 }
 
+// ============================================================================
+// 프로시저 호출 함수 (OUTPUT 파라미터만 있는 경우)
+// ============================================================================
+async function callProcedure(procedureName, inputParams = []) {
+    const LOG_HEADER_TITLE = "CALL_PROCEDURE";
+    const LOG_HEADER = "Procedure[" + procedureName + "] --> " + LOG_HEADER_TITLE;
+    
+    const fail_status = 500;
+    let ret_status = 200;
+    let ret_data;
+    
+    const catch_sqlconn = -1;
+    const catch_procedure_call = -2;
+    const catch_result_parse = -3;
+    
+    const EXT_data = { 
+        procedureName, 
+        inputParamsCount: inputParams.length,
+        inputParamsTypes: inputParams.map(p => typeof p)
+    };
+    let connection;
+    
+    try {
+        //----------------------------------------------------------------------
+        // 입력층: 연결 확보
+        //----------------------------------------------------------------------
+        try {
+            connection = await pool.getConnection();
+        } catch (e) {
+            ret_status = fail_status + (-1 * catch_sqlconn);
+            ret_data = {
+                code: LOG_HEADER_TITLE + "(db_connection)",
+                value: catch_sqlconn,
+                value_ext1: ret_status,
+                value_ext2: e.message,
+                EXT_data
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            throw new Error(ret_data.value_ext2);
+        }
+        
+        //----------------------------------------------------------------------
+        // 처리층: 프로시저 실행
+        //----------------------------------------------------------------------
+        let procedureResult;
+        try {
+            const placeholders = inputParams.map(() => '?').join(', ');
+            const sql = `CALL ${procedureName}(${placeholders}, @p_result, @p_result2)`;
+            
+            // 프로시저 실행
+            await connection.query(sql, inputParams);
+            
+            // 출력 파라미터 가져오기
+            const [outputs] = await connection.query('SELECT @p_result as result, @p_result2 as result2');
+            procedureResult = outputs[0];
+            
+        } catch (e) {
+            ret_status = fail_status + (-1 * catch_procedure_call);
+            ret_data = {
+                code: LOG_HEADER_TITLE + "(procedure_call)",
+                value: catch_procedure_call,
+                value_ext1: ret_status,
+                value_ext2: e.message,
+                EXT_data
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            throw new Error(ret_data.value_ext2);
+        }
+        
+        //----------------------------------------------------------------------
+        // 출력층: 결과 처리 및 반환
+        //----------------------------------------------------------------------
+        try {
+            const resultCode = parseInt(procedureResult.result);
+            const resultMessage = procedureResult.result2;
+            
+            // 결과 코드가 음수면 실패
+            if (resultCode < 0) {
+                const errorResult = {
+                    success: false,
+                    code: resultCode,
+                    message: resultMessage,
+                    error: resultMessage
+                };
+                
+                // -100은 NOT FOUND (경고 레벨)
+                if (resultCode === -100) {
+                    console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " NOT FOUND:", resultMessage);
+                } else {
+                    console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " PROCEDURE FAILED:", resultMessage);
+                }
+                
+                return errorResult;
+            }
+            
+            // 성공 결과
+            const successResult = {
+                success: true,
+                code: resultCode,
+                message: resultMessage,
+                result: resultCode
+            };
+            
+            ret_data = {
+                code: "result",
+                value: resultCode,
+                value_ext1: ret_status,
+                value_ext2: successResult,
+                EXT_data
+            };
+            
+            console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify({
+                ...ret_data,
+                value_ext2: { success: true, code: resultCode, message: "***" }
+            }, null, 2));
+            
+            return successResult;
+            
+        } catch (e) {
+            ret_status = fail_status + (-1 * catch_result_parse);
+            ret_data = {
+                code: LOG_HEADER_TITLE + "(result_parse)",
+                value: catch_result_parse,
+                value_ext1: ret_status,
+                value_ext2: e.message,
+                EXT_data
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            throw new Error(ret_data.value_ext2);
+        }
+        
+    } finally {
+        if (connection) connection.release();
+    }
+}
+
+// ============================================================================
+// 프로시저 호출 함수 (SELECT 결과셋 + OUTPUT 파라미터)
+// ============================================================================
+async function callSelectProcedure(procedureName, inputParams = []) {
+    const LOG_HEADER_TITLE = "CALL_SELECT_PROCEDURE";
+    const LOG_HEADER = "Procedure[" + procedureName + "] --> " + LOG_HEADER_TITLE;
+    
+    const fail_status = 500;
+    let ret_status = 200;
+    let ret_data;
+    
+    const catch_sqlconn = -1;
+    const catch_procedure_call = -2;
+    const catch_result_parse = -3;
+    
+    const EXT_data = { 
+        procedureName, 
+        inputParamsCount: inputParams.length,
+        inputParamsTypes: inputParams.map(p => typeof p)
+    };
+    let connection;
+    
+    try {
+        //----------------------------------------------------------------------
+        // 입력층: 연결 확보
+        //----------------------------------------------------------------------
+        try {
+            connection = await pool.getConnection();
+        } catch (e) {
+            ret_status = fail_status + (-1 * catch_sqlconn);
+            ret_data = {
+                code: LOG_HEADER_TITLE + "(db_connection)",
+                value: catch_sqlconn,
+                value_ext1: ret_status,
+                value_ext2: e.message,
+                EXT_data
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            throw new Error(ret_data.value_ext2);
+        }
+        
+        //----------------------------------------------------------------------
+        // 처리층: SELECT 프로시저 실행 (결과셋 + 출력 파라미터)
+        //----------------------------------------------------------------------
+        let resultSet, procedureResult;
+        try {
+            const placeholders = inputParams.map(() => '?').join(', ');
+            const sql = `CALL ${procedureName}(${placeholders}, @p_result, @p_result2)`;
+            
+            // 프로시저 실행 (결과셋 반환)
+            const [rows] = await connection.query(sql, inputParams);
+            resultSet = rows;
+            
+            // 출력 파라미터 가져오기
+            const [outputs] = await connection.query('SELECT @p_result as result, @p_result2 as result2');
+            procedureResult = outputs[0];
+            
+        } catch (e) {
+            ret_status = fail_status + (-1 * catch_procedure_call);
+            ret_data = {
+                code: LOG_HEADER_TITLE + "(procedure_call)",
+                value: catch_procedure_call,
+                value_ext1: ret_status,
+                value_ext2: e.message,
+                EXT_data
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            throw new Error(ret_data.value_ext2);
+        }
+        
+        //----------------------------------------------------------------------
+        // 출력층: 결과 처리 및 반환
+        //----------------------------------------------------------------------
+        try {
+            const resultCode = parseInt(procedureResult.result);
+            const resultMessage = procedureResult.result2;
+            
+            // 결과 코드가 음수면 실패
+            if (resultCode < 0) {
+                const errorResult = {
+                    success: false,
+                    code: resultCode,
+                    message: resultMessage,
+                    error: resultMessage,
+                    data: null
+                };
+                
+                // -100은 NOT FOUND (경고 레벨)
+                if (resultCode === -100) {
+                    console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " NOT FOUND:", resultMessage);
+                } else {
+                    console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " PROCEDURE FAILED:", resultMessage);
+                }
+                
+                return errorResult;
+            }
+            
+            // 성공 결과
+            const successResult = {
+                success: true,
+                code: resultCode,
+                message: resultMessage,
+                data: resultSet,
+                count: Array.isArray(resultSet) ? resultSet.length : 0
+            };
+            
+            ret_data = {
+                code: "result",
+                value: resultCode,
+                value_ext1: ret_status,
+                value_ext2: successResult,
+                EXT_data
+            };
+            
+            console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify({
+                ...ret_data,
+                value_ext2: { 
+                    success: true, 
+                    code: resultCode, 
+                    message: "***",
+                    dataCount: Array.isArray(resultSet) ? resultSet.length : 0
+                }
+            }, null, 2));
+            
+            return successResult;
+            
+        } catch (e) {
+            ret_status = fail_status + (-1 * catch_result_parse);
+            ret_data = {
+                code: LOG_HEADER_TITLE + "(result_parse)",
+                value: catch_result_parse,
+                value_ext1: ret_status,
+                value_ext2: e.message,
+                EXT_data
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            throw new Error(ret_data.value_ext2);
+        }
+        
+    } finally {
+        if (connection) connection.release();
+    }
+}
+
+// ============================================================================
+// 비즈니스 로직 프로시저 호출 (출력 파라미터가 많은 경우)
+// ============================================================================
+async function callBusinessProcedure(procedureName, inputParams = [], outputParamNames = []) {
+    const LOG_HEADER_TITLE = "CALL_BUSINESS_PROCEDURE";
+    const LOG_HEADER = "Procedure[" + procedureName + "] --> " + LOG_HEADER_TITLE;
+    
+    const fail_status = 500;
+    let ret_status = 200;
+    let ret_data;
+    
+    const catch_sqlconn = -1;
+    const catch_procedure_call = -2;
+    const catch_result_parse = -3;
+    
+    const EXT_data = { 
+        procedureName, 
+        inputParamsCount: inputParams.length,
+        outputParamsCount: outputParamNames.length,
+        inputParamsTypes: inputParams.map(p => typeof p)
+    };
+    let connection;
+    
+    try {
+        //----------------------------------------------------------------------
+        // 입력층: 연결 확보
+        //----------------------------------------------------------------------
+        try {
+            connection = await pool.getConnection();
+        } catch (e) {
+            ret_status = fail_status + (-1 * catch_sqlconn);
+            ret_data = {
+                code: LOG_HEADER_TITLE + "(db_connection)",
+                value: catch_sqlconn,
+                value_ext1: ret_status,
+                value_ext2: e.message,
+                EXT_data
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            throw new Error(ret_data.value_ext2);
+        }
+        
+        //----------------------------------------------------------------------
+        // 처리층: 비즈니스 프로시저 실행
+        //----------------------------------------------------------------------
+        let procedureResult;
+        try {
+            const inputPlaceholders = inputParams.map(() => '?').join(', ');
+            const outputPlaceholders = outputParamNames.map(name => `@${name}`).join(', ');
+            const allPlaceholders = inputPlaceholders + 
+                (inputPlaceholders && outputPlaceholders ? ', ' : '') + 
+                outputPlaceholders + 
+                ', @p_result, @p_result2';
+            
+            const sql = `CALL ${procedureName}(${allPlaceholders})`;
+            
+            // 프로시저 실행
+            await connection.query(sql, inputParams);
+            
+            // 모든 출력 파라미터 가져오기
+            const selectParams = outputParamNames.map(name => `@${name} as ${name}`).join(', ');
+            const selectSql = `SELECT ${selectParams}, @p_result as result, @p_result2 as result2`;
+            const [outputs] = await connection.query(selectSql);
+            procedureResult = outputs[0];
+            
+        } catch (e) {
+            ret_status = fail_status + (-1 * catch_procedure_call);
+            ret_data = {
+                code: LOG_HEADER_TITLE + "(procedure_call)",
+                value: catch_procedure_call,
+                value_ext1: ret_status,
+                value_ext2: e.message,
+                EXT_data
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            throw new Error(ret_data.value_ext2);
+        }
+        
+        //----------------------------------------------------------------------
+        // 출력층: 결과 처리 및 반환
+        //----------------------------------------------------------------------
+        try {
+            const resultCode = parseInt(procedureResult.result);
+            const resultMessage = procedureResult.result2;
+            
+            // 출력 파라미터 값들 추출
+            const outputData = {};
+            outputParamNames.forEach(name => {
+                outputData[name] = procedureResult[name];
+            });
+            
+            // 결과 코드가 음수면 실패
+            if (resultCode < 0) {
+                const errorResult = {
+                    success: false,
+                    code: resultCode,
+                    message: resultMessage,
+                    error: resultMessage,
+                    data: outputData
+                };
+                
+                // -100은 NOT FOUND (경고 레벨)
+                if (resultCode === -100) {
+                    console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " NOT FOUND:", resultMessage);
+                } else {
+                    console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " PROCEDURE FAILED:", resultMessage);
+                }
+                
+                return errorResult;
+            }
+            
+            // 성공 결과
+            const successResult = {
+                success: true,
+                code: resultCode,
+                message: resultMessage,
+                data: outputData
+            };
+            
+            ret_data = {
+                code: "result",
+                value: resultCode,
+                value_ext1: ret_status,
+                value_ext2: successResult,
+                EXT_data
+            };
+            
+            console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify({
+                ...ret_data,
+                value_ext2: { success: true, code: resultCode, message: "***" }
+            }, null, 2));
+            
+            return successResult;
+            
+        } catch (e) {
+            ret_status = fail_status + (-1 * catch_result_parse);
+            ret_data = {
+                code: LOG_HEADER_TITLE + "(result_parse)",
+                value: catch_result_parse,
+                value_ext1: ret_status,
+                value_ext2: e.message,
+                EXT_data
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            throw new Error(ret_data.value_ext2);
+        }
+        
+    } finally {
+        if (connection) connection.release();
+    }
+}
+
+// ============================================================================
+// UUID 생성 유틸리티
+// ============================================================================
+function generateUUID() {
+    return uuidv4().replace(/-/g, '');
+}
+
+// ============================================================================
 // 연결 상태 확인 함수
+// ============================================================================
 function getConnectionStatus() {
     return connectionStatus;
 }
 
+// ============================================================================
 // 연결 상태 모니터링
+// ============================================================================
 setInterval(() => {
     if (pool && connectionStatus.connected) {
         pool.getConnection()
@@ -120,6 +586,7 @@ setInterval(() => {
                 connection.release();
                 if (!connectionStatus.connected) {
                     connectionStatus.connected = true;
+                    connectionStatus.reconnectAttempts = 0;
                     console.log(LOG_SUCC_HEADER + " Database connection restored");
                 }
             })
@@ -127,13 +594,24 @@ setInterval(() => {
                 if (connectionStatus.connected) {
                     connectionStatus.connected = false;
                     connectionStatus.lastError = err;
-                    console.error(LOG_FAIL_HEADER + " Database connection lost:", err.message);
+                    connectionStatus.reconnectAttempts++;
+                    console.error(LOG_FAIL_HEADER + " Database connection lost:", {
+                        error: err.message,
+                        attempt: connectionStatus.reconnectAttempts
+                    });
                 }
             });
     }
 }, 30000); // 30초마다 체크
 
+// ============================================================================
+// 모듈 내보내기
+// ============================================================================
 module.exports = {
     pool,
+    callProcedure,
+    callSelectProcedure,
+    callBusinessProcedure,
+    generateUUID,
     getConnectionStatus
 };

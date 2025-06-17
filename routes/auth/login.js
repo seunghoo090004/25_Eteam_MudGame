@@ -1,12 +1,18 @@
-// routes/auth/login.js - 레퍼런스 패턴 적용 (완전한 코드)
+// routes/auth/login.js - 프로시저 기반 리팩토링 (레퍼런스 패턴 적용)
 
 'use strict';
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
-const { pool } = require('../../config/database');
 const my_reqinfo = require('../../utils/reqinfo');
 const csrf = require('csurf');
+const { 
+    callBusinessProcedure,
+    generateAttemptId,
+    validateEmail,
+    normalizeEmail,
+    logLoginAttempt
+} = require('../../utils/dbUtils');
 
 const LOG_FAIL_HEADER = "[FAIL]";
 const LOG_SUCC_HEADER = "[SUCC]";
@@ -16,32 +22,7 @@ const LOG_INFO_HEADER = "[INFO]";
 const csrfProtection = csrf({ cookie: true });
 
 //========================================================================
-// 로그인 시도 로깅 함수
-//========================================================================
-async function logLoginAttempt(connection, email, ip, status, userId = null, errorReason = null) {
-    const LOG_HEADER_TITLE = "LOG_LOGIN_ATTEMPT";
-    const LOG_HEADER = "Email[" + my_reqinfo.maskId(email) + "] IP[" + ip + "] --> " + LOG_HEADER_TITLE;
-    
-    try {
-        await connection.query(
-            'INSERT INTO login_attempts (user_id, email, ip_address, status, error_reason, attempt_time) VALUES (?, ?, ?, ?, ?, NOW())',
-            [userId, email, ip, status, errorReason]
-        );
-        console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " Status: " + status);
-    } catch (error) {
-        const error_data = {
-            code: LOG_HEADER_TITLE + "(insert_error)",
-            value: -1,
-            value_ext1: 500,
-            value_ext2: error.message,
-            EXT_data: { email, ip, status, userId, errorReason }
-        };
-        console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(error_data, null, 2));
-    }
-}
-
-//========================================================================
-// 입력값 검증 함수
+// 입력값 검증 함수 (입력층)
 //========================================================================
 function validateLoginInput(email, password) {
     const LOG_HEADER_TITLE = "VALIDATE_LOGIN_INPUT";
@@ -51,10 +32,14 @@ function validateLoginInput(email, password) {
     
     if (!email || email.trim() === '') {
         errors.email = '이메일을 입력해주세요.';
+    } else if (!validateEmail(email)) {
+        errors.email = '유효한 이메일 형식이 아닙니다.';
     }
     
     if (!password || password.trim() === '') {
         errors.password = '비밀번호를 입력해주세요.';
+    } else if (password.length < 4) {
+        errors.password = '비밀번호는 4자 이상 입력해주세요.';
     }
     
     const isValid = Object.keys(errors).length === 0;
@@ -69,108 +54,7 @@ function validateLoginInput(email, password) {
 }
 
 //========================================================================
-// 로그인 시도 제한 미들웨어
-//========================================================================
-const loginAttemptTracker = async (req, res, next) => {
-    const LOG_HEADER_TITLE = "LOGIN_ATTEMPT_TRACKER";
-    const EXT_data = my_reqinfo.get_req_url(req);
-    const LOG_HEADER = "Email[" + my_reqinfo.maskId(req.body.email) + "] --> " + LOG_HEADER_TITLE;
-    
-    const fail_status = 500;
-    let ret_status = 200;
-    let ret_data;
-    
-    const catch_input = -1;
-    const catch_sqlconn = -2;
-    const catch_sql_select = -3;
-    
-    let connection;
-    
-    try {
-        const { email } = req.body;
-        
-        // 이메일 확인
-        if (!email) {
-            return next();
-        }
-        
-        // DB 연결
-        try {
-            connection = await pool.getConnection();
-        } catch (e) {
-            ret_status = fail_status + (-1 * catch_sqlconn);
-            ret_data = {
-                code: LOG_HEADER_TITLE + "(db_connection)",
-                value: catch_sqlconn,
-                value_ext1: ret_status,
-                value_ext2: e.message,
-                EXT_data
-            };
-            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-            return next();
-        }
-        
-        // 최근 30분 내 실패한 로그인 시도 횟수 조회
-        let attempts;
-        try {
-            [attempts] = await connection.query(
-                'SELECT COUNT(*) as failCount FROM login_attempts WHERE email = ? AND status = "FAILED" AND attempt_time > DATE_SUB(NOW(), INTERVAL 30 MINUTE)',
-                [email]
-            );
-        } catch (e) {
-            ret_status = fail_status + (-1 * catch_sql_select);
-            ret_data = {
-                code: LOG_HEADER_TITLE + "(sql_select)",
-                value: catch_sql_select,
-                value_ext1: ret_status,
-                value_ext2: e.message,
-                EXT_data
-            };
-            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-            return next();
-        } finally {
-            if (connection) connection.release();
-        }
-        
-        const failCount = attempts[0].failCount;
-        
-        // 5회 이상 실패 시 비밀번호 재설정 메시지 표시
-        if (failCount >= 4) {
-            ret_data = {
-                code: LOG_HEADER_TITLE + "(too_many_attempts)",
-                value: failCount,
-                value_ext1: 403,
-                value_ext2: "Too many failed login attempts",
-                EXT_data
-            };
-            console.log(LOG_INFO_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-            
-            return res.status(403).json({
-                code: 'TOO_MANY_ATTEMPTS',
-                msg: '로그인 시도가 너무 많습니다. 비밀번호를 재설정해주세요.',
-                resetRequired: true
-            });
-        }
-        
-        console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " Attempt count: " + failCount);
-        next();
-        
-    } catch (e) {
-        if (connection) connection.release();
-        const error_data = {
-            code: LOG_HEADER_TITLE + "(unexpected_error)",
-            value: -999,
-            value_ext1: 500,
-            value_ext2: e.message,
-            EXT_data
-        };
-        console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(error_data, null, 2));
-        next();
-    }
-};
-
-//========================================================================
-// GET 요청 처리 (로그인 페이지 렌더링)
+// GET /auth/login - 로그인 페이지 렌더링
 //========================================================================
 router.get('/', csrfProtection, function(req, res) {
     const LOG_HEADER_TITLE = "LOGIN_PAGE_GET";
@@ -187,16 +71,15 @@ router.get('/', csrfProtection, function(req, res) {
     
     // login.ejs를 렌더링하면서 CSRF 토큰 전달
     res.render('login', { 
-        csrfToken: req.csrfToken(),
-        registered: req.query.registered === 'true'
+        csrfToken: req.csrfToken() 
     });
 });
 
 //========================================================================
-router.post('/', csrfProtection, loginAttemptTracker, async(req, res) => 
+// POST /auth/login - 로그인 처리
 //========================================================================
-{
-    const LOG_HEADER_TITLE = "LOGIN_POST";
+router.post('/', csrfProtection, async(req, res) => {
+    const LOG_HEADER_TITLE = "LOGIN_PROCESS";
     const EXT_data = my_reqinfo.get_req_url(req);
     const LOG_HEADER = "Email[" + my_reqinfo.maskId(req.body.email) + "] --> " + LOG_HEADER_TITLE;
     
@@ -204,20 +87,26 @@ router.post('/', csrfProtection, loginAttemptTracker, async(req, res) =>
     let ret_status = 200;
     let ret_data;
 
-    const catch_body = -1;
-    const catch_sqlconn = -2;
-    const catch_sql_select = -3;
-    const catch_bcrypt = -4;
-    const catch_session = -5;
+    const catch_input_validation = -1;
+    const catch_user_lookup = -2;
+    const catch_password_verification = -3;
+    const catch_email_verification = -4;
+    const catch_session_creation = -5;
     
-    let connection;
-    const clientIP = req.ip || req.connection.remoteAddress;
+    // 클라이언트 IP 추출
+    const clientIP = req.headers['x-forwarded-for']?.split(',')[0]?.trim() 
+        || req.headers['x-real-ip'] 
+        || req.connection.remoteAddress 
+        || req.socket.remoteAddress 
+        || (req.connection.socket ? req.connection.socket.remoteAddress : null)
+        || req.ip 
+        || 'unknown';
     
     try {
         //----------------------------------------------------------------------
-        // getBODY - 입력값 검증
+        // 입력층: 요청 데이터 검증 및 추출
         //----------------------------------------------------------------------
-        let req_email, req_password;
+        let inputData;
         try {
             const { email, password } = req.body;
             const validation = validateLoginInput(email, password);
@@ -226,188 +115,179 @@ router.post('/', csrfProtection, loginAttemptTracker, async(req, res) =>
                 throw new Error("Input validation failed: " + JSON.stringify(validation.errors));
             }
             
-            req_email = email;
-            req_password = password;
+            inputData = {
+                email: normalizeEmail(email),
+                password: password
+            };
+            
         } catch (e) {
-            ret_status = fail_status + (-1 * catch_body);
+            ret_status = fail_status + (-1 * catch_input_validation);
             ret_data = {
                 code: LOG_HEADER_TITLE + "(input_validation)",
-                value: catch_body,
+                value: catch_input_validation,
                 value_ext1: ret_status,
                 value_ext2: e.message,
                 EXT_data
             };
             console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            
+            const errors = e.message.includes('Input validation failed:') 
+                ? JSON.parse(e.message.replace('Input validation failed: ', ''))
+                : null;
             
             return res.status(400).json({
                 code: 'INVALID_INPUT',
                 msg: '입력값이 유효하지 않습니다.',
-                data: JSON.parse(e.message.replace('Input validation failed: ', ''))
+                data: errors
             });
         }
         
         //----------------------------------------------------------------------
-        // getConnection 
+        // 처리층: 사용자 인증 및 조회
         //----------------------------------------------------------------------
+        let userInfo;
         try {
-            connection = await pool.getConnection();
-        } catch (e) {
-            ret_status = fail_status + (-1 * catch_sqlconn);
-            ret_data = {
-                code: LOG_HEADER_TITLE + "(db_connection)",
-                value: catch_sqlconn,
-                value_ext1: ret_status,
-                value_ext2: e.message,
-                EXT_data
-            };
-            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-            
-            return res.status(500).json({
-                code: 'SERVER_ERROR',
-                msg: '로그인 처리 중 오류가 발생했습니다.',
-                data: null
-            });
-        }
-
-        //----------------------------------------------------------------------
-        // SQL SELECT - 사용자 조회
-        //----------------------------------------------------------------------
-        let users;
-        try {
-            [users] = await connection.query(
-                'SELECT * FROM users WHERE email = ?',
-                [req_email]
+            // pcg_login_authenticate 프로시저 호출
+            const authResult = await callBusinessProcedure('pcg_login_authenticate', 
+                [inputData.email], 
+                ['p_userid', 'p_username', 'p_passwd', 'p_email_verified']
             );
+            
+            if (!authResult.success) {
+                if (authResult.code === -100) {
+                    // 사용자를 찾을 수 없음
+                    await logLoginAttempt(null, clientIP, 'FAILED', 'USER_NOT_FOUND');
+                    throw new Error("AUTH_FAILED");
+                }
+                throw new Error(authResult.message || "Authentication failed");
+            }
+            
+            userInfo = {
+                userid: authResult.data.p_userid,
+                username: authResult.data.p_username,
+                passwd: authResult.data.p_passwd,
+                email_verified: authResult.data.p_email_verified,
+                email: inputData.email
+            };
+            
         } catch (e) {
-            ret_status = fail_status + (-1 * catch_sql_select);
+            ret_status = fail_status + (-1 * catch_user_lookup);
             ret_data = {
-                code: LOG_HEADER_TITLE + "(sql_select)",
-                value: catch_sql_select,
+                code: LOG_HEADER_TITLE + "(user_lookup)",
+                value: catch_user_lookup,
                 value_ext1: ret_status,
                 value_ext2: e.message,
                 EXT_data
             };
             console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
             
-            await logLoginAttempt(connection, req_email, clientIP, 'FAILED', null, 'SQL_ERROR');
+            if (e.message === "AUTH_FAILED") {
+                return res.status(401).json({
+                    code: 'INVALID_CREDENTIALS',
+                    msg: '이메일 또는 비밀번호가 올바르지 않습니다.'
+                });
+            }
             
             return res.status(500).json({
-                code: 'SERVER_ERROR',
-                msg: '로그인 처리 중 오류가 발생했습니다.',
-                data: null
+                code: 'AUTH_ERROR',
+                msg: '인증 처리 중 오류가 발생했습니다.'
             });
         }
-
+        
         //----------------------------------------------------------------------
-        // 사용자 존재 여부 및 비밀번호 검증
+        // 처리층: 비밀번호 검증
         //----------------------------------------------------------------------
-        if (users.length === 0) {
-            await logLoginAttempt(connection, req_email, clientIP, 'FAILED', null, 'USER_NOT_FOUND');
-            
-            ret_data = {
-                code: LOG_HEADER_TITLE + "(user_not_found)",
-                value: 0,
-                value_ext1: 403,
-                value_ext2: "User not found",
-                EXT_data
-            };
-            console.log(LOG_INFO_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-            
-            return res.status(403).json({
-                code: 'AUTH_FAILED',
-                msg: '이메일 또는 비밀번호가 올바르지 않습니다.'
-            });
-        }
-
-        const user = users[0];
-
-        // 비밀번호 검증
-        let passwordValid;
         try {
-            passwordValid = await bcrypt.compare(req_password, user.password);
+            const passwordValid = await bcrypt.compare(inputData.password, userInfo.passwd);
+            
+            if (!passwordValid) {
+                await logLoginAttempt(userInfo.userid, clientIP, 'FAILED', 'INVALID_PASSWORD');
+                throw new Error("INVALID_PASSWORD");
+            }
+            
         } catch (e) {
-            ret_status = fail_status + (-1 * catch_bcrypt);
+            ret_status = fail_status + (-1 * catch_password_verification);
             ret_data = {
-                code: LOG_HEADER_TITLE + "(bcrypt_compare)",
-                value: catch_bcrypt,
+                code: LOG_HEADER_TITLE + "(password_verification)",
+                value: catch_password_verification,
                 value_ext1: ret_status,
                 value_ext2: e.message,
                 EXT_data
             };
             console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
             
-            await logLoginAttempt(connection, req_email, clientIP, 'FAILED', user.user_id, 'BCRYPT_ERROR');
+            if (e.message === "INVALID_PASSWORD") {
+                return res.status(401).json({
+                    code: 'INVALID_CREDENTIALS',
+                    msg: '이메일 또는 비밀번호가 올바르지 않습니다.'
+                });
+            }
             
             return res.status(500).json({
-                code: 'SERVER_ERROR',
-                msg: '로그인 처리 중 오류가 발생했습니다.',
-                data: null
-            });
-        }
-
-        if (!passwordValid) {
-            await logLoginAttempt(connection, req_email, clientIP, 'FAILED', user.user_id, 'INVALID_PASSWORD');
-            
-            ret_data = {
-                code: LOG_HEADER_TITLE + "(invalid_password)",
-                value: 0,
-                value_ext1: 403,
-                value_ext2: "Invalid password",
-                EXT_data
-            };
-            console.log(LOG_INFO_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-            
-            return res.status(403).json({
-                code: 'AUTH_FAILED',
-                msg: '이메일 또는 비밀번호가 올바르지 않습니다.'
+                code: 'PASSWORD_ERROR',
+                msg: '비밀번호 검증 중 오류가 발생했습니다.'
             });
         }
         
         //----------------------------------------------------------------------
-        // 이메일 인증 확인
+        // 처리층: 이메일 인증 확인
         //----------------------------------------------------------------------
-        if (!user.email_verified) {
-            await logLoginAttempt(connection, req_email, clientIP, 'FAILED', user.user_id, 'EMAIL_NOT_VERIFIED');
-            
-            ret_data = {
-                code: LOG_HEADER_TITLE + "(email_not_verified)",
-                value: 0,
-                value_ext1: 403,
-                value_ext2: "Email not verified",
-                EXT_data
-            };
-            console.log(LOG_INFO_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-            
-            return res.status(403).json({
-                code: 'EMAIL_NOT_VERIFIED',
-                msg: '이메일 인증이 필요합니다. 인증 메일을 확인해주세요.',
-                email: user.email
-            });
-        }
-        
-        //----------------------------------------------------------------------
-        // 로그인 성공 처리
-        //----------------------------------------------------------------------
-        
-        // 로그인 성공 로깅
-        await logLoginAttempt(connection, req_email, clientIP, 'SUCCESS', user.user_id);
-        
-        // 세션 설정
         try {
-            req.session.userId = user.user_id;
-            req.session.username = user.username;
+            if (!userInfo.email_verified) {
+                await logLoginAttempt(userInfo.userid, clientIP, 'FAILED', 'EMAIL_NOT_VERIFIED');
+                throw new Error("EMAIL_NOT_VERIFIED");
+            }
             
+        } catch (e) {
+            ret_status = fail_status + (-1 * catch_email_verification);
+            ret_data = {
+                code: LOG_HEADER_TITLE + "(email_verification)",
+                value: catch_email_verification,
+                value_ext1: ret_status,
+                value_ext2: e.message,
+                EXT_data
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            
+            if (e.message === "EMAIL_NOT_VERIFIED") {
+                return res.status(403).json({
+                    code: 'EMAIL_NOT_VERIFIED',
+                    msg: '이메일 인증이 필요합니다. 가입 시 받은 인증 이메일을 확인해주세요.'
+                });
+            }
+            
+            return res.status(500).json({
+                code: 'VERIFICATION_ERROR',
+                msg: '이메일 인증 확인 중 오류가 발생했습니다.'
+            });
+        }
+        
+        //----------------------------------------------------------------------
+        // 처리층: 세션 생성 및 로그인 성공 처리
+        //----------------------------------------------------------------------
+        try {
+            // 로그인 성공 로깅
+            await logLoginAttempt(userInfo.userid, clientIP, 'SUCCESS', null);
+            
+            // 세션에 사용자 정보 저장
+            req.session.userId = userInfo.userid;
+            req.session.username = userInfo.username;
+            req.session.email = userInfo.email;
+            req.session.loginTime = new Date();
+            
+            // 세션 저장
             await new Promise((resolve, reject) => {
                 req.session.save((err) => {
                     if (err) reject(err);
                     else resolve();
                 });
             });
+            
         } catch (e) {
-            ret_status = fail_status + (-1 * catch_session);
+            ret_status = fail_status + (-1 * catch_session_creation);
             ret_data = {
-                code: LOG_HEADER_TITLE + "(session_save)",
-                value: catch_session,
+                code: LOG_HEADER_TITLE + "(session_creation)",
+                value: catch_session_creation,
                 value_ext1: ret_status,
                 value_ext2: e.message,
                 EXT_data
@@ -415,63 +295,67 @@ router.post('/', csrfProtection, loginAttemptTracker, async(req, res) =>
             console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
             
             return res.status(500).json({
-                code: 'SERVER_ERROR',
-                msg: '로그인 처리 중 오류가 발생했습니다.',
-                data: null
+                code: 'SESSION_ERROR',
+                msg: '세션 생성 중 오류가 발생했습니다.'
             });
         }
         
         //----------------------------------------------------------------------
-        // result - 성공 응답
+        // 출력층: 최종 성공 응답
         //----------------------------------------------------------------------
-        ret_data = {
-            code: "result",
-            value: 1,
-            value_ext1: ret_status,
-            value_ext2: {
-                user_id: user.user_id,
-                username: user.username,
-                email: user.email
-            },
-            EXT_data
+        const loginResult = {
+            userId: userInfo.userid,
+            username: userInfo.username,
+            email: userInfo.email,
+            loginTime: req.session.loginTime
         };
         
+        ret_data = {
+            code: LOG_HEADER_TITLE + "(success)",
+            value: 1,
+            value_ext1: ret_status,
+            value_ext2: loginResult,
+            EXT_data: {
+                ...EXT_data,
+                userId: my_reqinfo.maskId(userInfo.userid),
+                username: my_reqinfo.maskId(userInfo.username)
+            }
+        };
         console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify({
             ...ret_data,
-            value_ext2: {
-                user_id: user.user_id,
-                username: user.username,
-                email: my_reqinfo.maskId(user.email)
+            value_ext2: { 
+                userId: my_reqinfo.maskId(userInfo.userid), 
+                username: "***", 
+                email: my_reqinfo.maskId(userInfo.email),
+                loginTime: "***"
             }
         }, null, 2));
         
-        return res.status(ret_status).json({
+        return res.status(200).json({
             code: 'LOGIN_SUCCESS',
             msg: '로그인이 완료되었습니다.',
-            data: ret_data.value_ext2
+            data: {
+                username: userInfo.username,
+                email: userInfo.email
+            }
         });
         
-    } catch (e) {
-        // 예상치 못한 오류 처리
-        if (ret_status === 200) {
-            ret_status = fail_status;
-            ret_data = {
-                code: LOG_HEADER_TITLE + "(unexpected_error)",
-                value: -999,
-                value_ext1: ret_status,
-                value_ext2: e.message,
-                EXT_data
-            };
-            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-        }
+    } catch (error) {
+        // 예상치 못한 에러 처리
+        ret_status = fail_status;
+        ret_data = {
+            code: LOG_HEADER_TITLE + "(unexpected_error)",
+            value: -99,
+            value_ext1: ret_status,
+            value_ext2: error.message,
+            EXT_data
+        };
+        console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
         
         return res.status(500).json({
             code: 'SERVER_ERROR',
-            msg: '로그인 처리 중 오류가 발생했습니다.',
-            data: null
+            msg: '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
         });
-    } finally {
-        if (connection) connection.release();
     }
 });
 

@@ -1,13 +1,24 @@
-// routes/auth/signup.js - 레퍼런스 패턴 적용
+// routes/auth/signup.js - 프로시저 기반 리팩토링 (레퍼런스 패턴 적용)
 
 'use strict';
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
-const { pool } = require('../../config/database');
 const my_reqinfo = require('../../utils/reqinfo');
 const csrf = require('csurf');
-const { generateToken, sendVerificationEmail } = require('../../utils/emailUtils');
+const { 
+    callBusinessProcedure,
+    generateUserId,
+    generateLoginId,
+    validateEmail,
+    validateUsername,
+    validatePassword,
+    normalizeEmail,
+    normalizeUsername,
+    checkEmailExists,
+    checkUsernameExists,
+    getValidationErrorMessage
+} = require('../../utils/dbUtils');
 
 const LOG_FAIL_HEADER = "[FAIL]";
 const LOG_SUCC_HEADER = "[SUCC]";
@@ -17,27 +28,24 @@ const LOG_INFO_HEADER = "[INFO]";
 const csrfProtection = csrf({ cookie: true });
 
 //========================================================================
-// 입력값 검증 함수
+// 입력값 검증 함수 (입력층)
 //========================================================================
 function validateSignupInput(username, email, password) {
     const LOG_HEADER_TITLE = "VALIDATE_SIGNUP_INPUT";
     const LOG_HEADER = "Email[" + my_reqinfo.maskId(email) + "] Username[" + my_reqinfo.maskId(username) + "] --> " + LOG_HEADER_TITLE;
     
     const errors = {};
-    const usernameRegex = /^[가-힣a-zA-Z]{2,8}$/;
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
-    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     
-    if (!username || !usernameRegex.test(username)) {
-        errors.username = '닉네임은 2~8자의 한글 또는 영문만 사용 가능합니다.';
+    if (!validateUsername(username)) {
+        errors.username = getValidationErrorMessage('username');
     }
     
-    if (!email || !emailRegex.test(email)) {
-        errors.email = '유효한 이메일 주소를 입력해주세요.';
+    if (!validateEmail(email)) {
+        errors.email = getValidationErrorMessage('email');
     }
     
-    if (!password || !passwordRegex.test(password)) {
-        errors.password = '비밀번호는 최소 8자 이상이며, 대문자, 소문자, 숫자를 포함해야 합니다.';
+    if (!validatePassword(password)) {
+        errors.password = getValidationErrorMessage('password');
     }
     
     const isValid = Object.keys(errors).length === 0;
@@ -68,14 +76,16 @@ router.get('/', csrfProtection, function(req, res) {
     console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " Rendering signup page");
     
     // signup.ejs를 렌더링하면서 CSRF 토큰 전달
-    res.render('signup', { csrfToken: req.csrfToken() });
+    res.render('signup', { 
+        csrfToken: req.csrfToken() 
+    });
 });
 
 //========================================================================
-router.post('/', csrfProtection, async(req, res) => 
+// POST /auth/signup - 회원가입 처리
 //========================================================================
-{
-    const LOG_HEADER_TITLE = "SIGNUP_POST";
+router.post('/', csrfProtection, async(req, res) => {
+    const LOG_HEADER_TITLE = "SIGNUP_PROCESS";
     const EXT_data = my_reqinfo.get_req_url(req);
     const LOG_HEADER = "Email[" + my_reqinfo.maskId(req.body.email) + "] Username[" + my_reqinfo.maskId(req.body.username) + "] --> " + LOG_HEADER_TITLE;
     
@@ -83,207 +93,123 @@ router.post('/', csrfProtection, async(req, res) =>
     let ret_status = 200;
     let ret_data;
 
-    const catch_body = -1;
-    const catch_email_verification = -2;
-    const catch_sqlconn = -3;
-    const catch_sql_email_check = -4;
-    const catch_sql_username_check = -5;
-    const catch_bcrypt = -6;
-    const catch_sql_insert = -7;
-    
-    let connection;
+    const catch_input_validation = -1;
+    const catch_duplicate_check = -2;
+    const catch_password_hashing = -3;
+    const catch_user_creation = -4;
     
     try {
         //----------------------------------------------------------------------
-        // getBODY - 입력값 검증
+        // 입력층: 요청 데이터 검증 및 추출
         //----------------------------------------------------------------------
-        let req_username, req_email, req_password, req_verified;
+        let inputData;
         try {
             const { username, email, password, verified } = req.body;
-            const validation = validateSignupInput(username, email, password);
             
+            // 기본 입력값 검증
+            const validation = validateSignupInput(username, email, password);
             if (!validation.isValid) {
                 throw new Error("Input validation failed: " + JSON.stringify(validation.errors));
             }
             
-            req_username = username;
-            req_email = email;
-            req_password = password;
-            req_verified = verified;
+            // 이메일 인증 확인 (프론트엔드에서 verified=true로 전송)
+            if (!verified) {
+                throw new Error("Email verification required");
+            }
+            
+            inputData = {
+                username: normalizeUsername(username),
+                email: normalizeEmail(email),
+                password: password,
+                verified: verified
+            };
+            
         } catch (e) {
-            ret_status = fail_status + (-1 * catch_body);
+            ret_status = fail_status + (-1 * catch_input_validation);
             ret_data = {
                 code: LOG_HEADER_TITLE + "(input_validation)",
-                value: catch_body,
+                value: catch_input_validation,
                 value_ext1: ret_status,
                 value_ext2: e.message,
                 EXT_data
             };
             console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
             
-            const errors = e.message.includes('Input validation failed:') 
-                ? JSON.parse(e.message.replace('Input validation failed: ', ''))
-                : null;
+            let errorMsg = '입력값이 유효하지 않습니다.';
+            let errors = null;
+            
+            if (e.message.includes('Input validation failed:')) {
+                errors = JSON.parse(e.message.replace('Input validation failed: ', ''));
+                errorMsg = '입력값 검증에 실패했습니다.';
+            } else if (e.message === "Email verification required") {
+                errorMsg = '이메일 인증이 필요합니다.';
+            }
             
             return res.status(400).json({
                 code: 'INVALID_INPUT',
-                msg: '입력값이 유효하지 않습니다.',
+                msg: errorMsg,
                 data: errors
             });
         }
         
         //----------------------------------------------------------------------
-        // 이메일 인증 여부 확인
+        // 처리층: 중복 확인
         //----------------------------------------------------------------------
         try {
-            if (!req_verified) {
-                throw new Error("Email verification required");
+            // 이메일 중복 확인
+            const emailExists = await checkEmailExists(inputData.email);
+            if (emailExists) {
+                throw new Error("EMAIL_EXISTS");
             }
+            
+            // 사용자명 중복 확인
+            const usernameExists = await checkUsernameExists(inputData.username);
+            if (usernameExists) {
+                throw new Error("USERNAME_EXISTS");
+            }
+            
         } catch (e) {
-            ret_status = fail_status + (-1 * catch_email_verification);
+            ret_status = fail_status + (-1 * catch_duplicate_check);
             ret_data = {
-                code: LOG_HEADER_TITLE + "(email_verification)",
-                value: catch_email_verification,
+                code: LOG_HEADER_TITLE + "(duplicate_check)",
+                value: catch_duplicate_check,
                 value_ext1: ret_status,
                 value_ext2: e.message,
                 EXT_data
             };
             console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
             
-            return res.status(403).json({
-                code: 'EMAIL_NOT_VERIFIED',
-                msg: '이메일 인증이 필요합니다.'
-            });
-        }
-        
-        //----------------------------------------------------------------------
-        // getConnection 
-        //----------------------------------------------------------------------
-        try {
-            connection = await pool.getConnection();
-        } catch (e) {
-            ret_status = fail_status + (-1 * catch_sqlconn);
-            ret_data = {
-                code: LOG_HEADER_TITLE + "(db_connection)",
-                value: catch_sqlconn,
-                value_ext1: ret_status,
-                value_ext2: e.message,
-                EXT_data
-            };
-            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-            
-            return res.status(500).json({
-                code: 'SERVER_ERROR',
-                msg: '회원가입 처리 중 오류가 발생했습니다.',
-                data: null
-            });
-        }
-
-        //----------------------------------------------------------------------
-        // SQL SELECT - 이메일 중복 확인
-        //----------------------------------------------------------------------
-        let existingEmails;
-        try {
-            [existingEmails] = await connection.query(
-                'SELECT * FROM users WHERE email = ?',
-                [req_email]
-            );
-            
-            if (existingEmails.length > 0) {
-                throw new Error("Email already exists");
-            }
-        } catch (e) {
-            if (e.message === "Email already exists") {
-                ret_data = {
-                    code: LOG_HEADER_TITLE + "(email_exists)",
-                    value: existingEmails.length,
-                    value_ext1: 409,
-                    value_ext2: "Email already in use",
-                    EXT_data
-                };
-                console.log(LOG_INFO_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-                
+            if (e.message === "EMAIL_EXISTS") {
                 return res.status(409).json({
                     code: 'EMAIL_EXISTS',
                     msg: '이미 사용 중인 이메일입니다.'
                 });
-            } else {
-                ret_status = fail_status + (-1 * catch_sql_email_check);
-                ret_data = {
-                    code: LOG_HEADER_TITLE + "(sql_email_check)",
-                    value: catch_sql_email_check,
-                    value_ext1: ret_status,
-                    value_ext2: e.message,
-                    EXT_data
-                };
-                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-                
-                return res.status(500).json({
-                    code: 'SERVER_ERROR',
-                    msg: '회원가입 처리 중 오류가 발생했습니다.',
-                    data: null
-                });
             }
-        }
-        
-        //----------------------------------------------------------------------
-        // SQL SELECT - 사용자명 중복 확인
-        //----------------------------------------------------------------------
-        let existingUsers;
-        try {
-            [existingUsers] = await connection.query(
-                'SELECT * FROM users WHERE username = ?',
-                [req_username]
-            );
             
-            if (existingUsers.length > 0) {
-                throw new Error("Username already exists");
-            }
-        } catch (e) {
-            if (e.message === "Username already exists") {
-                ret_data = {
-                    code: LOG_HEADER_TITLE + "(username_exists)",
-                    value: existingUsers.length,
-                    value_ext1: 409,
-                    value_ext2: "Username already in use",
-                    EXT_data
-                };
-                console.log(LOG_INFO_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-                
+            if (e.message === "USERNAME_EXISTS") {
                 return res.status(409).json({
                     code: 'USERNAME_EXISTS',
                     msg: '이미 사용 중인 닉네임입니다.'
                 });
-            } else {
-                ret_status = fail_status + (-1 * catch_sql_username_check);
-                ret_data = {
-                    code: LOG_HEADER_TITLE + "(sql_username_check)",
-                    value: catch_sql_username_check,
-                    value_ext1: ret_status,
-                    value_ext2: e.message,
-                    EXT_data
-                };
-                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-                
-                return res.status(500).json({
-                    code: 'SERVER_ERROR',
-                    msg: '회원가입 처리 중 오류가 발생했습니다.',
-                    data: null
-                });
             }
+            
+            return res.status(500).json({
+                code: 'DUPLICATE_CHECK_ERROR',
+                msg: '중복 확인 중 오류가 발생했습니다.'
+            });
         }
         
         //----------------------------------------------------------------------
-        // 비밀번호 해싱
+        // 처리층: 비밀번호 해싱
         //----------------------------------------------------------------------
         let hashedPassword;
         try {
-            hashedPassword = await bcrypt.hash(req_password, 12);
+            hashedPassword = await bcrypt.hash(inputData.password, 12);
         } catch (e) {
-            ret_status = fail_status + (-1 * catch_bcrypt);
+            ret_status = fail_status + (-1 * catch_password_hashing);
             ret_data = {
-                code: LOG_HEADER_TITLE + "(bcrypt_hash)",
-                value: catch_bcrypt,
+                code: LOG_HEADER_TITLE + "(password_hashing)",
+                value: catch_password_hashing,
                 value_ext1: ret_status,
                 value_ext2: e.message,
                 EXT_data
@@ -291,116 +217,106 @@ router.post('/', csrfProtection, async(req, res) =>
             console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
             
             return res.status(500).json({
-                code: 'SERVER_ERROR',
-                msg: '회원가입 처리 중 오류가 발생했습니다.',
-                data: null
+                code: 'HASHING_ERROR',
+                msg: '비밀번호 처리 중 오류가 발생했습니다.'
             });
         }
         
         //----------------------------------------------------------------------
-        // SQL INSERT - DB에 사용자 추가
+        // 처리층: 사용자 생성 (pcg_user_register 프로시저 호출)
         //----------------------------------------------------------------------
-        let result;
+        let userCreationResult;
         try {
-            [result] = await connection.query(
-                `INSERT INTO users 
-                (email, username, password, email_verified, created_at) 
-                VALUES (?, ?, ?, TRUE, NOW())`,
-                [req_email, req_username, hashedPassword]
-            );
+            const userId = generateUserId();
+            const loginId = generateLoginId();
             
-            if (result.affectedRows < 1) {
-                throw new Error("Insert failed - no rows affected");
+            // pcg_user_register 프로시저 호출
+            userCreationResult = await callBusinessProcedure('pcg_user_register', [
+                userId,                 // p_userid
+                loginId,                // p_loginid  
+                inputData.username,     // p_username
+                inputData.email,        // p_email
+                hashedPassword          // p_passwd
+            ], ['p_created_user_id', 'p_created_login_id']);
+            
+            if (!userCreationResult.success) {
+                throw new Error(userCreationResult.message || "User creation failed");
             }
+            
         } catch (e) {
-            ret_status = fail_status + (-1 * catch_sql_insert);
+            ret_status = fail_status + (-1 * catch_user_creation);
             ret_data = {
-                code: LOG_HEADER_TITLE + "(sql_insert)",
-                value: catch_sql_insert,
+                code: LOG_HEADER_TITLE + "(user_creation)",
+                value: catch_user_creation,
                 value_ext1: ret_status,
                 value_ext2: e.message,
                 EXT_data
             };
             console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
             
-            // 중복 오류인지 확인
-            if (e.code === 'ER_DUP_ENTRY') {
-                if (e.message.includes('email')) {
-                    return res.status(409).json({
-                        code: 'EMAIL_EXISTS',
-                        msg: '이미 사용 중인 이메일입니다.'
-                    });
-                } else if (e.message.includes('username')) {
-                    return res.status(409).json({
-                        code: 'USERNAME_EXISTS',
-                        msg: '이미 사용 중인 닉네임입니다.'
-                    });
-                }
-            }
-            
             return res.status(500).json({
-                code: 'SERVER_ERROR',
-                msg: '회원가입 처리 중 오류가 발생했습니다.',
-                data: null
+                code: 'USER_CREATION_ERROR',
+                msg: '회원가입 처리 중 오류가 발생했습니다.'
             });
         }
         
         //----------------------------------------------------------------------
-        // result - 성공 응답
+        // 출력층: 최종 성공 응답
         //----------------------------------------------------------------------
-        ret_data = {
-            code: "result",
-            value: result.affectedRows,
-            value_ext1: ret_status,
-            value_ext2: {
-                email: req_email,
-                username: req_username,
-                id: result.insertId
-            },
-            EXT_data
+        const signupResult = {
+            userId: userCreationResult.data.p_created_user_id,
+            loginId: userCreationResult.data.p_created_login_id,
+            username: inputData.username,
+            email: inputData.email,
+            created: new Date()
         };
         
+        ret_data = {
+            code: LOG_HEADER_TITLE + "(success)",
+            value: 1,
+            value_ext1: ret_status,
+            value_ext2: signupResult,
+            EXT_data: {
+                ...EXT_data,
+                userId: my_reqinfo.maskId(signupResult.userId),
+                username: my_reqinfo.maskId(signupResult.username)
+            }
+        };
         console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify({
             ...ret_data,
             value_ext2: {
-                email: my_reqinfo.maskId(req_email),
-                username: req_username,
-                id: result.insertId
+                userId: my_reqinfo.maskId(signupResult.userId),
+                username: "***",
+                email: my_reqinfo.maskId(signupResult.email),
+                created: "***"
             }
         }, null, 2));
         
-        return res.status(ret_status).json({
+        return res.status(201).json({
             code: 'SIGNUP_SUCCESS',
             msg: '회원가입이 완료되었습니다.',
-            data: ret_data.value_ext2
+            data: {
+                username: signupResult.username,
+                email: signupResult.email
+            }
         });
         
-    } catch (e) {
-        // 예상치 못한 오류 처리
-        if (ret_status === 200) {
-            ret_status = fail_status;
-            ret_data = {
-                code: LOG_HEADER_TITLE + "(unexpected_error)",
-                value: -999,
-                value_ext1: ret_status,
-                value_ext2: e.message,
-                EXT_data
-            };
-            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-        }
+    } catch (error) {
+        // 예상치 못한 에러 처리
+        ret_status = fail_status;
+        ret_data = {
+            code: LOG_HEADER_TITLE + "(unexpected_error)",
+            value: -99,
+            value_ext1: ret_status,
+            value_ext2: error.message,
+            EXT_data
+        };
+        console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
         
-        // 일반적인 오류 분류
-        const errorCode = e.code || 'SERVER_ERROR';
-        const errorStatus = e.status || 500;
-        const errorMessage = e.message || '회원가입 처리 중 오류가 발생했습니다.';
-        
-        return res.status(errorStatus).json({
-            code: errorCode,
-            msg: `ERROR: ${errorMessage}`,
-            data: e.errors || null
+        return res.status(500).json({
+            code: 'SERVER_ERROR',
+            msg: '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
         });
-    } finally {
-        if (connection) connection.release();
     }
 });
 
