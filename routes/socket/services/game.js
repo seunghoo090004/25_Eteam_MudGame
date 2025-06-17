@@ -1,8 +1,13 @@
-// routes/socket/services/game.js - 진행률 제거된 최종 버전
+// routes/socket/services/game.js - 레퍼런스 패턴 적용
 
-const pool = require('../../../config/database');
+const { pool } = require('../../../config/database');
 const openai = require('../../../config/openai');
 const { v4: uuidv4 } = require('uuid');
+const my_reqinfo = require('../../../utils/reqinfo');
+
+const LOG_FAIL_HEADER = "[FAIL]";
+const LOG_SUCC_HEADER = "[SUCC]";
+const LOG_INFO_HEADER = "[INFO]";
 
 class GameService {
     
@@ -11,14 +16,26 @@ class GameService {
     // ============================================================================
     
     normalizeGameData(gameData) {
+        const LOG_HEADER_TITLE = "NORMALIZE_GAME_DATA";
+        const LOG_HEADER = "GameService --> " + LOG_HEADER_TITLE;
+        
+        const catch_parsing = -1;
+        
         let gameDataObj;
         
         try {
             gameDataObj = typeof gameData === 'string' 
                 ? JSON.parse(gameData) 
                 : gameData;
-        } catch (err) {
-            console.error("Game data parsing error:", err);
+        } catch (e) {
+            const error_data = {
+                code: LOG_HEADER_TITLE + "(parsing_error)",
+                value: catch_parsing,
+                value_ext1: 500,
+                value_ext2: e.message,
+                EXT_data: { input_type: typeof gameData }
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(error_data, null, 2));
             gameDataObj = this.getDefaultGameData();
         }
         
@@ -81,7 +98,6 @@ class GameService {
         return remainingMinutes > 0 ? `${hours}시간 ${remainingMinutes}분` : `${hours}시간`;
     }
 
-    // 게임 상태 텍스트 생성 (진행률 제거)
     generateStatusText(gameData) {
         const health = gameData.player?.health || 100;
         const deathCount = gameData.progress?.deathCount || 0;
@@ -92,7 +108,6 @@ class GameService {
         return '안정';
     }
 
-    // 게임 상태 아이콘 생성
     generateStatusIcon(gameData) {
         const health = gameData.player?.health || 100;
         
@@ -101,9 +116,7 @@ class GameService {
         return '✅';
     }
 
-    // 위치 정보 추출 (새로운 형식 지원)
     extractLocationFromResponse(response) {
-        // >> 위치: [ID] - [방이름] 형식에서 추출
         const locationPattern = />>\s*위치:\s*([^-]+)\s*-\s*([^\n]+)/;
         const match = response.match(locationPattern);
         
@@ -120,10 +133,39 @@ class GameService {
     //============================================================================================
     async createNewGame(userId, assistantId) {
     //============================================================================================
-        const LOG_HEADER = "GAME_SERVICE/CREATE_NEW";
+        const LOG_HEADER_TITLE = "CREATE_NEW_GAME";
+        const LOG_HEADER = "UserId[" + my_reqinfo.maskId(userId) + "] AssistantId[" + my_reqinfo.maskId(assistantId) + "] --> " + LOG_HEADER_TITLE;
+        
+        const fail_status = 500;
+        let ret_status = 200;
+        let ret_data;
+        
+        const catch_openai = -1;
+        const catch_sqlconn = -2;
+        const catch_sql_insert = -3;
+        
+        const EXT_data = { userId, assistantId };
+        
+        let connection;
         
         try {
-            const thread = await openai.beta.threads.create();
+            // OpenAI 스레드 생성
+            let thread;
+            try {
+                thread = await openai.beta.threads.create();
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_openai);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(openai_thread_create)",
+                    value: catch_openai,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                throw new Error(ret_data.value_ext2);
+            }
+            
             const gameId = uuidv4();
             
             const initialGameData = {
@@ -164,7 +206,23 @@ class GameService {
                 }
             };
             
-            const connection = await pool.getConnection();
+            // DB 연결
+            try {
+                connection = await pool.getConnection();
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_sqlconn);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(db_connection)",
+                    value: catch_sqlconn,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                throw new Error(ret_data.value_ext2);
+            }
+            
+            // 게임 데이터 삽입
             try {
                 await connection.query(
                     `INSERT INTO game_state 
@@ -172,20 +230,49 @@ class GameService {
                     VALUES (?, ?, ?, ?, ?, NOW(), NOW())`,
                     [gameId, userId, thread.id, assistantId, JSON.stringify(initialGameData)]
                 );
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_sql_insert);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(sql_insert)",
+                    value: catch_sql_insert,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                throw new Error(ret_data.value_ext2);
+            } finally {
+                if (connection) connection.release();
+            }
 
-                console.log(`[${LOG_HEADER}] New game created: ${gameId}`);
-                return {
+            ret_data = {
+                code: "result",
+                value: 1,
+                value_ext1: ret_status,
+                value_ext2: {
                     gameId,
                     threadId: thread.id,
                     gameData: initialGameData
-                };
-
-            } finally {
-                connection.release();
-            }
+                },
+                EXT_data
+            };
+            
+            console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            return ret_data.value_ext2;
 
         } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message}`);
+            if (connection) connection.release();
+            if (ret_status === 200) {
+                ret_status = fail_status;
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(unexpected_error)",
+                    value: -999,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            }
             throw e;
         }
     }
@@ -193,12 +280,43 @@ class GameService {
     //============================================================================================
     async loadGame(gameId, userId) {
     //============================================================================================
-        const LOG_HEADER = "GAME_SERVICE/LOAD";
+        const LOG_HEADER_TITLE = "LOAD_GAME";
+        const LOG_HEADER = "GameId[" + my_reqinfo.maskId(gameId) + "] UserId[" + my_reqinfo.maskId(userId) + "] --> " + LOG_HEADER_TITLE;
+        
+        const fail_status = 500;
+        let ret_status = 200;
+        let ret_data;
+        
+        const catch_sqlconn = -1;
+        const catch_sql_select = -2;
+        const catch_openai = -3;
+        const catch_data_processing = -4;
+        
+        const EXT_data = { gameId, userId };
+        
+        let connection;
         
         try {
-            const connection = await pool.getConnection();
+            // DB 연결
             try {
-                const [games] = await connection.query(
+                connection = await pool.getConnection();
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_sqlconn);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(db_connection)",
+                    value: catch_sqlconn,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                throw new Error(ret_data.value_ext2);
+            }
+            
+            // 게임 데이터 조회
+            let games;
+            try {
+                [games] = await connection.query(
                     'SELECT * FROM game_state WHERE game_id = ? AND user_id = ?',
                     [gameId, userId]
                 );
@@ -206,60 +324,124 @@ class GameService {
                 if (games.length === 0) {
                     throw new Error("Game not found");
                 }
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_sql_select);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(sql_select)",
+                    value: catch_sql_select,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                throw new Error(ret_data.value_ext2);
+            }
 
-                const gameData = games[0];
-                
-                if (!gameData.thread_id) {
-                    throw new Error("Invalid thread ID");
-                }
-                
-                // 메시지 히스토리 안전하게 가져오기
-                let chatHistory;
-                try {
-                    const messages = await openai.beta.threads.messages.list(gameData.thread_id);
-                    chatHistory = messages.data.map(msg => {
-                        let content = "메시지 내용을 불러올 수 없습니다.";
-                        try {
-                            if (msg.content && msg.content.length > 0 && msg.content[0].text) {
-                                content = msg.content[0].text.value;
-                            }
-                        } catch (contentError) {
-                            console.error(`${LOG_HEADER} Message content error:`, contentError);
+            const gameData = games[0];
+            
+            if (!gameData.thread_id) {
+                ret_status = fail_status + (-1 * catch_data_processing);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(invalid_thread_id)",
+                    value: catch_data_processing,
+                    value_ext1: ret_status,
+                    value_ext2: "Invalid thread ID",
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                throw new Error(ret_data.value_ext2);
+            }
+            
+            // 메시지 히스토리 가져오기
+            let chatHistory;
+            try {
+                const messages = await openai.beta.threads.messages.list(gameData.thread_id);
+                chatHistory = messages.data.map(msg => {
+                    let content = "메시지 내용을 불러올 수 없습니다.";
+                    try {
+                        if (msg.content && msg.content.length > 0 && msg.content[0].text) {
+                            content = msg.content[0].text.value;
                         }
-                        
-                        return {
-                            role: msg.role,
-                            content: content,
-                            created_at: new Date(msg.created_at * 1000)
-                        };
-                    });
-                } catch (messageError) {
-                    console.error(`${LOG_HEADER} Error fetching messages:`, messageError);
-                    chatHistory = [];
-                }
+                    } catch (contentError) {
+                        console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " Message content error:", contentError);
+                    }
+                    
+                    return {
+                        role: msg.role,
+                        content: content,
+                        created_at: new Date(msg.created_at * 1000)
+                    };
+                });
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_openai);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(openai_messages_list)",
+                    value: catch_openai,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                chatHistory = [];
+            }
 
-                // 게임 데이터 파싱 및 개선
-                let parsedGameData = this.normalizeGameData(gameData.game_data);
+            // 게임 데이터 정규화
+            let parsedGameData;
+            try {
+                parsedGameData = this.normalizeGameData(gameData.game_data);
                 
                 // 플레이 시간 업데이트
                 const now = new Date();
                 const created = new Date(gameData.created_at);
                 const playTimeMinutes = Math.floor((now - created) / (1000 * 60));
                 parsedGameData.progress.playTime = this.formatPlayTime(playTimeMinutes);
-                
-                console.log(`[${LOG_HEADER}] Game loaded: ${gameId}`);
-                return {
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_data_processing);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(data_processing)",
+                    value: catch_data_processing,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                throw new Error(ret_data.value_ext2);
+            } finally {
+                if (connection) connection.release();
+            }
+            
+            ret_data = {
+                code: "result",
+                value: 1,
+                value_ext1: ret_status,
+                value_ext2: {
                     ...gameData,
                     game_data: parsedGameData,
                     chatHistory
-                };
-
-            } finally {
-                connection.release();
-            }
+                },
+                EXT_data
+            };
+            
+            console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify({
+                ...ret_data,
+                value_ext2: { ...ret_data.value_ext2, chatHistory: `${chatHistory.length} messages` }
+            }, null, 2));
+            
+            return ret_data.value_ext2;
 
         } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message}`);
+            if (connection) connection.release();
+            if (ret_status === 200) {
+                ret_status = fail_status;
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(unexpected_error)",
+                    value: -999,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            }
             throw e;
         }
     }
@@ -267,13 +449,45 @@ class GameService {
     //============================================================================================
     async saveGame(gameId, userId, gameData) {
     //============================================================================================
-        const LOG_HEADER = "GAME_SERVICE/SAVE";
+        const LOG_HEADER_TITLE = "SAVE_GAME";
+        const LOG_HEADER = "GameId[" + my_reqinfo.maskId(gameId) + "] UserId[" + my_reqinfo.maskId(userId) + "] --> " + LOG_HEADER_TITLE;
+        
+        const fail_status = 500;
+        let ret_status = 200;
+        let ret_data;
+        
+        const catch_sqlconn = -1;
+        const catch_sql_select = -2;
+        const catch_openai_summary = -3;
+        const catch_openai_thread = -4;
+        const catch_sql_update = -5;
+        const catch_data_processing = -6;
+        
+        const EXT_data = { gameId, userId };
+        
+        let connection;
         
         try {
-            const connection = await pool.getConnection();
+            // DB 연결
             try {
-                // 기존 게임 정보 로드
-                const [games] = await connection.query(
+                connection = await pool.getConnection();
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_sqlconn);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(db_connection)",
+                    value: catch_sqlconn,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                throw new Error(ret_data.value_ext2);
+            }
+            
+            // 기존 게임 정보 로드
+            let games;
+            try {
+                [games] = await connection.query(
                     'SELECT * FROM game_state WHERE game_id = ? AND user_id = ?',
                     [gameId, userId]
                 );
@@ -281,68 +495,117 @@ class GameService {
                 if (games.length === 0) {
                     throw new Error("Game not found or unauthorized");
                 }
-                
-                const game = games[0];
-                const oldThreadId = game.thread_id;
-                
-                // 게임 데이터 정규화
-                let gameDataObj = this.normalizeGameData(gameData);
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_sql_select);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(sql_select)",
+                    value: catch_sql_select,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                throw new Error(ret_data.value_ext2);
+            }
+            
+            const game = games[0];
+            const oldThreadId = game.thread_id;
+            
+            // 게임 데이터 정규화
+            let gameDataObj;
+            try {
+                gameDataObj = this.normalizeGameData(gameData);
                 
                 // 플레이 시간 계산
                 const now = new Date();
                 const created = new Date(game.created_at);
                 const playTimeMinutes = Math.floor((now - created) / (1000 * 60));
                 gameDataObj.progress.playTime = this.formatPlayTime(playTimeMinutes);
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_data_processing);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(data_processing)",
+                    value: catch_data_processing,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                throw new Error(ret_data.value_ext2);
+            }
+            
+            // AI 요약 생성 및 새 스레드 생성
+            const chatService = require('./chat');
+            let summary, newThreadId, initialResponse;
+            
+            try {
+                summary = await chatService.createGameSummary(oldThreadId, game.assistant_id);
                 
-                // AI 요약 생성 및 새 스레드 생성
-                const chatService = require('./chat');
-                let summary, newThreadId, initialResponse;
+                const newThread = await openai.beta.threads.create();
+                newThreadId = newThread.id;
                 
-                try {
-                    summary = await chatService.createGameSummary(oldThreadId, game.assistant_id);
+                // 요약을 새 스레드에 전달
+                await openai.beta.threads.messages.create(newThreadId, {
+                    role: "user",
+                    content: `이전 게임 요약: ${summary}\n\n계속 진행해주세요.`
+                });
+                
+                // 초기 응답 생성
+                const run = await openai.beta.threads.runs.create(newThreadId, {
+                    assistant_id: game.assistant_id
+                });
+                
+                // 실행 완료 대기
+                let runStatus;
+                do {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    runStatus = await openai.beta.threads.runs.retrieve(newThreadId, run.id);
+                } while (['queued', 'in_progress'].includes(runStatus.status));
+                
+                if (runStatus.status === 'completed') {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    const messages = await openai.beta.threads.messages.list(newThreadId);
                     
-                    const newThread = await openai.beta.threads.create();
-                    newThreadId = newThread.id;
-                    
-                    // 요약을 새 스레드에 전달
-                    await openai.beta.threads.messages.create(newThreadId, {
-                        role: "user",
-                        content: `이전 게임 요약: ${summary}\n\n계속 진행해주세요.`
-                    });
-                    
-                    // 초기 응답 생성
-                    const run = await openai.beta.threads.runs.create(newThreadId, {
-                        assistant_id: game.assistant_id
-                    });
-                    
-                    // 실행 완료 대기
-                    let runStatus;
-                    do {
-                        await new Promise(resolve => setTimeout(resolve, 2000));
-                        runStatus = await openai.beta.threads.runs.retrieve(newThreadId, run.id);
-                    } while (['queued', 'in_progress'].includes(runStatus.status));
-                    
-                    if (runStatus.status === 'completed') {
-                        await new Promise(resolve => setTimeout(resolve, 2000));
-                        const messages = await openai.beta.threads.messages.list(newThreadId);
-                        
-                        if (messages.data && messages.data.length > 0 && 
-                            messages.data[0].content && messages.data[0].content[0] && 
-                            messages.data[0].content[0].text) {
-                            initialResponse = messages.data[0].content[0].text.value;
-                        }
+                    if (messages.data && messages.data.length > 0 && 
+                        messages.data[0].content && messages.data[0].content[0] && 
+                        messages.data[0].content[0].text) {
+                        initialResponse = messages.data[0].content[0].text.value;
                     }
-                    
-                } catch (summaryError) {
-                    console.error(`${LOG_HEADER} Summary error:`, summaryError);
-                    // 오류 시 기본값 사용
+                }
+                
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_openai_summary);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(openai_summary)",
+                    value: catch_openai_summary,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                
+                // 오류 시 기본값 사용
+                try {
                     const newThread = await openai.beta.threads.create();
                     newThreadId = newThread.id;
                     summary = "게임이 저장되었습니다.";
                     initialResponse = "게임을 이어서 진행합니다.";
+                } catch (threadError) {
+                    ret_status = fail_status + (-1 * catch_openai_thread);
+                    ret_data = {
+                        code: LOG_HEADER_TITLE + "(openai_thread_fallback)",
+                        value: catch_openai_thread,
+                        value_ext1: ret_status,
+                        value_ext2: threadError.message,
+                        EXT_data
+                    };
+                    console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                    throw new Error(ret_data.value_ext2);
                 }
-                
-                // 게임 데이터 저장
+            }
+            
+            // 게임 데이터 저장
+            try {
                 const gameDataToSave = JSON.stringify(gameDataObj);
                 
                 const [updateResult] = await connection.query(
@@ -357,27 +620,56 @@ class GameService {
                 if (updateResult.affectedRows === 0) {
                     throw new Error("Game update failed");
                 }
-                
-                // 이전 스레드 삭제 (비동기)
-                openai.beta.threads.del(oldThreadId)
-                    .then(() => console.log(`${LOG_HEADER} Old thread deleted: ${oldThreadId}`))
-                    .catch(e => console.error(`${LOG_HEADER} Error deleting old thread:`, e));
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_sql_update);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(sql_update)",
+                    value: catch_sql_update,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                throw new Error(ret_data.value_ext2);
+            } finally {
+                if (connection) connection.release();
+            }
+            
+            // 이전 스레드 삭제 (비동기)
+            openai.beta.threads.del(oldThreadId)
+                .then(() => console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " Old thread deleted: " + oldThreadId))
+                .catch(e => console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " Error deleting old thread:", e));
 
-                console.log(`[${LOG_HEADER}] Game saved successfully: ${gameId}`);
-                return {
+            ret_data = {
+                code: "result",
+                value: 1,
+                value_ext1: ret_status,
+                value_ext2: {
                     success: true,
                     newThreadId: newThreadId,
                     summary: summary,
                     initialResponse: initialResponse,
                     gameData: gameDataObj
-                };
-
-            } finally {
-                connection.release();
-            }
+                },
+                EXT_data
+            };
+            
+            console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            return ret_data.value_ext2;
 
         } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message}`);
+            if (connection) connection.release();
+            if (ret_status === 200) {
+                ret_status = fail_status;
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(unexpected_error)",
+                    value: -999,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            }
             return {
                 success: false,
                 error: e.message
@@ -388,12 +680,42 @@ class GameService {
     //============================================================================================
     async listGames(userId) {
     //============================================================================================
-        const LOG_HEADER = "GAME_SERVICE/LIST";
+        const LOG_HEADER_TITLE = "LIST_GAMES";
+        const LOG_HEADER = "UserId[" + my_reqinfo.maskId(userId) + "] --> " + LOG_HEADER_TITLE;
+        
+        const fail_status = 500;
+        let ret_status = 200;
+        let ret_data;
+        
+        const catch_sqlconn = -1;
+        const catch_sql_select = -2;
+        const catch_data_processing = -3;
+        
+        const EXT_data = { userId };
+        
+        let connection;
         
         try {
-            const connection = await pool.getConnection();
+            // DB 연결
             try {
-                const [games] = await connection.query(
+                connection = await pool.getConnection();
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_sqlconn);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(db_connection)",
+                    value: catch_sqlconn,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                throw new Error(ret_data.value_ext2);
+            }
+            
+            // 게임 목록 조회
+            let games;
+            try {
+                [games] = await connection.query(
                     `SELECT game_id, user_id, thread_id, assistant_id, game_data, 
                      created_at, last_updated 
                      FROM game_state 
@@ -401,8 +723,25 @@ class GameService {
                      ORDER BY last_updated DESC`,
                     [userId]
                 );
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_sql_select);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(sql_select)",
+                    value: catch_sql_select,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                throw new Error(ret_data.value_ext2);
+            } finally {
+                if (connection) connection.release();
+            }
 
-                const processedGames = games.map(game => {
+            // 게임 데이터 처리
+            let processedGames;
+            try {
+                processedGames = games.map(game => {
                     let parsedGameData = this.normalizeGameData(game.game_data);
                     
                     // 플레이 시간 계산
@@ -418,16 +757,47 @@ class GameService {
                         game_data: parsedGameData
                     };
                 });
-
-                console.log(`[${LOG_HEADER}] Retrieved ${processedGames.length} games`);
-                return processedGames;
-
-            } finally {
-                connection.release();
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_data_processing);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(data_processing)",
+                    value: catch_data_processing,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                throw new Error(ret_data.value_ext2);
             }
 
+            ret_data = {
+                code: "result",
+                value: processedGames.length,
+                value_ext1: ret_status,
+                value_ext2: processedGames,
+                EXT_data
+            };
+            
+            console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify({
+                ...ret_data,
+                value_ext2: `${processedGames.length} games processed`
+            }, null, 2));
+            
+            return processedGames;
+
         } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message}`);
+            if (connection) connection.release();
+            if (ret_status === 200) {
+                ret_status = fail_status;
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(unexpected_error)",
+                    value: -999,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            }
             throw e;
         }
     }
@@ -435,26 +805,82 @@ class GameService {
     //============================================================================================
     async deleteGame(gameId, userId) {
     //============================================================================================
-        const LOG_HEADER = "GAME_SERVICE/DELETE";
+        const LOG_HEADER_TITLE = "DELETE_GAME";
+        const LOG_HEADER = "GameId[" + my_reqinfo.maskId(gameId) + "] UserId[" + my_reqinfo.maskId(userId) + "] --> " + LOG_HEADER_TITLE;
+        
+        const fail_status = 500;
+        let ret_status = 200;
+        let ret_data;
+        
+        const catch_sqlconn = -1;
+        const catch_sql_select = -2;
+        const catch_openai = -3;
+        const catch_sql_delete = -4;
+        
+        const EXT_data = { gameId, userId };
+        
+        let connection;
         
         try {
-            const connection = await pool.getConnection();
+            // DB 연결
             try {
-                const [game] = await connection.query(
+                connection = await pool.getConnection();
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_sqlconn);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(db_connection)",
+                    value: catch_sqlconn,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                throw new Error(ret_data.value_ext2);
+            }
+            
+            // 게임 정보 조회 (스레드 ID 확인용)
+            let game;
+            try {
+                [game] = await connection.query(
                     'SELECT thread_id FROM game_state WHERE game_id = ? AND user_id = ?',
                     [gameId, userId]
                 );
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_sql_select);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(sql_select)",
+                    value: catch_sql_select,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                throw new Error(ret_data.value_ext2);
+            }
 
-                if (game.length > 0) {
-                    try {
-                        await openai.beta.threads.del(game[0].thread_id);
-                        console.log(`[${LOG_HEADER}] Thread deleted: ${game[0].thread_id}`);
-                    } catch (error) {
-                        console.error(`[${LOG_HEADER}] Delete thread error:`, error);
-                    }
+            // OpenAI 스레드 삭제
+            if (game.length > 0) {
+                try {
+                    await openai.beta.threads.del(game[0].thread_id);
+                    console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " Thread deleted: " + game[0].thread_id);
+                } catch (e) {
+                    ret_status = fail_status + (-1 * catch_openai);
+                    ret_data = {
+                        code: LOG_HEADER_TITLE + "(openai_thread_delete)",
+                        value: catch_openai,
+                        value_ext1: ret_status,
+                        value_ext2: e.message,
+                        EXT_data
+                    };
+                    console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                    // 스레드 삭제 실패는 경고로만 처리하고 계속 진행
                 }
+            }
 
-                const [result] = await connection.query(
+            // DB에서 게임 삭제
+            let result;
+            try {
+                [result] = await connection.query(
                     'DELETE FROM game_state WHERE game_id = ? AND user_id = ?',
                     [gameId, userId]
                 );
@@ -462,16 +888,48 @@ class GameService {
                 if (result.affectedRows === 0) {
                     throw new Error("Game not found or unauthorized");
                 }
-
-                console.log(`[${LOG_HEADER}] Game deleted: ${gameId}`);
-                return true;
-
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_sql_delete);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(sql_delete)",
+                    value: catch_sql_delete,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                throw new Error(ret_data.value_ext2);
             } finally {
-                connection.release();
+                if (connection) connection.release();
             }
 
+            ret_data = {
+                code: "result",
+                value: result.affectedRows,
+                value_ext1: ret_status,
+                value_ext2: {
+                    deleted: true,
+                    affectedRows: result.affectedRows
+                },
+                EXT_data
+            };
+            
+            console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            return true;
+
         } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message}`);
+            if (connection) connection.release();
+            if (ret_status === 200) {
+                ret_status = fail_status;
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(unexpected_error)",
+                    value: -999,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            }
             throw e;
         }
     }

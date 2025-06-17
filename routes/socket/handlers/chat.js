@@ -1,146 +1,440 @@
-// routes/socket/handlers/chat.js - 개선된 상태 파싱
+// routes/socket/handlers/chat.js
+// 채팅 이벤트 처리 (메시지 전송, 응답 생성) - 레퍼런스 패턴 적용
 
-const gameService = require('../services/game');
+'use strict';
 const chatService = require('../services/chat');
+const gameService = require('../services/game');
+const my_reqinfo = require('../../../utils/reqinfo');
+
+const LOG_FAIL_HEADER = "[FAIL]";
+const LOG_SUCC_HEADER = "[SUCC]";
+const LOG_INFO_HEADER = "[INFO]";
 
 const chatHandler = (io, socket) => {
+    
+    //============================================================================================
     socket.on('chat message', async (data) => {
-        const LOG_HEADER = "CHAT/MESSAGE";
+    //============================================================================================
+        const LOG_HEADER_TITLE = "CHAT_MESSAGE";
+        const LOG_HEADER = "UserId[" + my_reqinfo.maskId(socket.request.session.userId) + "] GameId[" + my_reqinfo.maskId(data?.game_id) + "] --> " + LOG_HEADER_TITLE;
+        
+        const fail_status = 500;
+        let ret_status = 200;
+        let ret_data;
+        
+        const catch_auth = -1;
+        const catch_input_validation = -2;
+        const catch_game_load = -3;
+        const catch_chat_service = -4;
+        const catch_game_parsing = -5;
+        const catch_game_update = -6;
+        
+        const EXT_data = {
+            socketId: socket.id,
+            sessionUserId: socket.request.session.userId,
+            gameId: data?.game_id,
+            messageLength: data?.message?.length || 0
+        };
+        
         try {
-            const userId = socket.request.session.userId;
-            if (!userId) throw new Error("Not authenticated");
-            if (!data.game_id) throw new Error("Game ID required");
-            if (!data.message) throw new Error("Message required");
-
-            // 메시지 형식 검증
-            let safeMessage = data.message;
-            if (typeof safeMessage !== 'string') {
-                safeMessage = String(safeMessage);
-                console.log(`[${LOG_HEADER}] 메시지 형식 변환: ${typeof data.message} -> string`);
+            //----------------------------------------------------------------------
+            // 인증 확인
+            //----------------------------------------------------------------------
+            let userId;
+            try {
+                userId = socket.request.session.userId;
+                if (!userId) {
+                    throw new Error("Not authenticated");
+                }
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_auth);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(authentication)",
+                    value: catch_auth,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                
+                socket.emit('chat response', {
+                    success: false,
+                    error: ret_data.value_ext2
+                });
+                return;
             }
-
-            // 현재 게임 상태 조회
-            const game = await gameService.loadGame(data.game_id, userId);
             
-            // AI 응답 받기
-            const response = await chatService.sendMessage(
-                game.thread_id,
-                game.assistant_id,
-                safeMessage
-            );
-
-            // 게임 상태 업데이트 (새로운 파싱 방식)
-            let updatedGameData = JSON.parse(JSON.stringify(game.game_data)); // 깊은 복사
-            
-            console.log(`[${LOG_HEADER}] 응답 분석 시작:`, response);
-            
-            // 새로운 파싱 방식 사용
-            const parsedState = chatService.parseGameResponse(response);
-            
-            if (parsedState) {
-                // 위치 정보 업데이트
-                if (parsedState.location && parsedState.location.current) {
-                    updatedGameData.location.current = parsedState.location.current;
-                    
-                    if (parsedState.location.roomId) {
-                        updatedGameData.location.roomId = parsedState.location.roomId;
-                    }
-                    
-                    // 새로운 위치 추가
-                    if (!updatedGameData.location.discovered.includes(parsedState.location.current)) {
-                        updatedGameData.location.discovered.push(parsedState.location.current);
-                    }
+            //----------------------------------------------------------------------
+            // 입력값 검증
+            //----------------------------------------------------------------------
+            let gameId, message;
+            try {
+                if (!data || !data.game_id) {
+                    throw new Error("Game ID required");
                 }
-                
-                // 플레이어 상태 업데이트
-                if (parsedState.player) {
-                    if (parsedState.player.health !== undefined) {
-                        updatedGameData.player.health = parsedState.player.health;
-                    }
-                    if (parsedState.player.maxHealth !== undefined) {
-                        updatedGameData.player.maxHealth = parsedState.player.maxHealth;
-                    }
-                    if (parsedState.player.status) {
-                        updatedGameData.player.status = parsedState.player.status;
-                    }
-                    if (parsedState.player.mental) {
-                        updatedGameData.player.mental = parsedState.player.mental;
-                    }
+                if (!data.message) {
+                    throw new Error("Message required");
                 }
+                gameId = data.game_id;
+                message = data.message;
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_input_validation);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(input_validation)",
+                    value: catch_input_validation,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
                 
-                // 인벤토리 업데이트
-                if (parsedState.inventory) {
-                    if (parsedState.inventory.keyItems) {
-                        updatedGameData.inventory.keyItems = parsedState.inventory.keyItems;
-                    }
-                    if (parsedState.inventory.gold !== undefined) {
-                        updatedGameData.inventory.gold = parsedState.inventory.gold;
-                    }
-                }
-                
-                console.log(`[${LOG_HEADER}] 게임 상태 업데이트 완료`);
+                socket.emit('chat response', {
+                    success: false,
+                    error: ret_data.value_ext2
+                });
+                return;
             }
-
-            // 게임 상태가 변경된 경우 컨텍스트 업데이트 (빈 함수로 처리)
-            const isDataChanged = JSON.stringify(updatedGameData) !== JSON.stringify(game.game_data);
             
-            if (isDataChanged) {
-                console.log(`[${LOG_HEADER}] 게임 상태가 변경됨`);
+            //----------------------------------------------------------------------
+            // 게임 정보 로드
+            //----------------------------------------------------------------------
+            let game;
+            try {
+                game = await gameService.loadGame(gameId, userId);
+                if (!game || !game.thread_id || !game.assistant_id) {
+                    throw new Error("Invalid game data");
+                }
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_game_load);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(game_load)",
+                    value: catch_game_load,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
                 
+                socket.emit('chat response', {
+                    success: false,
+                    error: ret_data.value_ext2
+                });
+                return;
+            }
+            
+            //----------------------------------------------------------------------
+            // AI 응답 생성
+            //----------------------------------------------------------------------
+            let aiResponse;
+            try {
+                aiResponse = await chatService.sendMessage(game.thread_id, game.assistant_id, message);
+                if (!aiResponse) {
+                    throw new Error("Empty response from AI");
+                }
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_chat_service);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(chat_service)",
+                    value: catch_chat_service,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                
+                socket.emit('chat response', {
+                    success: false,
+                    error: ret_data.value_ext2
+                });
+                return;
+            }
+            
+            //----------------------------------------------------------------------
+            // 게임 상태 파싱
+            //----------------------------------------------------------------------
+            let updatedGameState = null;
+            try {
+                const parsedState = chatService.parseGameResponse(aiResponse);
+                if (parsedState && game.game_data) {
+                    // 기존 게임 데이터를 업데이트
+                    updatedGameState = { ...game.game_data };
+                    
+                    // 파싱된 상태로 업데이트
+                    if (parsedState.location && parsedState.location.current) {
+                        updatedGameState.location = updatedGameState.location || {};
+                        updatedGameState.location.current = parsedState.location.current;
+                        
+                        if (parsedState.location.roomId) {
+                            updatedGameState.location.roomId = parsedState.location.roomId;
+                        }
+                        
+                        // 발견된 위치 목록 업데이트
+                        if (!updatedGameState.location.discovered) {
+                            updatedGameState.location.discovered = [];
+                        }
+                        if (!updatedGameState.location.discovered.includes(parsedState.location.current)) {
+                            updatedGameState.location.discovered.push(parsedState.location.current);
+                        }
+                    }
+                    
+                    // 플레이어 상태 업데이트
+                    if (parsedState.player) {
+                        updatedGameState.player = updatedGameState.player || {};
+                        Object.assign(updatedGameState.player, parsedState.player);
+                    }
+                    
+                    // 인벤토리 업데이트
+                    if (parsedState.inventory) {
+                        updatedGameState.inventory = updatedGameState.inventory || {};
+                        Object.assign(updatedGameState.inventory, parsedState.inventory);
+                    }
+                }
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_game_parsing);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(game_parsing)",
+                    value: catch_game_parsing,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                // 파싱 실패는 경고로만 처리하고 계속 진행
+            }
+            
+            //----------------------------------------------------------------------
+            // 게임 상태 업데이트 (선택적)
+            //----------------------------------------------------------------------
+            if (updatedGameState) {
                 try {
-                    await chatService.updateGameContext(game.thread_id, updatedGameData);
-                } catch (contextError) {
-                    console.error(`[${LOG_HEADER}] 컨텍스트 업데이트 오류:`, contextError);
-                    // 오류가 발생해도 계속 진행
+                    await chatService.updateGameContext(game.thread_id, updatedGameState);
+                } catch (e) {
+                    ret_status = fail_status + (-1 * catch_game_update);
+                    ret_data = {
+                        code: LOG_HEADER_TITLE + "(game_update)",
+                        value: catch_game_update,
+                        value_ext1: ret_status,
+                        value_ext2: e.message,
+                        EXT_data
+                    };
+                    console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                    // 게임 상태 업데이트 실패는 경고로만 처리
                 }
             }
-
-            console.log(`[${LOG_HEADER}] 응답 전송`);
+            
+            //----------------------------------------------------------------------
+            // 채팅 응답
+            //----------------------------------------------------------------------
             socket.emit('chat response', {
                 success: true,
-                response: response,
-                game_state: updatedGameData
+                response: aiResponse,
+                game_state: updatedGameState || game.game_data
             });
-
+            
+            //----------------------------------------------------------------------
+            // result - 성공 로깅
+            //----------------------------------------------------------------------
+            ret_data = {
+                code: "result",
+                value: 1,
+                value_ext1: ret_status,
+                value_ext2: {
+                    gameId: gameId,
+                    threadId: my_reqinfo.maskId(game.thread_id),
+                    messageLength: message.length,
+                    responseLength: aiResponse.length,
+                    gameStateUpdated: updatedGameState !== null
+                },
+                EXT_data
+            };
+            console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            
         } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
+            // 예상치 못한 오류 처리
+            const error_data = {
+                code: LOG_HEADER_TITLE + "(unexpected_error)",
+                value: -999,
+                value_ext1: 500,
+                value_ext2: e.message,
+                EXT_data
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(error_data, null, 2));
+            
             socket.emit('chat response', {
                 success: false,
-                error: e.message || e
+                error: error_data.value_ext2
             });
         }
     });
 
+    //============================================================================================
     socket.on('get chat history', async (data) => {
-        const LOG_HEADER = "CHAT/HISTORY";
+    //============================================================================================
+        const LOG_HEADER_TITLE = "GET_CHAT_HISTORY";
+        const LOG_HEADER = "UserId[" + my_reqinfo.maskId(socket.request.session.userId) + "] GameId[" + my_reqinfo.maskId(data?.game_id) + "] --> " + LOG_HEADER_TITLE;
+        
+        const fail_status = 500;
+        let ret_status = 200;
+        let ret_data;
+        
+        const catch_auth = -1;
+        const catch_input_validation = -2;
+        const catch_game_load = -3;
+        const catch_chat_service = -4;
+        
+        const EXT_data = {
+            socketId: socket.id,
+            sessionUserId: socket.request.session.userId,
+            gameId: data?.game_id
+        };
+        
         try {
-            const userId = socket.request.session.userId;
-            if (!userId) throw new Error("Not authenticated");
-            if (!data.game_id) throw new Error("Game ID required");
-
-            // 게임 정보 확인
-            const game = await gameService.loadGame(data.game_id, userId);
+            //----------------------------------------------------------------------
+            // 인증 확인
+            //----------------------------------------------------------------------
+            let userId;
+            try {
+                userId = socket.request.session.userId;
+                if (!userId) {
+                    throw new Error("Not authenticated");
+                }
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_auth);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(authentication)",
+                    value: catch_auth,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                
+                socket.emit('chat history response', {
+                    success: false,
+                    error: ret_data.value_ext2
+                });
+                return;
+            }
             
-            // 채팅 기록 가져오기
+            //----------------------------------------------------------------------
+            // 입력값 검증
+            //----------------------------------------------------------------------
+            let gameId;
+            try {
+                if (!data || !data.game_id) {
+                    throw new Error("Game ID required");
+                }
+                gameId = data.game_id;
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_input_validation);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(input_validation)",
+                    value: catch_input_validation,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                
+                socket.emit('chat history response', {
+                    success: false,
+                    error: ret_data.value_ext2
+                });
+                return;
+            }
+            
+            //----------------------------------------------------------------------
+            // 게임 정보 로드
+            //----------------------------------------------------------------------
+            let game;
+            try {
+                game = await gameService.loadGame(gameId, userId);
+                if (!game || !game.thread_id) {
+                    throw new Error("Invalid game data or thread not found");
+                }
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_game_load);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(game_load)",
+                    value: catch_game_load,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                
+                socket.emit('chat history response', {
+                    success: false,
+                    error: ret_data.value_ext2
+                });
+                return;
+            }
+            
+            //----------------------------------------------------------------------
+            // 채팅 히스토리 가져오기
+            //----------------------------------------------------------------------
             let history;
             try {
                 history = await chatService.getMessageHistory(game.thread_id);
-            } catch (historyError) {
-                console.error(`[${LOG_HEADER}] History retrieval error:`, historyError);
-                history = []; // 오류 시 빈 배열 반환
+                if (!Array.isArray(history)) {
+                    history = [];
+                }
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_chat_service);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(chat_service_history)",
+                    value: catch_chat_service,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                
+                socket.emit('chat history response', {
+                    success: false,
+                    error: ret_data.value_ext2
+                });
+                return;
             }
             
-            console.log(`[${LOG_HEADER}] History retrieved`);
+            //----------------------------------------------------------------------
+            // 채팅 히스토리 응답
+            //----------------------------------------------------------------------
             socket.emit('chat history response', {
                 success: true,
                 history: history
             });
-
+            
+            //----------------------------------------------------------------------
+            // result - 성공 로깅
+            //----------------------------------------------------------------------
+            ret_data = {
+                code: "result",
+                value: history.length,
+                value_ext1: ret_status,
+                value_ext2: {
+                    gameId: gameId,
+                    threadId: my_reqinfo.maskId(game.thread_id),
+                    historyLength: history.length
+                },
+                EXT_data
+            };
+            console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            
         } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
+            // 예상치 못한 오류 처리
+            const error_data = {
+                code: LOG_HEADER_TITLE + "(unexpected_error)",
+                value: -999,
+                value_ext1: 500,
+                value_ext2: e.message,
+                EXT_data
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(error_data, null, 2));
+            
             socket.emit('chat history response', {
                 success: false,
-                error: e.message || e
+                error: error_data.value_ext2
             });
         }
     });
