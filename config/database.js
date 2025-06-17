@@ -363,6 +363,20 @@ async function callSelectProcedure(procedureName, inputParams = []) {
                 return errorResult;
             }
             
+            // ROW_COUNT()가 0인 경우 (데이터 없음)
+            if (resultCode === 0) {
+                const emptyResult = {
+                    success: true,
+                    code: resultCode,
+                    message: resultMessage,
+                    data: [],
+                    count: 0
+                };
+                
+                console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " NO DATA FOUND:", resultMessage);
+                return emptyResult;
+            }
+            
             // 성공 결과
             const successResult = {
                 success: true,

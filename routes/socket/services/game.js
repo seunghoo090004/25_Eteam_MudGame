@@ -24,19 +24,33 @@ class GameService {
         let gameDataObj;
         
         try {
-            gameDataObj = typeof gameData === 'string' 
-                ? JSON.parse(gameData) 
-                : gameData;
+            // 이미 객체인 경우
+            if (typeof gameData === 'object' && gameData !== null) {
+                gameDataObj = gameData;
+            }
+            // 문자열인 경우 파싱 시도
+            else if (typeof gameData === 'string') {
+                // 빈 문자열이나 잘못된 JSON 처리
+                if (!gameData.trim() || gameData.trim() === 'undefined' || gameData.trim() === 'null') {
+                    gameDataObj = {};
+                } else {
+                    gameDataObj = JSON.parse(gameData);
+                }
+            }
+            // 기타 타입인 경우 빈 객체로 초기화
+            else {
+                gameDataObj = {};
+            }
         } catch (e) {
-            const ret_data = {
-                code: LOG_HEADER_TITLE + "(json_parsing)",
-                value: catch_parsing,
-                value_ext1: 500,
-                value_ext2: e.message,
-                EXT_data: { gameDataType: typeof gameData }
-            };
-            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-            throw new Error("Invalid game data format");
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " JSON parsing failed, using empty object:", {
+                error: e.message,
+                gameDataType: typeof gameData,
+                gameDataLength: gameData?.length || 0,
+                gameDataPreview: typeof gameData === 'string' ? gameData.substring(0, 100) : String(gameData).substring(0, 100)
+            });
+            
+            // 파싱 실패 시 빈 객체로 초기화
+            gameDataObj = {};
         }
         
         // 기본 구조 보장
