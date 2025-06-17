@@ -35,7 +35,7 @@ const chatHandler = (io, socket) => {
             gameId: data?.game_id,
             messageLength: data?.message?.length || 0
         };
-        
+         
         try {
             //----------------------------------------------------------------------
             // 인증 확인
