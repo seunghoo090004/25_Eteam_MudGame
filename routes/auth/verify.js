@@ -249,6 +249,184 @@ router.post('/send-code', async(req, res) => {  // csrfProtection 임시 제거
 });
 
 //========================================================================
+// POST /auth/verify/check-code - 인증 코드 확인 (프론트엔드 호환용)
+//========================================================================
+router.post('/check-code', async(req, res) => {
+    const LOG_HEADER_TITLE = "CHECK_VERIFICATION_CODE";
+    const EXT_data = my_reqinfo.get_req_url(req);
+    const LOG_HEADER = "Email[" + my_reqinfo.maskId(req.body.email) + "] --> " + LOG_HEADER_TITLE;
+    
+    const fail_status = 500;
+    let ret_status = 200;
+    let ret_data;
+
+    const catch_input_validation = -1;
+    const catch_code_verification = -2;
+    
+    try {
+        //----------------------------------------------------------------------
+        // 입력층: 요청 데이터 검증 및 추출
+        //----------------------------------------------------------------------
+        let inputData;
+        try {
+            const { email, code } = req.body;
+            
+            if (!email || !code) {
+                throw new Error("Email and code are required");
+            }
+            
+            if (!validateEmail(email)) {
+                throw new Error("Invalid email format");
+            }
+            
+            if (!/^\d{6}$/.test(code)) {
+                throw new Error("Invalid code format");
+            }
+            
+            inputData = {
+                email: normalizeEmail(email),
+                code: code.trim()
+            };
+            
+        } catch (e) {
+            ret_status = fail_status + (-1 * catch_input_validation);
+            ret_data = {
+                code: LOG_HEADER_TITLE + "(input_validation)",
+                value: catch_input_validation,
+                value_ext1: ret_status,
+                value_ext2: e.message,
+                EXT_data
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            
+            return res.status(400).json({
+                code: 'INVALID_INPUT',
+                msg: '이메일과 6자리 인증 코드를 입력해주세요.'
+            });
+        }
+        
+        //----------------------------------------------------------------------
+        // 처리층: 인증 코드 검증
+        //----------------------------------------------------------------------
+        try {
+            const storedData = verificationCodes[inputData.email];
+            
+            if (!storedData) {
+                throw new Error("CODE_NOT_FOUND");
+            }
+            
+            // 만료 시간 확인
+            if (new Date() > storedData.expires) {
+                delete verificationCodes[inputData.email];
+                throw new Error("CODE_EXPIRED");
+            }
+            
+            // 시도 횟수 증가
+            storedData.attempts += 1;
+            
+            // 최대 시도 횟수 확인 (5회)
+            if (storedData.attempts > 5) {
+                delete verificationCodes[inputData.email];
+                throw new Error("TOO_MANY_ATTEMPTS");
+            }
+            
+            // 코드 일치 확인
+            if (storedData.code !== inputData.code) {
+                throw new Error("INVALID_CODE");
+            }
+            
+            // 인증 성공 - 저장된 코드 제거
+            delete verificationCodes[inputData.email];
+            
+        } catch (e) {
+            ret_status = fail_status + (-1 * catch_code_verification);
+            ret_data = {
+                code: LOG_HEADER_TITLE + "(code_verification)",
+                value: catch_code_verification,
+                value_ext1: ret_status,
+                value_ext2: e.message,
+                EXT_data
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            
+            if (e.message === "CODE_NOT_FOUND") {
+                return res.status(404).json({
+                    code: 'CODE_NOT_FOUND',
+                    msg: '인증 코드를 찾을 수 없습니다. 새로운 코드를 요청해주세요.'
+                });
+            }
+            
+            if (e.message === "CODE_EXPIRED") {
+                return res.status(410).json({
+                    code: 'CODE_EXPIRED',
+                    msg: '인증 코드가 만료되었습니다. 새로운 코드를 요청해주세요.'
+                });
+            }
+            
+            if (e.message === "TOO_MANY_ATTEMPTS") {
+                return res.status(429).json({
+                    code: 'TOO_MANY_ATTEMPTS',
+                    msg: '인증 시도 횟수를 초과했습니다. 새로운 코드를 요청해주세요.'
+                });
+            }
+            
+            if (e.message === "INVALID_CODE") {
+                return res.status(400).json({
+                    code: 'INVALID_CODE',
+                    msg: '인증 코드가 일치하지 않습니다.'
+                });
+            }
+            
+            return res.status(500).json({
+                code: 'VERIFICATION_ERROR',
+                msg: '인증 코드 확인 중 오류가 발생했습니다.'
+            });
+        }
+        
+        //----------------------------------------------------------------------
+        // 출력층: 성공 응답
+        //----------------------------------------------------------------------
+        ret_data = {
+            code: LOG_HEADER_TITLE + "(success)",
+            value: 1,
+            value_ext1: ret_status,
+            value_ext2: { email: inputData.email, verified: true },
+            EXT_data
+        };
+        console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify({
+            ...ret_data,
+            value_ext2: { email: my_reqinfo.maskId(inputData.email), verified: true }
+        }, null, 2));
+        
+        return res.status(200).json({
+            code: 'VERIFICATION_SUCCESS',
+            msg: '이메일 인증이 완료되었습니다.',
+            data: {
+                email: inputData.email,
+                verified: true
+            }
+        });
+        
+    } catch (error) {
+        // 예상치 못한 에러 처리
+        ret_status = fail_status;
+        ret_data = {
+            code: LOG_HEADER_TITLE + "(unexpected_error)",
+            value: -99,
+            value_ext1: ret_status,
+            value_ext2: error.message,
+            EXT_data
+        };
+        console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+        
+        return res.status(500).json({
+            code: 'SERVER_ERROR',
+            msg: '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
+        });
+    }
+});
+
+//========================================================================
 // POST /auth/verify/confirm-code - 인증 코드 확인
 //========================================================================
 router.post('/confirm-code', async(req, res) => {  // csrfProtection 임시 제거
