@@ -51,7 +51,7 @@ const verificationCodes = {};
 //========================================================================
 // POST /auth/verify/send-code - 이메일 인증 코드 발송
 //========================================================================
-router.post('/send-code', csrfProtection, async(req, res) => {
+router.post('/send-code', async(req, res) => {  // csrfProtection 임시 제거
     const LOG_HEADER_TITLE = "SEND_VERIFICATION_CODE";
     const EXT_data = my_reqinfo.get_req_url(req);
     const LOG_HEADER = "Email[" + my_reqinfo.maskId(req.body.email) + "] --> " + LOG_HEADER_TITLE;
@@ -251,7 +251,7 @@ router.post('/send-code', csrfProtection, async(req, res) => {
 //========================================================================
 // POST /auth/verify/confirm-code - 인증 코드 확인
 //========================================================================
-router.post('/confirm-code', csrfProtection, async(req, res) => {
+router.post('/confirm-code', async(req, res) => {  // csrfProtection 임시 제거
     const LOG_HEADER_TITLE = "CONFIRM_VERIFICATION_CODE";
     const EXT_data = my_reqinfo.get_req_url(req);
     const LOG_HEADER = "Email[" + my_reqinfo.maskId(req.body.email) + "] --> " + LOG_HEADER_TITLE;
