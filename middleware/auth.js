@@ -1,5 +1,13 @@
 // middleware/auth.js 수정사항
-// 세션 확인 부분에 타입 검증 추가
+// userId 정제 함수 적용
+
+'use strict';
+const my_reqinfo = require('../utils/reqinfo');
+const { getSafeUserId } = require('../utils/userIdSanitizer');
+
+const LOG_FAIL_HEADER = "[FAIL]";
+const LOG_SUCC_HEADER = "[SUCC]";
+const LOG_INFO_HEADER = "[INFO]";
 
 //============================================================================================
 const auth = (req, res, next) => {
@@ -17,43 +25,15 @@ const auth = (req, res, next) => {
 
     try {
         //----------------------------------------------------------------------
-        // 세션 확인 (타입 검증 추가)
+        // 세션 확인 (정제 함수 적용)
         //----------------------------------------------------------------------
         let userId;
         try {
-            userId = req.session?.userId;
+            // **🔧 안전한 userId 추출**
+            userId = getSafeUserId(req.session, 'auth_middleware');
             
-            // userId 존재 여부 확인
             if (!userId) {
-                throw new Error("No session found");
-            }
-            
-            // **🔧 타입 검증 추가**
-            if (typeof userId !== 'string') {
-                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " Invalid userId type:", {
-                    userId: userId,
-                    type: typeof userId,
-                    isObject: typeof userId === 'object'
-                });
-                
-                // userId가 객체인 경우 세션 초기화
-                if (typeof userId === 'object') {
-                    req.session.destroy();
-                    throw new Error("Invalid session data - userId must be string");
-                }
-                
-                throw new Error("Invalid userId type");
-            }
-            
-            // **🔧 길이 검증 추가** (새 DB 스키마: VARCHAR(32), 최소 7자)
-            if (userId.length < 7 || userId.length > 32) {
-                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " Invalid userId length:", {
-                    userId: my_reqinfo.maskId(userId),
-                    length: userId.length
-                });
-                
-                req.session.destroy();
-                throw new Error("Invalid userId format");
+                throw new Error("No valid session found");
             }
             
         } catch (e) {
@@ -123,7 +103,7 @@ const auth = (req, res, next) => {
 };
 
 //============================================================================================
-// Socket.IO용 인증 미들웨어 (동일한 검증 로직 추가)
+// Socket.IO용 인증 미들웨어 (정제 함수 적용)
 //============================================================================================
 const socketAuth = (socket, next) => {
     const LOG_HEADER_TITLE = "SOCKET_AUTH_MIDDLEWARE";
@@ -143,35 +123,15 @@ const socketAuth = (socket, next) => {
 
     try {
         //----------------------------------------------------------------------
-        // 세션 확인 (타입 검증 추가)
+        // 세션 확인 (정제 함수 적용)
         //----------------------------------------------------------------------
         let userId;
         try {
-            userId = socket.request.session?.userId;
+            // **🔧 안전한 userId 추출**
+            userId = getSafeUserId(socket.request.session, 'socket_auth');
             
             if (!userId) {
-                throw new Error("No session found for socket connection");
-            }
-            
-            // **🔧 타입 검증 추가**
-            if (typeof userId !== 'string') {
-                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " Invalid userId type:", {
-                    userId: userId,
-                    type: typeof userId,
-                    isObject: typeof userId === 'object'
-                });
-                
-                throw new Error("Invalid session data - userId must be string");
-            }
-            
-            // **🔧 길이 검증 추가**
-            if (userId.length < 7 || userId.length > 32) {
-                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " Invalid userId length:", {
-                    userId: my_reqinfo.maskId(userId),
-                    length: userId.length
-                });
-                
-                throw new Error("Invalid userId format");
+                throw new Error("No valid session found for socket connection");
             }
             
         } catch (e) {

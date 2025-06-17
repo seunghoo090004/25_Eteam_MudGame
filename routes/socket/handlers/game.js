@@ -40,7 +40,7 @@ const gameHandler = (io, socket) => {
             //----------------------------------------------------------------------
             let userId;
             try {
-                userId = socket.request.session.userId;
+                userId = getSafeUserId(socket.request.session, 'save_game_handler');
                 if (!userId) {
                     throw new Error("Not authenticated");
                 }
@@ -243,7 +243,7 @@ const gameHandler = (io, socket) => {
             //----------------------------------------------------------------------
             let userId;
             try {
-                userId = socket.request.session.userId;
+                userId = getSafeUserId(socket.request.session, 'save_game_handler');
                 if (!userId) {
                     throw new Error("Not authenticated");
                 }
@@ -424,7 +424,7 @@ const gameHandler = (io, socket) => {
             //----------------------------------------------------------------------
             let userId;
             try {
-                userId = socket.request.session.userId;
+                userId = getSafeUserId(socket.request.session, 'save_game_handler');
                 if (!userId) {
                     throw new Error("Not authenticated");
                 }
@@ -638,7 +638,7 @@ const gameHandler = (io, socket) => {
             //----------------------------------------------------------------------
             let userId;
             try {
-                userId = socket.request.session.userId;
+                userId = getSafeUserId(socket.request.session, 'save_game_handler');
                 if (!userId) {
                     throw new Error("Not authenticated");
                 }
@@ -760,7 +760,7 @@ const gameHandler = (io, socket) => {
             //----------------------------------------------------------------------
             let userId;
             try {
-                userId = socket.request.session.userId;
+                userId = getSafeUserId(socket.request.session, 'save_game_handler');
                 if (!userId) {
                     throw new Error("Not authenticated");
                 }
