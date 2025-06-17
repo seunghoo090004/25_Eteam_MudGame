@@ -343,7 +343,7 @@ async function callSelectProcedure(procedureName, inputParams = []) {
             const resultCode = parseInt(procedureResult.result);
             const resultMessage = procedureResult.result2;
             
-            // 결과 코드가 음수면 실패
+            // 음수 코드는 실제 에러
             if (resultCode < 0) {
                 const errorResult = {
                     success: false,
@@ -363,26 +363,12 @@ async function callSelectProcedure(procedureName, inputParams = []) {
                 return errorResult;
             }
             
-            // ROW_COUNT()가 0인 경우 (데이터 없음)
-            if (resultCode === 0) {
-                const emptyResult = {
-                    success: true,
-                    code: resultCode,
-                    message: resultMessage,
-                    data: [],
-                    count: 0
-                };
-                
-                console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " NO DATA FOUND:", resultMessage);
-                return emptyResult;
-            }
-            
-            // 성공 결과
+            // 0 이상은 모두 성공 (0 = 데이터 없음, 1+ = 데이터 있음)
             const successResult = {
                 success: true,
                 code: resultCode,
                 message: resultMessage,
-                data: resultSet,
+                data: resultSet || [],
                 count: Array.isArray(resultSet) ? resultSet.length : 0
             };
             
