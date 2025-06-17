@@ -72,11 +72,17 @@ const chatHandler = (io, socket) => {
                 if (!data || !data.game_id) {
                     throw new Error("Game ID required");
                 }
-                if (!data.message) {
+                if (data.message === undefined || data.message === null) {
                     throw new Error("Message required");
                 }
+                
                 gameId = data.game_id;
-                message = data.message;
+                // 메시지를 문자열로 변환 (숫자나 다른 타입도 허용)
+                message = String(data.message);
+                
+                if (message.trim() === '') {
+                    throw new Error("Message cannot be empty");
+                }
             } catch (e) {
                 ret_status = fail_status + (-1 * catch_input_validation);
                 ret_data = {

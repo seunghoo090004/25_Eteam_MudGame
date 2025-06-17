@@ -41,8 +41,14 @@ class ChatService {
                     throw new Error("Required parameters missing");
                 }
                 
+                // 메시지를 문자열로 변환 (숫자나 다른 타입도 허용)
                 if (typeof message !== 'string') {
-                    throw new Error("Message must be string type");
+                    message = String(message);
+                }
+                
+                // 빈 문자열 체크
+                if (message.trim() === '') {
+                    throw new Error("Message cannot be empty");
                 }
             } catch (e) {
                 ret_status = fail_status + (-1 * catch_input_validation);
