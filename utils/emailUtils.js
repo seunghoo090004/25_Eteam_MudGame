@@ -13,7 +13,7 @@ const LOG_INFO_HEADER = "[INFO]";
 //============================================================================================
 // 트랜스포터 설정
 //============================================================================================
-const transporter = nodemailer.createTransporter({
+const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: process.env.SMTP_PORT,
     secure: process.env.SMTP_PORT === '465',
