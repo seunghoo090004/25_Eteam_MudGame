@@ -107,19 +107,57 @@ class GameService {
         const LOG_HEADER_TITLE = "VALIDATE_USER_ID";
         const LOG_HEADER = "GameService --> " + LOG_HEADER_TITLE;
         
-        if (!userId || typeof userId !== 'string' || userId.length < 7) {
+        // **🔧 상세한 타입 검증 추가**
+        if (!userId) {
             const ret_data = {
                 code: LOG_HEADER_TITLE + "(validation_failed)",
                 value: -1,
                 value_ext1: 400,
-                value_ext2: "Invalid user ID format",
+                value_ext2: "User ID is required",
                 EXT_data: { userId: userId, userIdType: typeof userId }
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            throw new Error("User ID is required");
+        }
+        
+        if (typeof userId !== 'string') {
+            const ret_data = {
+                code: LOG_HEADER_TITLE + "(validation_failed)",
+                value: -2,
+                value_ext1: 400,
+                value_ext2: "User ID must be string type",
+                EXT_data: { 
+                    userId: userId, 
+                    userIdType: typeof userId,
+                    isObject: typeof userId === 'object',
+                    isArray: Array.isArray(userId)
+                }
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            throw new Error("Invalid user ID type - expected string");
+        }
+        
+        if (userId.length < 7 || userId.length > 32) {
+            const ret_data = {
+                code: LOG_HEADER_TITLE + "(validation_failed)",
+                value: -3,
+                value_ext1: 400,
+                value_ext2: "User ID length must be between 7-32 characters",
+                EXT_data: { 
+                    userId: my_reqinfo.maskId(userId), 
+                    userIdType: typeof userId,
+                    userIdLength: userId.length
+                }
             };
             console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
             throw new Error("Invalid user ID format");
         }
         
-        console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + " User ID validated successfully");
+        console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + " User ID validated successfully:", {
+            userId: my_reqinfo.maskId(userId),
+            type: typeof userId,
+            length: userId.length
+        });
         return true;
     }
     

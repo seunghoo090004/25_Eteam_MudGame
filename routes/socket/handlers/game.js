@@ -44,6 +44,17 @@ const gameHandler = (io, socket) => {
                 if (!userId) {
                     throw new Error("Not authenticated");
                 }
+                
+                // **🔧 추가 타입 검증**
+                if (typeof userId !== 'string') {
+                    console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " Invalid session userId type:", {
+                        userId: userId,
+                        type: typeof userId,
+                        sessionData: socket.request.session
+                    });
+                    throw new Error("Invalid session data - please login again");
+                }
+                
             } catch (e) {
                 ret_status = fail_status + (-1 * catch_auth);
                 ret_data = {
@@ -55,9 +66,11 @@ const gameHandler = (io, socket) => {
                 };
                 console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
                 
-                socket.emit('new game response', {
+                // 클라이언트에 재로그인 요청
+                socket.emit('auth error', {
                     success: false,
-                    error: ret_data.value_ext2
+                    error: 'Authentication required - please refresh and login again',
+                    code: 'AUTH_INVALID'
                 });
                 return;
             }

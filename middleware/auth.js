@@ -1,12 +1,5 @@
-// middleware/auth.js
-// 사용자 인증 상태 확인 및 세션 관리 미들웨어 - 레퍼런스 패턴 적용
-
-'use strict';
-const my_reqinfo = require('../utils/reqinfo');
-
-const LOG_FAIL_HEADER = "[FAIL]";
-const LOG_SUCC_HEADER = "[SUCC]";
-const LOG_INFO_HEADER = "[INFO]";
+// middleware/auth.js 수정사항
+// 세션 확인 부분에 타입 검증 추가
 
 //============================================================================================
 const auth = (req, res, next) => {
@@ -24,14 +17,45 @@ const auth = (req, res, next) => {
 
     try {
         //----------------------------------------------------------------------
-        // 세션 확인
+        // 세션 확인 (타입 검증 추가)
         //----------------------------------------------------------------------
         let userId;
         try {
             userId = req.session?.userId;
+            
+            // userId 존재 여부 확인
             if (!userId) {
                 throw new Error("No session found");
             }
+            
+            // **🔧 타입 검증 추가**
+            if (typeof userId !== 'string') {
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " Invalid userId type:", {
+                    userId: userId,
+                    type: typeof userId,
+                    isObject: typeof userId === 'object'
+                });
+                
+                // userId가 객체인 경우 세션 초기화
+                if (typeof userId === 'object') {
+                    req.session.destroy();
+                    throw new Error("Invalid session data - userId must be string");
+                }
+                
+                throw new Error("Invalid userId type");
+            }
+            
+            // **🔧 길이 검증 추가** (새 DB 스키마: VARCHAR(32), 최소 7자)
+            if (userId.length < 7 || userId.length > 32) {
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " Invalid userId length:", {
+                    userId: my_reqinfo.maskId(userId),
+                    length: userId.length
+                });
+                
+                req.session.destroy();
+                throw new Error("Invalid userId format");
+            }
+            
         } catch (e) {
             ret_status = 401; // 인증 실패는 401 상태 코드
             ret_data = {
@@ -56,31 +80,6 @@ const auth = (req, res, next) => {
         }
 
         //----------------------------------------------------------------------
-        // 응답 타입 확인 및 로깅
-        //----------------------------------------------------------------------
-        try {
-            // API 요청인 경우 (AJAX)
-            if (req.xhr || req.headers.accept?.indexOf('json') > -1) {
-                console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " API authentication successful");
-            } 
-            // 페이지 요청인 경우
-            else {
-                console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " Page authentication successful");
-            }
-        } catch (e) {
-            ret_status = fail_status + (-1 * catch_response_type);
-            ret_data = {
-                code: LOG_HEADER_TITLE + "(response_type_check)",
-                value: catch_response_type,
-                value_ext1: ret_status,
-                value_ext2: e.message,
-                EXT_data
-            };
-            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-            // 응답 타입 확인 실패는 경고로만 처리하고 계속 진행
-        }
-
-        //----------------------------------------------------------------------
         // result - 성공 로깅
         //----------------------------------------------------------------------
         ret_data = {
@@ -91,13 +90,12 @@ const auth = (req, res, next) => {
                 userId: userId,
                 authenticated: true,
                 isAPI: req.xhr || req.headers.accept?.indexOf('json') > -1
-            },
-            EXT_data
+            }
         };
         console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify({
             ...ret_data,
             value_ext2: {
-                userId: userId,
+                userId: my_reqinfo.maskId(userId),
                 authenticated: true,
                 isAPI: req.xhr || req.headers.accept?.indexOf('json') > -1
             }
@@ -125,7 +123,7 @@ const auth = (req, res, next) => {
 };
 
 //============================================================================================
-// Socket.IO용 인증 미들웨어
+// Socket.IO용 인증 미들웨어 (동일한 검증 로직 추가)
 //============================================================================================
 const socketAuth = (socket, next) => {
     const LOG_HEADER_TITLE = "SOCKET_AUTH_MIDDLEWARE";
@@ -145,14 +143,37 @@ const socketAuth = (socket, next) => {
 
     try {
         //----------------------------------------------------------------------
-        // 세션 확인
+        // 세션 확인 (타입 검증 추가)
         //----------------------------------------------------------------------
         let userId;
         try {
             userId = socket.request.session?.userId;
+            
             if (!userId) {
                 throw new Error("No session found for socket connection");
             }
+            
+            // **🔧 타입 검증 추가**
+            if (typeof userId !== 'string') {
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " Invalid userId type:", {
+                    userId: userId,
+                    type: typeof userId,
+                    isObject: typeof userId === 'object'
+                });
+                
+                throw new Error("Invalid session data - userId must be string");
+            }
+            
+            // **🔧 길이 검증 추가**
+            if (userId.length < 7 || userId.length > 32) {
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " Invalid userId length:", {
+                    userId: my_reqinfo.maskId(userId),
+                    length: userId.length
+                });
+                
+                throw new Error("Invalid userId format");
+            }
+            
         } catch (e) {
             ret_status = fail_status + (-1 * catch_session_check);
             ret_data = {
@@ -184,7 +205,7 @@ const socketAuth = (socket, next) => {
         console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify({
             ...ret_data,
             value_ext2: {
-                userId: userId,
+                userId: my_reqinfo.maskId(userId),
                 socketAuthenticated: true,
                 socketId: my_reqinfo.maskId(socket.id)
             }

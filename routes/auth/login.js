@@ -263,23 +263,50 @@ router.post('/', csrfProtection, async(req, res) => {
         }
         
         //----------------------------------------------------------------------
-        // 처리층: 세션 생성 및 로그인 성공 처리
+        // 처리층: 세션 생성 및 로그인 성공 처리 (수정된 버전)
         //----------------------------------------------------------------------
         try {
             // 로그인 성공 로깅
             await logLoginAttempt(userInfo.userid, clientIP, 'SUCCESS', null);
             
-            // 세션에 사용자 정보 저장
-            req.session.userId = userInfo.userid;
-            req.session.username = userInfo.username;
-            req.session.email = userInfo.email;
+            // **🔧 userInfo.userid 타입 검증 추가**
+            if (!userInfo.userid || typeof userInfo.userid !== 'string') {
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " Invalid userInfo.userid:", {
+                    userid: userInfo.userid,
+                    type: typeof userInfo.userid,
+                    fullUserInfo: userInfo
+                });
+                throw new Error("Invalid user ID from database");
+            }
+            
+            // **🔧 세션에 사용자 정보 저장 (타입 확인)**
+            req.session.userId = String(userInfo.userid);  // 명시적 문자열 변환
+            req.session.username = String(userInfo.username || '');
+            req.session.email = String(userInfo.email || '');
             req.session.loginTime = new Date();
             
-            // 세션 저장
+            // **🔧 세션 저장 후 검증**
             await new Promise((resolve, reject) => {
                 req.session.save((err) => {
-                    if (err) reject(err);
-                    else resolve();
+                    if (err) {
+                        reject(err);
+                    } else {
+                        // 저장된 세션 데이터 검증
+                        if (typeof req.session.userId !== 'string') {
+                            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " Session userId type mismatch after save:", {
+                                storedUserId: req.session.userId,
+                                type: typeof req.session.userId
+                            });
+                            reject(new Error("Session data corruption detected"));
+                        } else {
+                            console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " Session saved successfully:", {
+                                userId: my_reqinfo.maskId(req.session.userId),
+                                userIdType: typeof req.session.userId,
+                                userIdLength: req.session.userId.length
+                            });
+                            resolve();
+                        }
+                    }
                 });
             });
             
