@@ -40,7 +40,7 @@ const gameHandler = (io, socket) => {
             //----------------------------------------------------------------------
             let userId;
             try {
-                userId = getSafeUserId(socket.request.session, 'save_game_handler');
+                userId = socket.request.session.userId;
                 if (!userId) {
                     throw new Error("Not authenticated");
                 }
@@ -243,7 +243,7 @@ const gameHandler = (io, socket) => {
             //----------------------------------------------------------------------
             let userId;
             try {
-                userId = getSafeUserId(socket.request.session, 'save_game_handler');
+                userId = socket.request.session.userId;
                 if (!userId) {
                     throw new Error("Not authenticated");
                 }
@@ -424,7 +424,7 @@ const gameHandler = (io, socket) => {
             //----------------------------------------------------------------------
             let userId;
             try {
-                userId = getSafeUserId(socket.request.session, 'save_game_handler');
+                userId = socket.request.session.userId;
                 if (!userId) {
                     throw new Error("Not authenticated");
                 }
@@ -638,7 +638,7 @@ const gameHandler = (io, socket) => {
             //----------------------------------------------------------------------
             let userId;
             try {
-                userId = getSafeUserId(socket.request.session, 'save_game_handler');
+                userId = socket.request.session.userId;
                 if (!userId) {
                     throw new Error("Not authenticated");
                 }
@@ -760,7 +760,7 @@ const gameHandler = (io, socket) => {
             //----------------------------------------------------------------------
             let userId;
             try {
-                userId = getSafeUserId(socket.request.session, 'save_game_handler');
+                userId = socket.request.session.userId;
                 if (!userId) {
                     throw new Error("Not authenticated");
                 }
@@ -769,6 +769,60 @@ const gameHandler = (io, socket) => {
                 ret_data = {
                     code: LOG_HEADER_TITLE + "(authentication)",
                     value: catch_auth,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                
+                socket.emit('delete game response', {
+                    success: false,
+                    error: ret_data.value_ext2
+                });
+                return;
+            }
+            
+            //----------------------------------------------------------------------
+            // 입력값 검증 (🔧 수정됨)
+            //----------------------------------------------------------------------
+            let gameId;
+            try {
+                if (!data || !data.game_id) {
+                    throw new Error("Game ID required");
+                }
+                gameId = data.game_id;
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_input_validation);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(input_validation)",
+                    value: catch_input_validation,
+                    value_ext1: ret_status,
+                    value_ext2: e.message,
+                    EXT_data
+                };
+                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+                
+                socket.emit('delete game response', {
+                    success: false,
+                    error: ret_data.value_ext2
+                });
+                return;
+            }
+            
+            //----------------------------------------------------------------------
+            // 게임 삭제 (🔧 수정됨 - 실제 삭제 로직 추가)
+            //----------------------------------------------------------------------
+            try {
+                const result = await gameService.deleteGame(gameId, userId);
+                
+                if (!result.success) {
+                    throw new Error(result.error || "Failed to delete game");
+                }
+            } catch (e) {
+                ret_status = fail_status + (-1 * catch_game_service);
+                ret_data = {
+                    code: LOG_HEADER_TITLE + "(game_service_delete)",
+                    value: catch_game_service,
                     value_ext1: ret_status,
                     value_ext2: e.message,
                     EXT_data
