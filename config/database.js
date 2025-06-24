@@ -318,13 +318,20 @@ async function callSelectProcedure(procedureName, inputParams = []) {
             const placeholders = inputParams.map(() => '?').join(', ');
             const sql = `CALL ${procedureName}(${placeholders}, @p_result, @p_result2)`;
             
+            console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " Executing SQL:", sql);
+            console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " Input params:", inputParams);
+            
             // 프로시저 실행 (결과셋 반환)
             const [rows] = await connection.query(sql, inputParams);
             resultSet = rows;
             
+            console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " ResultSet length:", Array.isArray(resultSet) ? resultSet.length : 'not array');
+            
             // 출력 파라미터 가져오기
             const [outputs] = await connection.query('SELECT @p_result as result, @p_result2 as result2');
             procedureResult = outputs[0];
+            
+            console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " Raw output params:", procedureResult);
             
         } catch (e) {
             ret_status = fail_status + (-1 * catch_procedure_call);
@@ -346,26 +353,21 @@ async function callSelectProcedure(procedureName, inputParams = []) {
             const resultCode = parseInt(procedureResult.result);
             const resultMessage = procedureResult.result2;
             
-            console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " Procedure result:", {
-                resultCode: resultCode,
+            console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " Parsing results:", {
+                rawResultCode: procedureResult.result,
+                parsedResultCode: resultCode,
                 resultMessage: resultMessage,
-                resultSetLength: Array.isArray(resultSet) ? resultSet.length : 0
+                resultSetLength: Array.isArray(resultSet) ? resultSet.length : 0,
+                isNegativeResult: resultCode < 0
             });
             
-            // 🔧 수정: 음수 코드만 실제 에러로 처리
+            // 🔧 핵심 수정: 메시지 내용 확인 후 처리
             if (resultCode < 0) {
-                const errorResult = {
-                    success: false,
-                    code: resultCode,
-                    message: resultMessage,
-                    error: resultMessage,
-                    data: null
-                };
+                console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " Negative result code detected:", resultCode);
                 
                 // -100은 NOT FOUND (정상적인 상황)
                 if (resultCode === -100) {
-                    console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " NOT FOUND (normal):", resultMessage);
-                    // NOT FOUND도 성공으로 처리하되 빈 데이터 반환
+                    console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " NOT FOUND (returning empty array)");
                     return {
                         success: true,
                         code: resultCode,
@@ -374,13 +376,19 @@ async function callSelectProcedure(procedureName, inputParams = []) {
                         count: 0
                     };
                 } else {
-                    // 실제 에러 (-101, -102 등)
-                    console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " PROCEDURE FAILED:", resultMessage);
-                    return errorResult;
+                    console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " ACTUAL ERROR:", resultMessage);
+                    return {
+                        success: false,
+                        code: resultCode,
+                        message: resultMessage,
+                        error: resultMessage,
+                        data: null
+                    };
                 }
             }
             
-            // 🔧 수정: 0 이상은 모두 성공 (0 = 데이터 없음, 1+ = 데이터 있음)
+            // 🔧 핵심 수정: 0 이상은 모두 성공으로 처리
+            console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + " SUCCESS - returning data");
             const successResult = {
                 success: true,
                 code: resultCode,
@@ -389,27 +397,17 @@ async function callSelectProcedure(procedureName, inputParams = []) {
                 count: Array.isArray(resultSet) ? resultSet.length : 0
             };
             
-            ret_data = {
-                code: "result",
-                value: resultCode,
-                value_ext1: ret_status,
-                value_ext2: successResult,
-                EXT_data
-            };
-            
-            console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify({
-                ...ret_data,
-                value_ext2: { 
-                    success: true, 
-                    code: resultCode, 
-                    message: "***",
-                    dataCount: Array.isArray(resultSet) ? resultSet.length : 0
-                }
-            }, null, 2));
+            console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + " Final success result:", {
+                success: successResult.success,
+                code: successResult.code,
+                dataCount: successResult.count,
+                message: "***"
+            });
             
             return successResult;
             
         } catch (e) {
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " Result parsing error:", e);
             ret_status = fail_status + (-1 * catch_result_parse);
             ret_data = {
                 code: LOG_HEADER_TITLE + "(result_parse)",
