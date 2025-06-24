@@ -269,6 +269,9 @@ async function callProcedure(procedureName, inputParams = []) {
 // ============================================================================
 // 프로시저 호출 함수 (SELECT 결과셋 + OUTPUT 파라미터)
 // ============================================================================
+
+// config/database.js에서 수정해야 할 callSelectProcedure 함수
+
 async function callSelectProcedure(procedureName, inputParams = []) {
     const LOG_HEADER_TITLE = "CALL_SELECT_PROCEDURE";
     const LOG_HEADER = "Procedure[" + procedureName + "] --> " + LOG_HEADER_TITLE;
@@ -337,13 +340,19 @@ async function callSelectProcedure(procedureName, inputParams = []) {
         }
         
         //----------------------------------------------------------------------
-        // 출력층: 결과 처리 및 반환
+        // 출력층: 결과 처리 및 반환 (🔧 수정됨)
         //----------------------------------------------------------------------
         try {
             const resultCode = parseInt(procedureResult.result);
             const resultMessage = procedureResult.result2;
             
-            // 음수 코드는 실제 에러
+            console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " Procedure result:", {
+                resultCode: resultCode,
+                resultMessage: resultMessage,
+                resultSetLength: Array.isArray(resultSet) ? resultSet.length : 0
+            });
+            
+            // 🔧 수정: 음수 코드만 실제 에러로 처리
             if (resultCode < 0) {
                 const errorResult = {
                     success: false,
@@ -353,17 +362,25 @@ async function callSelectProcedure(procedureName, inputParams = []) {
                     data: null
                 };
                 
-                // -100은 NOT FOUND (경고 레벨)
+                // -100은 NOT FOUND (정상적인 상황)
                 if (resultCode === -100) {
-                    console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " NOT FOUND:", resultMessage);
+                    console.log(LOG_INFO_HEADER + " " + LOG_HEADER + " NOT FOUND (normal):", resultMessage);
+                    // NOT FOUND도 성공으로 처리하되 빈 데이터 반환
+                    return {
+                        success: true,
+                        code: resultCode,
+                        message: resultMessage,
+                        data: [],
+                        count: 0
+                    };
                 } else {
+                    // 실제 에러 (-101, -102 등)
                     console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " PROCEDURE FAILED:", resultMessage);
+                    return errorResult;
                 }
-                
-                return errorResult;
             }
             
-            // 0 이상은 모두 성공 (0 = 데이터 없음, 1+ = 데이터 있음)
+            // 🔧 수정: 0 이상은 모두 성공 (0 = 데이터 없음, 1+ = 데이터 있음)
             const successResult = {
                 success: true,
                 code: resultCode,
