@@ -720,6 +720,7 @@ class GameService {
                 const rawGames = procedureResult.data || [];
                 
                 processedGames = rawGames.map(game => {
+                    console.log('Raw game data:', game); // 디버깅 추가
                     try {
                         const normalizedGameData = this.normalizeGameData(game.game_data);
                         return {
