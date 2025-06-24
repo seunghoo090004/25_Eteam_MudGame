@@ -650,157 +650,147 @@ class GameService {
     // 게임 목록 조회
     // ============================================================================
     
-    async listGames(userId) {
-        const LOG_HEADER_TITLE = "LIST_GAMES";
-        const LOG_HEADER = "UserId[" + my_reqinfo.maskId(userId) + "] --> " + LOG_HEADER_TITLE;
-        
-        const fail_status = 500;
-        let ret_status = 200;
-        let ret_data;
-        
-        const catch_input_validation = -1;
-        const catch_procedure_call = -2;
-        const catch_data_processing = -3;
-        
-        const EXT_data = {
-            userId: my_reqinfo.maskId(userId)
-        };
-        
+async listGames(userId) {
+    const LOG_HEADER_TITLE = "LIST_GAMES";
+    const LOG_HEADER = "UserId[" + my_reqinfo.maskId(userId) + "] --> " + LOG_HEADER_TITLE;
+    
+    const fail_status = 500;
+    let ret_status = 200;
+    let ret_data;
+    
+    const catch_input_validation = -1;
+    const catch_procedure_call = -2;
+    const catch_data_processing = -3;
+    
+    const EXT_data = {
+        userId: my_reqinfo.maskId(userId)
+    };
+    
+    try {
+        //----------------------------------------------------------------------
+        // 입력층: 입력 검증
+        //----------------------------------------------------------------------
         try {
-            //----------------------------------------------------------------------
-            // 입력층: 입력 검증
-            //----------------------------------------------------------------------
-            try {
-                this.validateUserId(userId);
-            } catch (e) {
-                ret_status = fail_status + (-1 * catch_input_validation);
-                ret_data = {
-                    code: LOG_HEADER_TITLE + "(input_validation)",
-                    value: catch_input_validation,
-                    value_ext1: ret_status,
-                    value_ext2: e.message,
-                    EXT_data
-                };
-                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-                throw new Error("Input validation failed: " + e.message);
-            }
-            
-            //----------------------------------------------------------------------
-            // 처리층: 프로시저 호출 (게임 목록 조회)
-            //----------------------------------------------------------------------
-            let procedureResult;
-            try {
-                procedureResult = await callSelectProcedure('pc_tgame_state_sel_by_user', [userId]);
-                
-                if (!procedureResult.success) {
-                    // 데이터가 없는 경우는 정상 (빈 배열 반환)
-                    if (procedureResult.code === -100) {
-                        return [];
-                    }
-                    throw new Error(procedureResult.message || "Failed to load games list");
-                }
-            } catch (e) {
-                ret_status = fail_status + (-1 * catch_procedure_call);
-                ret_data = {
-                    code: LOG_HEADER_TITLE + "(procedure_call)",
-                    value: catch_procedure_call,
-                    value_ext1: ret_status,
-                    value_ext2: e.message,
-                    EXT_data
-                };
-                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-                throw new Error("Database operation failed: " + e.message);
-            }
-            
-            //----------------------------------------------------------------------
-            // 처리층: 데이터 처리
-            //----------------------------------------------------------------------
-            let processedGames;
-            try {
-                const rawGames = procedureResult.data || [];
-                
-                // 🔧 디버깅 로그 1: DB에서 온 원본 데이터
-                console.log('Raw games from DB:', rawGames);
-                
-                processedGames = rawGames.map(game => {
-                    // 🔧 디버깅 로그 2: 각 게임 객체 확인
-                    console.log('Processing game:', game);
-                    console.log('Game properties:', Object.keys(game));
-                    
-                    try {
-                        const normalizedGameData = this.normalizeGameData(game.game_data);
-                        return {
-                            game_id: game.id || game.game_id || Object.keys(game)[0],
-                            thread_id: game.thread_id,
-                            assistant_id: game.assistant_id,
-                            game_data: normalizedGameData,
-                            created_at: game.dt7,
-                            last_updated: game.dt8
-                        };
-                    } catch (parseError) {
-                        console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " Failed to parse game:", {
-                            game_id: game.id || game.game_id || Object.keys(game)[0],
-                            error: parseError.message
-                        });
-                        // 파싱 실패한 게임은 기본 구조로 반환
-                        return {
-                            game_id: game.id || game.game_id || Object.keys(game)[0],
-                            thread_id: game.thread_id,
-                            assistant_id: game.assistant_id,
-                            game_data: this.normalizeGameData({}),
-                            created_at: game.dt7,
-                            last_updated: game.dt8,
-                            parsing_error: true
-                        };
-                    }
-                });
-                
-                // 🔧 디버깅 로그 3: 최종 처리된 데이터
-                console.log('Processed games:', processedGames);
-            } catch (e) {
-                ret_status = fail_status + (-1 * catch_data_processing);
-                ret_data = {
-                    code: LOG_HEADER_TITLE + "(data_processing)",
-                    value: catch_data_processing,
-                    value_ext1: ret_status,
-                    value_ext2: e.message,
-                    EXT_data
-                };
-                console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-                throw new Error("Data processing failed: " + e.message);
-            }
-            
-            //----------------------------------------------------------------------
-            // 출력층: 결과 반환
-            //----------------------------------------------------------------------
+            this.validateUserId(userId);
+        } catch (e) {
+            ret_status = fail_status + (-1 * catch_input_validation);
             ret_data = {
-                code: LOG_HEADER_TITLE + "(success)",
-                value: processedGames.length,
+                code: LOG_HEADER_TITLE + "(input_validation)",
+                value: catch_input_validation,
                 value_ext1: ret_status,
-                value_ext2: processedGames,
-                EXT_data
-            };
-            console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify({
-                ...ret_data,
-                value_ext2: { gameCount: processedGames.length }
-            }, null, 2));
-            
-            return processedGames;
-            
-        } catch (error) {
-            // 예상치 못한 에러 처리
-            ret_status = fail_status;
-            ret_data = {
-                code: LOG_HEADER_TITLE + "(unexpected_error)",
-                value: -99,
-                value_ext1: ret_status,
-                value_ext2: error.message,
+                value_ext2: e.message,
                 EXT_data
             };
             console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
-            throw error;
+            throw new Error("Input validation failed: " + e.message);
         }
+        
+        //----------------------------------------------------------------------
+        // 처리층: 프로시저 호출 (게임 목록 조회)
+        //----------------------------------------------------------------------
+        let procedureResult;
+        try {
+            procedureResult = await callSelectProcedure('pc_tgame_state_sel_by_user', [userId]);
+            
+            if (!procedureResult.success) {
+                // 데이터가 없는 경우는 정상 (빈 배열 반환)
+                if (procedureResult.code === -100) {
+                    return [];
+                }
+                throw new Error(procedureResult.message || "Failed to load games list");
+            }
+        } catch (e) {
+            ret_status = fail_status + (-1 * catch_procedure_call);
+            ret_data = {
+                code: LOG_HEADER_TITLE + "(procedure_call)",
+                value: catch_procedure_call,
+                value_ext1: ret_status,
+                value_ext2: e.message,
+                EXT_data
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            throw new Error("Database operation failed: " + e.message);
+        }
+        
+        //----------------------------------------------------------------------
+        // 처리층: 데이터 처리
+        //----------------------------------------------------------------------
+        let processedGames;
+        try {
+            const rawGames = procedureResult.data || [];
+            
+            processedGames = rawGames.map(game => {
+                try {
+                    const normalizedGameData = this.normalizeGameData(game.game_data);
+                    return {
+                        game_id: game.id,                    // 🔧 수정: 실제 DB 필드명 사용
+                        thread_id: game.thread_id,           // 🔧 수정: 실제 DB 필드명 사용
+                        assistant_id: game.assistant_id,     // 🔧 수정: 실제 DB 필드명 사용
+                        game_data: normalizedGameData,
+                        created_at: game.dt7,                // 🔧 수정: 실제 DB 필드명 사용
+                        last_updated: game.dt8               // 🔧 수정: 실제 DB 필드명 사용
+                    };
+                } catch (parseError) {
+                    console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " Failed to parse game:", {
+                        game_id: game.id,
+                        error: parseError.message
+                    });
+                    // 파싱 실패한 게임은 기본 구조로 반환
+                    return {
+                        game_id: game.id,
+                        thread_id: game.thread_id,
+                        assistant_id: game.assistant_id,
+                        game_data: this.normalizeGameData({}),
+                        created_at: game.dt7,
+                        last_updated: game.dt8,
+                        parsing_error: true
+                    };
+                }
+            });
+        } catch (e) {
+            ret_status = fail_status + (-1 * catch_data_processing);
+            ret_data = {
+                code: LOG_HEADER_TITLE + "(data_processing)",
+                value: catch_data_processing,
+                value_ext1: ret_status,
+                value_ext2: e.message,
+                EXT_data
+            };
+            console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+            throw new Error("Data processing failed: " + e.message);
+        }
+        
+        //----------------------------------------------------------------------
+        // 출력층: 결과 반환
+        //----------------------------------------------------------------------
+        ret_data = {
+            code: LOG_HEADER_TITLE + "(success)",
+            value: processedGames.length,
+            value_ext1: ret_status,
+            value_ext2: processedGames,
+            EXT_data
+        };
+        console.log(LOG_SUCC_HEADER + " " + LOG_HEADER + ":", JSON.stringify({
+            ...ret_data,
+            value_ext2: { gameCount: processedGames.length }
+        }, null, 2));
+        
+        return processedGames;
+        
+    } catch (error) {
+        // 예상치 못한 에러 처리
+        ret_status = fail_status;
+        ret_data = {
+            code: LOG_HEADER_TITLE + "(unexpected_error)",
+            value: -99,
+            value_ext1: ret_status,
+            value_ext2: error.message,
+            EXT_data
+        };
+        console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + ":", JSON.stringify(ret_data, null, 2));
+        throw error;
     }
+}
     
     // ============================================================================
     // 게임 삭제
