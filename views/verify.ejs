@@ -134,11 +134,7 @@
             <div class="message success-message">
                 <%= message %>
             </div>
-            <% 
-                // 리다이렉트 URL 결정
-                var redirectUrl = typeof redirectUrl !== 'undefined' ? redirectUrl : '/auth/login';
-            %>
-            <button onclick="location.href='<%= redirectUrl %>'">로그인 페이지로 이동</button>
+            <button onclick="location.href='<%= redirectUrl || '/auth/login' %>'">로그인 페이지로 이동</button>
         <% } else { %>
             <div class="message error-message">
                 <%= message %>

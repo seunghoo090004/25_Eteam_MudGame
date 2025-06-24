@@ -1,5 +1,6 @@
 // app.js
-// Express 애플리케이션 설정 및 미들웨어 구성 (레퍼런스 패턴 적용)
+// Express 애플리케이션 설정 및 미들웨어 구성
+
 
 const createError = require('http-errors');
 const express = require('express');
@@ -8,23 +9,17 @@ const cookieParser = require('cookie-parser');
 const logger = require('morgan');
 const session = require('express-session');
 const helmet = require('helmet');
-const cors = require('cors');
-const my_reqinfo = require('./utils/reqinfo');
+const cors = require('cors'); // 이 줄 추가
 
-// 콘솔 로깅 타임스탬프 설정 (레퍼런스 패턴)
-require('console-stamp')(console, { 
-    format: ':date(yyyy/mm/dd HH:MM:ss.l)' 
-});
-
-const LOG_FAIL_HEADER = "[FAIL]";
-const LOG_SUCC_HEADER = "[SUCC]";
-const LOG_INFO_HEADER = "[INFO]";
-
-console.log(LOG_INFO_HEADER + " Program started");
 
 // 필요한 라우터만 불러오기
 const indexRouter = require('./routes/index');
-const authRouter = require('./routes/auth');
+
+// auth routes - 인증 관련 라우터는 유지
+const authRouter = require('./routes/auth'); // 인증 관련 모든 라우트 통합
+
+
+// assistant routes - list만 유지
 const assistantListRouter = require('./routes/assistant/list');
 
 const app = express();
@@ -55,13 +50,13 @@ app.use(helmet({
       directives: {
          defaultSrc: ["'self'"],
          scriptSrc: ["'self'", "https://ajax.googleapis.com", "https://code.jquery.com", "'unsafe-inline'"],
-         scriptSrcAttr: ["'unsafe-inline'"],
+         scriptSrcAttr: ["'unsafe-inline'"], // 인라인 이벤트 핸들러 허용
          styleSrc: ["'self'", "'unsafe-inline'"],
          connectSrc: ["'self'", "wss://mudgame.up.railway.app"],
          imgSrc: ["'self'", "data:"]
       }
-   }
-}));
+      }
+   }));
 
 // 세션 미들웨어 설정
 const sessionMiddleware = session({
@@ -89,83 +84,17 @@ app.use('/', indexRouter);
 app.use('/auth', authRouter);
 app.use('/assistant/list', assistantListRouter);
 
-// 404 에러 핸들러 (레퍼런스 패턴 적용)
+// 404 에러 핸들러
 app.use(function(req, res, next) {
-    const EXT_data = my_reqinfo.get_req_url(req);
-    
-    console.log(LOG_FAIL_HEADER + " 404 Not Found:", JSON.stringify({
-        code: "404_NOT_FOUND",
-        value: -404,
-        value_ext1: 404,
-        value_ext2: "Resource not found",
-        EXT_data
-    }, null, 2));
-    
-    next(createError(404));
+   next(createError(404));
 });
 
-// 에러 핸들러 (레퍼런스 패턴 적용)
+// 에러 핸들러
 app.use(function(err, req, res, next) {
-    const LOG_HEADER_TITLE = "ERROR_HANDLER";
-    const EXT_data = my_reqinfo.get_req_url(req);
-    
-    // 에러 상태 코드 설정
-    let ret_status = err.status || 500;
-    
-    // 개발 환경에서만 상세 에러 정보 제공
-    res.locals.message = err.message;
-    res.locals.error = req.app.get('env') === 'development' ? err : {};
-    
-    // 에러 분류
-    let error_category;
-    if (ret_status === 404) {
-        error_category = "NOT_FOUND";
-    } else if (ret_status >= 400 && ret_status < 500) {
-        error_category = "CLIENT_ERROR";
-    } else if (ret_status >= 500) {
-        error_category = "SERVER_ERROR";
-    } else {
-        error_category = "UNKNOWN_ERROR";
-    }
-    
-    // 구조화된 에러 로깅 (레퍼런스 패턴)
-    const error_data = {
-        code: LOG_HEADER_TITLE + "(" + error_category + ")",
-        value: ret_status === 500 ? -1 : ret_status,
-        value_ext1: ret_status,
-        value_ext2: {
-            message: err.message,
-            stack: req.app.get('env') === 'development' ? err.stack : undefined,
-            category: error_category
-        },
-        EXT_data
-    };
-    
-    // 에러 레벨에 따른 로깅
-    if (ret_status >= 500) {
-        console.error(LOG_FAIL_HEADER + " " + LOG_HEADER_TITLE + ":", JSON.stringify(error_data, null, 2));
-    } else {
-        console.log(LOG_INFO_HEADER + " " + LOG_HEADER_TITLE + ":", JSON.stringify(error_data, null, 2));
-    }
-    
-    // API 요청인지 페이지 요청인지 구분
-    if (req.xhr || req.headers.accept?.indexOf('json') > -1) {
-        // API 요청: JSON 응답
-        res.status(ret_status).json({
-            code: error_category,
-            value: ret_status === 500 ? -1 : ret_status,
-            value_ext1: ret_status,
-            value_ext2: err.message,
-            EXT_data
-        });
-    } else {
-        // 페이지 요청: 에러 페이지 렌더링
-        res.status(ret_status);
-        res.render('error');
-    }
+   res.locals.message = err.message;
+   res.locals.error = req.app.get('env') === 'development' ? err : {};
+   res.status(err.status || 500);
+   res.render('error');
 });
-
-const port = process.env.PORT || 3000;
-console.log(LOG_INFO_HEADER + " Listening on port " + port);
 
 module.exports = app;
