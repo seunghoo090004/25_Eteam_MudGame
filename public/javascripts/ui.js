@@ -527,15 +527,15 @@ const GameUI = (function() {
                 
                 // 상세한 게임 정보 표시 (진행률 제거)
                 savedGamesList.append(`
-                    <div class="game-entry ${highlightClass}" data-game-id="${game.game_id || game.id || 'error'}">
+                    <div class="game-entry ${highlightClass}" data-game-id="${game.game_id}">
                         <span><strong>마지막 저장:</strong> ${gameDate}</span>
                         <span class="location-info"><strong>위치:</strong> ${currentLocation}</span>
                         <span>❤️ ${health}/${maxHealth} 🧠 ${status} 💰 ${keyItems}</span>
                         <span>⏰ 플레이시간: ${playTime}</span>
                         ${deathCount > 0 ? `<span>💀 사망: ${deathCount}회</span>` : ''}
                         <div class="game-actions">
-                            <button class="btn btn-primary" onclick="loadGame('${game.game_id || game.id || 'error'}')">불러오기</button>
-                            <button class="btn btn-danger" onclick="deleteGame('${game.game_id || game.id || 'error'}')" style="margin-left: 5px;">삭제</button>
+                            <button class="btn btn-primary" onclick="loadGame('${game.game_id}')">불러오기</button>
+                            <button class="btn btn-danger" onclick="deleteGame('${game.game_id}')" style="margin-left: 5px;">삭제</button>
                         </div>
                     </div>
                 `);
