@@ -730,7 +730,7 @@ class GameService {
                     try {
                         const normalizedGameData = this.normalizeGameData(game.game_data);
                         return {
-                            game_id: game.id,
+                            game_id: game.id || game.game_id || Object.keys(game)[0],
                             thread_id: game.thread_id,
                             assistant_id: game.assistant_id,
                             game_data: normalizedGameData,
@@ -739,12 +739,12 @@ class GameService {
                         };
                     } catch (parseError) {
                         console.error(LOG_FAIL_HEADER + " " + LOG_HEADER + " Failed to parse game:", {
-                            game_id: game.id,
+                            game_id: game.id || game.game_id || Object.keys(game)[0],
                             error: parseError.message
                         });
                         // 파싱 실패한 게임은 기본 구조로 반환
                         return {
-                            game_id: game.id,
+                            game_id: game.id || game.game_id || Object.keys(game)[0],
                             thread_id: game.thread_id,
                             assistant_id: game.assistant_id,
                             game_data: this.normalizeGameData({}),
