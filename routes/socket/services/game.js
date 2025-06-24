@@ -719,8 +719,14 @@ class GameService {
             try {
                 const rawGames = procedureResult.data || [];
                 
+                // 🔧 디버깅 로그 1: DB에서 온 원본 데이터
+                console.log('Raw games from DB:', rawGames);
+                
                 processedGames = rawGames.map(game => {
-                    console.log('Raw game data:', game); // 디버깅 추가
+                    // 🔧 디버깅 로그 2: 각 게임 객체 확인
+                    console.log('Processing game:', game);
+                    console.log('Game properties:', Object.keys(game));
+                    
                     try {
                         const normalizedGameData = this.normalizeGameData(game.game_data);
                         return {
@@ -748,6 +754,9 @@ class GameService {
                         };
                     }
                 });
+                
+                // 🔧 디버깅 로그 3: 최종 처리된 데이터
+                console.log('Processed games:', processedGames);
             } catch (e) {
                 ret_status = fail_status + (-1 * catch_data_processing);
                 ret_data = {
