@@ -523,7 +523,7 @@ const gameHandler = (io, socket) => {
             //----------------------------------------------------------------------
             let result;
             try {
-                result = await gameService.saveGame(gameId, userId, gameDataToSave);
+                result = await gameService.saveGame(gameId, gameDataToSave, userId);
                 
                 if (!result.success) {
                     throw new Error(result.error || "Unknown error");
