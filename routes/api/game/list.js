@@ -65,8 +65,8 @@ router.get('/', async(req, res) =>
   let games_data = [];
   try {
     const [games] = await connection.query(
-      `SELECT game_id, user_id, thread_id, assistant_id, game_data, 
-       created_at, last_updated 
+      `SELECT game_id, user_id, CAST(thread_id AS CHAR) as thread_id, 
+       assistant_id, game_data, created_at, last_updated 
        FROM game_state 
        WHERE user_id = ? 
        ORDER BY last_updated DESC`,
