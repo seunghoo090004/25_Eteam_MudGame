@@ -19,7 +19,6 @@ const GameAPI = (function() {
             return response.data;
         } catch (error) {
             console.error('API Request Error:', error);
-            console.error('Response:', error.response?.data);
             throw error.response?.data || error;
         }
     }
@@ -27,14 +26,14 @@ const GameAPI = (function() {
     return {
         // 게임 관련 API
         game: {
-            list: () => request('POST', '/api/game/list'),
+            list: () => request('GET', '/api/game/list'),  // ✅ GET으로 변경
             create: (assistant_id) => request('POST', '/api/game/create', { assistant_id }),
             load: (game_id) => request('POST', '/api/game/load', { game_id }),
             save: (game_id, game_data) => request('POST', '/api/game/save', { game_id, game_data }),
             delete: (game_id) => request('POST', '/api/game/delete', { game_id })
         },
         
-        // 채팅 관련 API (향후 구현)
+        // 채팅 관련 API
         chat: {
             send: (game_id, message) => request('POST', '/api/chat/send', { game_id, message }),
             history: (game_id) => request('POST', '/api/chat/history', { game_id })

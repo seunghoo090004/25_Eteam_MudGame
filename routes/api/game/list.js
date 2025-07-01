@@ -5,7 +5,7 @@ const my_reqinfo = require('../../../utils/apiReqinfo');
 const pool = require('../../../config/database');
 
 //========================================================================
-router.post('/', async(req, res) => 
+router.get('/', async(req, res) => 
 //========================================================================
 {
   const LOG_FAIL_HEADER = "[FAIL]";
@@ -21,14 +21,14 @@ router.post('/', async(req, res) =>
   const catch_query = -3;
 
   //----------------------------------------------------------------------
-  // 인증 확인 (POST 바디 없이)
+  // 인증 확인
   //----------------------------------------------------------------------
   let req_user_id;
   try {
-    if (!req.session.userId) throw "user not authenticated";
+    if (!req.session || !req.session.userId) throw "user not authenticated";
     req_user_id = req.session.userId;
   } catch (e) {
-    ret_status = fail_status + -1 * catch_auth;
+    ret_status = 401;
     ret_data = {
       code: "auth_check",
       value: catch_auth,
@@ -37,9 +37,8 @@ router.post('/', async(req, res) =>
       EXT_data,
     };
     console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
-  }
-  if (ret_status != 200)
     return res.status(ret_status).json(ret_data);
+  }
 
   //----------------------------------------------------------------------
   // getConnection 
@@ -57,15 +56,13 @@ router.post('/', async(req, res) =>
       EXT_data,
     };
     console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
-  }
-
-  if (ret_status != 200)
     return res.status(ret_status).json(ret_data);
+  }
 
   //----------------------------------------------------------------------
   // Query execution
   //----------------------------------------------------------------------
-  let games_data;
+  let games_data = [];
   try {
     const [games] = await connection.query(
       `SELECT game_id, user_id, thread_id, assistant_id, game_data, 
@@ -76,7 +73,6 @@ router.post('/', async(req, res) =>
       [req_user_id]
     );
 
-    // 게임 데이터 가공
     games_data = games.map(game => {
       let parsedGameData;
       try {
@@ -92,7 +88,6 @@ router.post('/', async(req, res) =>
         };
       }
 
-      // 플레이 시간 계산
       const now = new Date();
       const lastUpdated = new Date(game.last_updated);
       const created = new Date(game.created_at);
@@ -118,17 +113,17 @@ router.post('/', async(req, res) =>
       EXT_data,
     };
     console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+  } finally {
+    connection.release();
   }
 
   if (ret_status != 200) {
-    connection.release();
     return res.status(ret_status).json(ret_data);
   }
   
   //----------------------------------------------------------------------
   // result
   //----------------------------------------------------------------------
-  connection.release();
   ret_data = {
     code: "result",
     value: games_data.length,
@@ -143,7 +138,6 @@ router.post('/', async(req, res) =>
   return res.status(ret_status).json(ret_data);
 });
 
-// 플레이 시간 포맷팅 유틸리티
 function formatPlayTime(minutes) {
   if (minutes < 1) return "방금 시작";
   if (minutes < 60) return `${minutes}분`;
