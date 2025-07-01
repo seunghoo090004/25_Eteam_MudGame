@@ -1,23 +1,18 @@
-// public/javascripts/main.js - API 연동 완전 버전 (수정됨)
+// public/javascripts/main.js - 게임 로드 로직 수정 버전
 $(document).ready(function() {
-    // 게임 모듈 초기화
     GameState.initialize();
     GameUI.initialize();
     GameSocket.initialize();
     GameChat.initialize();
     
-    // API 상태 확인 및 게임 목록 로드
     initializeApp();
 });
 
-// 앱 초기화
 async function initializeApp() {
     try {
-        // API 상태 확인
         const status = await GameAPI.status();
         console.log('API 상태:', status);
         
-        // 게임 목록 로드
         await GameUI.loadGamesList();
         
     } catch (error) {
@@ -26,7 +21,7 @@ async function initializeApp() {
     }
 }
 
-// 게임 불러오기 전역 함수 (API 사용)
+// ✅ 수정: 게임 불러오기 - Socket 사용 안 함
 window.loadGame = async function(gameId) {
     if (GameState.isProcessingChoice()) {
         alert('현재 선택지를 처리하는 중입니다. 응답을 받은 후 다시 시도해주세요.');
@@ -55,19 +50,17 @@ window.loadGame = async function(gameId) {
     }
 };
 
-// 게임 로드 성공 처리
+// ✅ 수정: 게임 로드 성공 처리 - 직접 처리
 function handleLoadGameSuccess(gameData) {
     GameUI.hideLoading();
     GameUI.enableAllButtons();
     
-    // 게임 상태 설정
     GameState.setGameState(gameData.game_id, gameData.game_data);
     
-    // 채팅창 초기화
     $('#chatbox').empty();
     
     if (gameData.chatHistory && gameData.chatHistory.length > 0) {
-        // 마지막 AI 응답만 표시
+        // 마지막 AI 메시지만 찾아서 표시
         const chatHistory = [...gameData.chatHistory].sort((a, b) => {
             return new Date(a.created_at) - new Date(b.created_at);
         });
@@ -92,7 +85,6 @@ function handleLoadGameSuccess(gameData) {
     $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
 }
 
-// 게임 삭제 전역 함수 (API 사용)
 window.deleteGame = async function(gameId) {
     if (GameState.isProcessingChoice()) {
         alert('현재 선택지를 처리하는 중입니다. 응답을 받은 후 다시 시도해주세요.');

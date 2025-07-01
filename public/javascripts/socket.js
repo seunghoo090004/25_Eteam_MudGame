@@ -1,7 +1,8 @@
-// public/javascripts/socket.js - API 분리 후 Socket 전용
+// public/javascripts/socket.js - 이벤트 중복 방지 버전
 const GameSocket = (function() {
     let socket = null;
     let isConnected = false;
+    let eventsRegistered = false; // ✅ 추가: 이벤트 등록 상태 추적
     
     function initialize() {
         socket = io({
@@ -12,12 +13,10 @@ const GameSocket = (function() {
             timeout: 20000
         });
         
-        // 연결 이벤트 핸들러
         socket.on('connect', handleConnect);
         socket.on('disconnect', handleDisconnect);
         socket.on('connect_error', handleConnectError);
         
-        // 게임 이벤트 핸들러 (채팅 전용)
         setupSocketEventHandlers();
     }
     
@@ -25,10 +24,7 @@ const GameSocket = (function() {
         console.log('Socket connected successfully');
         isConnected = true;
         
-        // 연결 오류 메시지 제거
         $('#connection-error').remove();
-        
-        // 연결 성공 이벤트 발생
         $(document).trigger('socket:connected');
     }
     
@@ -36,7 +32,6 @@ const GameSocket = (function() {
         console.log('Socket disconnected');
         isConnected = false;
         
-        // 연결 끊김 메시지 표시
         if ($('#connection-error').length === 0) {
             $('#chatbox').append(`
                 <div id="connection-error" class="system-message error">
@@ -55,7 +50,6 @@ const GameSocket = (function() {
     function handleConnectError(error) {
         console.error('Socket connection error:', error);
         
-        // 연결 오류 메시지 표시
         if ($('#connection-error').length === 0) {
             $('#chatbox').append(`
                 <div id="connection-error" class="system-message error">
@@ -72,30 +66,38 @@ const GameSocket = (function() {
     }
     
     function setupSocketEventHandlers() {
-        // 채팅 응답 핸들러 (Socket 전용 유지)
+        // ✅ 수정: 이벤트 중복 등록 방지
+        if (eventsRegistered) {
+            console.log('Socket events already registered, skipping...');
+            return;
+        }
+        
+        // 채팅 응답 핸들러
         socket.on('chat response', function(data) {
+            console.log('Socket received chat response:', data);
             $(document).trigger('chat:response', [data]);
         });
         
-        // 🔄 수정: 새 게임은 Socket에서 초기 메시지만 처리
+        // 새 게임 응답 핸들러
         socket.on('new game response', function(data) {
+            console.log('Socket received new game response:', data);
             $(document).trigger('game:new', [data]);
         });
         
-        // 🔄 수정: 게임 로드는 Socket에서 채팅 히스토리만 처리
+        // 게임 로드 응답 핸들러
         socket.on('load game response', function(data) {
+            console.log('Socket received load game response:', data);
             $(document).trigger('game:load', [data]);
         });
         
-        // ❌ 제거: 게임 목록, 저장, 삭제는 API로 이전
-        // socket.on('games list response', ...)
-        // socket.on('save game response', ...)
-        // socket.on('delete game response', ...)
-        
-        // 채팅 기록 응답 핸들러 (유지)
+        // 채팅 기록 응답 핸들러
         socket.on('chat history response', function(data) {
+            console.log('Socket received chat history response:', data);
             $(document).trigger('chat:history', [data]);
         });
+        
+        eventsRegistered = true; // ✅ 추가: 이벤트 등록 완료 표시
+        console.log('Socket event handlers registered');
     }
     
     function emit(event, data) {
@@ -104,22 +106,18 @@ const GameSocket = (function() {
             return false;
         }
         
+        console.log(`Socket emitting: ${event}`, data);
         socket.emit(event, data);
         return true;
     }
-    
-    // ❌ 제거: 게임 목록은 API로 처리
-    // function loadGamesList(forceRefresh = false) { ... }
     
     function isSocketConnected() {
         return isConnected;
     }
     
-    // 공개 API (Socket 전용 기능만)
     return {
         initialize: initialize,
         emit: emit,
         isConnected: isSocketConnected
-        // loadGamesList 제거 - API로 이전
     };
 })();
