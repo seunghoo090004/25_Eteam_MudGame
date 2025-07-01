@@ -1,4 +1,4 @@
-// public/javascripts/main.js - API 연동 완전 버전
+// public/javascripts/main.js - API 연동 완전 버전 (수정됨)
 $(document).ready(function() {
     // 게임 모듈 초기화
     GameState.initialize();

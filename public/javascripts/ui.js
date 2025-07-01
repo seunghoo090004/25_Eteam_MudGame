@@ -1,4 +1,4 @@
-// public/javascripts/ui.js - API 연동 완전 버전
+// public/javascripts/ui.js - API 연동 완전 버전 (수정됨)
 
 const GameUI = (function() {
     // UI 초기화
@@ -260,7 +260,7 @@ const GameUI = (function() {
         }
     }
     
-    // 새 게임 성공 처리
+    // ✅ 수정: 새 게임 성공 처리 (thread_id 포함)
     function handleNewGameSuccess(gameInfo) {
         hideLoading();
         setButtonLoading($('#new-game'), false);
@@ -275,9 +275,12 @@ const GameUI = (function() {
         
         loadGamesList(true);
         
-        // Socket.IO를 통해 초기 메시지 받기
+        // ✅ 수정: Socket.IO를 통해 초기 메시지 받기 - thread_id 포함
         GameSocket.emit('new game', {
-            assistant_id: $('#assistant-select').val()
+            assistant_id: $('#assistant-select').val(),
+            thread_id: gameInfo.thread_id,      // ✅ 추가
+            game_id: gameInfo.game_id,          // ✅ 추가
+            game_data: gameInfo.game_data       // ✅ 추가
         });
     }
     
