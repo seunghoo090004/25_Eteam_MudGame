@@ -53,7 +53,7 @@ app.use(helmet({
             "'self'", 
             "https://ajax.googleapis.com", 
             "https://code.jquery.com", 
-            "https://cdn.jsdelivr.net",  // ✅ axios CDN 추가
+            "https://cdn.jsdelivr.net",
             "'unsafe-inline'"
          ],
          scriptSrcAttr: ["'unsafe-inline'"],
@@ -70,7 +70,7 @@ const sessionMiddleware = session({
    resave: true,
    saveUninitialized: true,
    cookie: { 
-      secure: true,
+      secure: process.env.NODE_ENV === 'production',
       maxAge: 1 * 60 * 60 * 1000,
       httpOnly: true,
       sameSite: 'lax'
