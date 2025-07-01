@@ -1,7 +1,6 @@
 // app.js
 // Express 애플리케이션 설정 및 미들웨어 구성
 
-
 const createError = require('http-errors');
 const express = require('express');
 const path = require('path');
@@ -9,18 +8,19 @@ const cookieParser = require('cookie-parser');
 const logger = require('morgan');
 const session = require('express-session');
 const helmet = require('helmet');
-const cors = require('cors'); // 이 줄 추가
+const cors = require('cors');
 
-
-// 필요한 라우터만 불러오기
+// 필요한 라우터 불러오기
 const indexRouter = require('./routes/index');
 
 // auth routes - 인증 관련 라우터는 유지
-const authRouter = require('./routes/auth'); // 인증 관련 모든 라우트 통합
-
+const authRouter = require('./routes/auth');
 
 // assistant routes - list만 유지
 const assistantListRouter = require('./routes/assistant/list');
+
+// ✅ 신규 추가: API 라우터
+const apiRouter = require('./routes/api');
 
 const app = express();
 
@@ -49,14 +49,20 @@ app.use(helmet({
    contentSecurityPolicy: {
       directives: {
          defaultSrc: ["'self'"],
-         scriptSrc: ["'self'", "https://ajax.googleapis.com", "https://code.jquery.com", "'unsafe-inline'"],
-         scriptSrcAttr: ["'unsafe-inline'"], // 인라인 이벤트 핸들러 허용
+         scriptSrc: [
+            "'self'", 
+            "https://ajax.googleapis.com", 
+            "https://code.jquery.com", 
+            "https://cdn.jsdelivr.net",  // ✅ axios CDN 추가
+            "'unsafe-inline'"
+         ],
+         scriptSrcAttr: ["'unsafe-inline'"],
          styleSrc: ["'self'", "'unsafe-inline'"],
          connectSrc: ["'self'", "wss://mudgame.up.railway.app"],
          imgSrc: ["'self'", "data:"]
       }
-      }
-   }));
+   }
+}));
 
 // 세션 미들웨어 설정
 const sessionMiddleware = session({
@@ -79,10 +85,13 @@ app.createSocketServer = function(server) {
    return require('./routes/socket')(server, sessionMiddleware);
 };
 
-// 필요한 라우터만 설정
+// 라우터 설정
 app.use('/', indexRouter);
 app.use('/auth', authRouter);
 app.use('/assistant/list', assistantListRouter);
+
+// ✅ 신규 추가: API 라우터 등록
+app.use('/api', apiRouter);
 
 // 404 에러 핸들러
 app.use(function(req, res, next) {

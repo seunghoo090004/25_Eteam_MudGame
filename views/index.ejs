@@ -7,6 +7,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GPT Chat</title>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <!-- ✅ 신규 추가: Axios CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <style>
         body {
@@ -390,8 +392,12 @@
         </div>
     </div>
 
+<!-- ✅ 신규 추가: API 모듈 로드 -->
+<script src="/javascripts/api.js"></script>
 <script src="/javascripts/socket.js"></script>
 <script src="/javascripts/gameState.js"></script>
 <script src="/javascripts/ui.js"></script>
 <script src="/javascripts/chat.js"></script>
 <script src="/javascripts/main.js"></script>
+</body>
+</html>

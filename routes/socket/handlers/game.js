@@ -1,47 +1,33 @@
 // routes/socket/handlers/game.js
-//게임 상태 변경 이벤트 처리 (새 게임, 저장, 로드)
-
+// Socket 전용 게임 핸들러 (채팅 초기화만 담당)
 
 const gameService = require('../services/game');
 const chatService = require('../services/chat');
 
 const gameHandler = (io, socket) => {
+    // ✅ 유지: 새 게임 (초기 메시지 생성용)
     socket.on('new game', async (data) => {
-        const LOG_HEADER_TITLE = "NEW_GAME";
-        const LOG_HEADER = "UserId[" + socket.request.session.userId + "] AssistantId[" + data.assistant_id + "] --> " + LOG_HEADER_TITLE;
-        const LOG_ERR_HEADER = "[FAIL]";
-        const LOG_SUCC_HEADER = "[SUCC]";
-        
-        let ret_status = 200;
+        const LOG_HEADER = "SOCKET/NEW_GAME";
         
         try {
             const userId = socket.request.session.userId;
             if (!userId) throw new Error("Not authenticated");
             if (!data.assistant_id) throw new Error("Assistant ID required");
     
-            const game = await gameService.createNewGame(userId, data.assistant_id);
-            const initialResponse = await chatService.initializeChat(game.threadId, data.assistant_id);
+            // 초기 메시지만 생성
+            const initialResponse = await chatService.initializeChat(data.thread_id, data.assistant_id);
             
-            // 새 게임 생성 응답
             socket.emit('new game response', {
                 success: true,
-                game_id: game.gameId,
-                game_data: game.gameData,
+                game_id: data.game_id,
+                game_data: data.game_data,
                 initial_message: initialResponse
             });
     
-            // 게임 목록 즉시 업데이트
-            const updatedGames = await gameService.listGames(userId);
-            socket.emit('games list response', {
-                success: true,
-                games: updatedGames
-            });
-    
-            console.log(LOG_SUCC_HEADER + LOG_HEADER + "status(" + ret_status + ")");
+            console.log(`[${LOG_HEADER}] Initial message sent`);
     
         } catch (e) {
-            ret_status = 501;
-            console.error(LOG_ERR_HEADER + LOG_HEADER + "getBODY::status(" + ret_status + ") ==> " + e);
+            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
             socket.emit('new game response', {
                 success: false,
                 error: e.message || e
@@ -49,37 +35,18 @@ const gameHandler = (io, socket) => {
         }
     });
 
+    // ✅ 유지: 게임 로드 (채팅 히스토리용)
     socket.on('load game', async (data) => {
-        const LOG_HEADER = "GAME/LOAD";
+        const LOG_HEADER = "SOCKET/LOAD_GAME";
+        
         try {
             const userId = socket.request.session.userId;
             if (!userId) throw new Error("Not authenticated");
             if (!data.game_id) throw new Error("Game ID required");
     
-            const gameData = await gameService.loadGame(data.game_id, userId);
+            const gameData = await gameService.loadGameForSocket(data.game_id, userId);
             
-            // 채팅 히스토리가 비어있거나 마지막 메시지가 사용자 메시지인 경우 초기 응답 생성
-            if (!gameData.chatHistory || gameData.chatHistory.length === 0 || 
-                gameData.chatHistory[gameData.chatHistory.length - 1].role === 'user') {
-                
-                console.log(`[${LOG_HEADER}] Generating initial response for loaded game`);
-                const initialResponse = await chatService.sendMessage(
-                    gameData.thread_id, 
-                    gameData.assistant_id,
-                    "이전 대화를 기반으로 게임을 계속 진행해 주세요."
-                );
-                
-                if (!gameData.chatHistory) gameData.chatHistory = [];
-                
-                // 새 응답을 채팅 히스토리에 추가
-                gameData.chatHistory.push({
-                    role: 'assistant',
-                    content: initialResponse,
-                    created_at: new Date()
-                });
-            }
-    
-            console.log(`[${LOG_HEADER}] Game loaded successfully with ${gameData.chatHistory?.length || 0} messages`);
+            console.log(`[${LOG_HEADER}] Game loaded for socket`);
             socket.emit('load game response', {
                 success: true,
                 game: gameData
@@ -94,139 +61,8 @@ const gameHandler = (io, socket) => {
         }
     });
 
-    socket.on('save game', async (data) => {
-        const LOG_HEADER = "GAME/SAVE";
-        try {
-            const userId = socket.request.session.userId;
-            if (!userId) throw new Error("Not authenticated");
-            if (!data.game_id) throw new Error("Game ID required");
-            if (!data.game_data) throw new Error("Game data required");
-    
-            console.log(`[${LOG_HEADER}] 저장 요청 받음`);
-            
-            // 게임 데이터 타입 검사 및 로깅
-            console.log(`[${LOG_HEADER}] 전달 받은 데이터 타입:`, typeof data.game_data);
-            
-            // 데이터가 문자열이 아닌 경우 문자열로 변환
-            let gameDataToSave = data.game_data;
-            if (typeof gameDataToSave !== 'string') {
-                try {
-                    gameDataToSave = JSON.stringify(gameDataToSave);
-                } catch (err) {
-                    console.error(`[${LOG_HEADER}] JSON 변환 오류:`, err);
-                    throw new Error("Game data format error");
-                }
-            }
-            
-            // JSON 유효성 검사 (파싱해보고 에러가 없으면 유효)
-            try {
-                JSON.parse(gameDataToSave);
-            } catch (err) {
-                console.error(`[${LOG_HEADER}] 유효하지 않은 JSON 데이터:`, err);
-                throw new Error("Invalid JSON format");
-            }
-            
-            // 저장 진행 중임을 클라이언트에 알림
-            socket.emit('save game progress', {
-                status: 'saving',
-                message: '게임을 저장하는 중입니다...'
-            });
-            
-            // 게임 데이터를 저장하고 결과 반환
-            const result = await gameService.saveGame(data.game_id, userId, gameDataToSave);
-            
-            if (result.success) {
-                console.log(`[${LOG_HEADER}] 게임 저장 성공`);
-                
-                // 저장 성공 후 즉시 게임 목록 업데이트
-                const updatedGames = await gameService.listGames(userId);
-                socket.emit('games list response', {
-                    success: true,
-                    games: updatedGames
-                });
-                
-                socket.emit('save game response', {
-                    success: true,
-                    threadChanged: true,
-                    summary: result.summary,
-                    extractedLocation: result.extractedLocation,
-                    initialResponse: result.initialResponse
-                });
-            } else {
-                throw new Error(result.error || "Unknown error");
-            }
-    
-        } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
-            socket.emit('save game response', {
-                success: false,
-                error: e.message || e
-            });
-        }
-    });
-    
-    socket.on('get games list', async (data) => {
-        const LOG_HEADER = "GAME/LIST";
-        try {
-            const userId = socket.request.session.userId;
-            if (!userId) throw new Error("Not authenticated");
-    
-            // 강제 갱신 여부 확인 (기본값: false)
-            const forceRefresh = data && data.forceRefresh === true;
-            
-            if (forceRefresh) {
-                console.log(`[${LOG_HEADER}] 강제 갱신으로 게임 목록 요청됨`);
-            }
-    
-            // 게임 목록 가져오기
-            const games = await gameService.listGames(userId);
-            console.log(`[${LOG_HEADER}] Games list retrieved (${games.length} games)`);
-            
-            // 추가 로깅 - 목록 내용 세부 확인
-            games.forEach((game, index) => {
-                console.log(`[${LOG_HEADER}] Game #${index + 1}: ID=${game.game_id}, 
-                    Location=${game.game_data?.location?.current || 'Unknown'}, 
-                    Phase=${game.game_data?.progress?.phase || 'Unknown'},
-                    Updated=${game.last_updated}`);
-            });
-            
-            socket.emit('games list response', {
-                success: true,
-                games: games,
-                forceRefresh: forceRefresh
-            });
-    
-        } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
-            socket.emit('games list response', {
-                success: false,
-                error: e.message || e
-            });
-        }
-    });
-
-    socket.on('delete game', async (data) => {
-        const LOG_HEADER = "GAME/DELETE";
-        try {
-            const userId = socket.request.session.userId;
-            if (!userId) throw new Error("Not authenticated");
-            if (!data.game_id) throw new Error("Game ID required");
-
-            await gameService.deleteGame(data.game_id, userId);
-            console.log(`[${LOG_HEADER}] Game deleted`);
-            socket.emit('delete game response', {
-                success: true,
-                game_id: data.game_id
-            });
-
-        } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
-            socket.emit('delete game response', {
-                success: false,
-                error: e.message || e
-            });
-        }
-    });
+    // ❌ 제거: save game, delete game, get games list
+    // 이제 API에서 처리
 };
 
 module.exports = gameHandler;

@@ -1,4 +1,4 @@
-// public/js/game/socket.js
+// public/javascripts/socket.js - API 분리 후 Socket 전용
 const GameSocket = (function() {
     let socket = null;
     let isConnected = false;
@@ -17,8 +17,8 @@ const GameSocket = (function() {
         socket.on('disconnect', handleDisconnect);
         socket.on('connect_error', handleConnectError);
         
-        // 게임 이벤트 핸들러
-        setupGameEventHandlers();
+        // 게임 이벤트 핸들러 (채팅 전용)
+        setupSocketEventHandlers();
     }
     
     function handleConnect() {
@@ -30,9 +30,6 @@ const GameSocket = (function() {
         
         // 연결 성공 이벤트 발생
         $(document).trigger('socket:connected');
-        
-        // 연결 후 게임 목록 로드
-        loadGamesList();
     }
     
     function handleDisconnect() {
@@ -74,43 +71,28 @@ const GameSocket = (function() {
         }
     }
     
-    function setupGameEventHandlers() {
-        // 채팅 응답 핸들러
+    function setupSocketEventHandlers() {
+        // 채팅 응답 핸들러 (Socket 전용 유지)
         socket.on('chat response', function(data) {
             $(document).trigger('chat:response', [data]);
         });
         
-        // 게임 목록 응답 핸들러
-        socket.on('games list response', function(data) {
-            $(document).trigger('games:list', [data]);
-        });
-        
-        // 새 게임 응답 핸들러
+        // 🔄 수정: 새 게임은 Socket에서 초기 메시지만 처리
         socket.on('new game response', function(data) {
             $(document).trigger('game:new', [data]);
         });
         
-        // 게임 로드 응답 핸들러
+        // 🔄 수정: 게임 로드는 Socket에서 채팅 히스토리만 처리
         socket.on('load game response', function(data) {
             $(document).trigger('game:load', [data]);
         });
         
-        // 게임 저장 진행 핸들러
-        socket.on('save game progress', function(data) {
-            $(document).trigger('game:saveProgress', [data]);
-        });
+        // ❌ 제거: 게임 목록, 저장, 삭제는 API로 이전
+        // socket.on('games list response', ...)
+        // socket.on('save game response', ...)
+        // socket.on('delete game response', ...)
         
-        // 게임 저장 응답 핸들러
-        socket.on('save game response', function(data) {
-            $(document).trigger('game:save', [data]);
-        });
-        
-        // 게임 삭제 응답 핸들러
-        socket.on('delete game response', function(data) {
-            $(document).trigger('game:delete', [data]);
-        });
-        
-        // 채팅 기록 응답 핸들러
+        // 채팅 기록 응답 핸들러 (유지)
         socket.on('chat history response', function(data) {
             $(document).trigger('chat:history', [data]);
         });
@@ -126,31 +108,18 @@ const GameSocket = (function() {
         return true;
     }
     
-    function loadGamesList(forceRefresh = false) {
-        if (isConnected) {
-            console.log('게임 목록 로드 요청' + (forceRefresh ? ' (강제 갱신)' : ''));
-            
-            if (forceRefresh) {
-                const savedGamesList = $('#saved_games_list');
-                savedGamesList.empty();
-                savedGamesList.append('<p>게임 목록 업데이트 중...</p>');
-            }
-            
-            emit('get games list', { forceRefresh: forceRefresh });
-        } else {
-            console.error('Socket not connected. Cannot load games list.');
-        }
-    }
+    // ❌ 제거: 게임 목록은 API로 처리
+    // function loadGamesList(forceRefresh = false) { ... }
     
     function isSocketConnected() {
         return isConnected;
     }
     
-    // 공개 API
+    // 공개 API (Socket 전용 기능만)
     return {
         initialize: initialize,
         emit: emit,
-        isConnected: isSocketConnected,
-        loadGamesList: loadGamesList
+        isConnected: isSocketConnected
+        // loadGamesList 제거 - API로 이전
     };
 })();
