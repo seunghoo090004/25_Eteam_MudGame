@@ -19,6 +19,7 @@ const GameAPI = (function() {
             return response.data;
         } catch (error) {
             console.error('API Request Error:', error);
+            console.error('Response:', error.response?.data);
             throw error.response?.data || error;
         }
     }
