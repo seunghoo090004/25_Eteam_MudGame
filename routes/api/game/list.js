@@ -16,22 +16,22 @@ router.post('/', async(req, res) =>
   let ret_status = 200;
   let ret_data;
 
-  const catch_body = -1;
+  const catch_auth = -1;
   const catch_sqlconn = -2;
   const catch_query = -3;
 
   //----------------------------------------------------------------------
-  // getBODY - 세션에서 사용자 정보 확인
+  // 인증 확인 (POST 바디 없이)
   //----------------------------------------------------------------------
   let req_user_id;
   try {
     if (!req.session.userId) throw "user not authenticated";
     req_user_id = req.session.userId;
   } catch (e) {
-    ret_status = fail_status + -1 * catch_body;
+    ret_status = fail_status + -1 * catch_auth;
     ret_data = {
-      code: "getBODY()",
-      value: catch_body,
+      code: "auth_check",
+      value: catch_auth,
       value_ext1: ret_status,
       value_ext2: e,
       EXT_data,
