@@ -1,4 +1,4 @@
-// routes/socket/services/chat.js - 게임 진행 강제 개선 버전
+// routes/socket/services/chat.js - 최종 개선 버전
 
 const pool = require('../../../config/database');
 const openai = require('../../../config/openai');
@@ -21,7 +21,6 @@ class ChatService {
                 } while (['in_progress', 'queued'].includes(runStatus.status));
             }
 
-            // ✅ 수정: 진행 강제 명령어 추가
             const safeMessage = typeof message === 'string' ? message : String(message);
             
             try {
@@ -38,7 +37,7 @@ class ChatService {
                 });
             }
 
-            // 게임 진행 강제 시스템 메시지
+            // ✅ 수정: 개선된 게임 진행 시스템 메시지
             await openai.beta.threads.messages.create(threadId, {
                 role: "user",
                 content: `[게임 마스터 지시사항 - 필수 준수]
@@ -48,14 +47,40 @@ class ChatService {
 **반드시 실행해야 할 사항:**
 1. 플레이어를 새로운 위치로 이동시키거나 상황을 크게 변화시키세요
 2. 위치 ID를 변경하세요 (예: 01 → 02, 03 등)
-3. 완전히 새로운 환경 설명을 작성하세요
-4. 이전과 다른 선택지를 제공하세요
-5. 게임이 실제로 진행되고 있음을 보여주세요
+3. 층수는 스토리에 맞게 조정 (같은 층의 다른 특수한 방으로 이동 가능)
+4. 완전히 새로운 환경 설명을 작성하세요
+5. 시간은 실제 플레이 시간에 맞춰 자연스럽게 증가시키세요
+6. 선택지는 간단하게 작성하세요 (예: "↑ 문을 열어보며")
+
+**응답 형식:**
+===============================================
+         던전 탈출 - [층수 정보]
+===============================================
+
+>> 위치: [새로운 ID] - [특수한 방 이름]
+
+[환경 묘사]
+
+STATS ================================
+체력: [현재]/[최대]  체력상태: [상태]  정신: [상태]
+소지품: [아이템들]
+골드: [수량]  시간: [자연스러운 시간]
+위치: [층 정보]
+
+경고: [간단한 경고]
+
+===============================================
+
+↑ [간단한 행동]
+↓ [간단한 행동]
+← [간단한 행동]
+→ [간단한 행동]
 
 **금지사항:**
 - 동일한 방에서 단순 탐색만 반복
+- 위험도 표시 (위험도: 극한 등)
+- 선택지에 "- 부가설명" 추가
 - 이전과 같은 위치 ID 사용
-- 상황 변화 없는 설명
 
 지금 즉시 새로운 상황으로 진행하세요!`
             });
@@ -112,16 +137,16 @@ class ChatService {
                 
                 let response = firstMessage.content[0].text.value;
                 
-                // ✅ 추가: 응답 검증 및 재시도
+                // 응답 검증 및 재시도
                 if (this.isRepeatResponse(response)) {
                     console.log(`[${LOG_HEADER}] Detected repeat response, forcing retry...`);
                     return await this.forceProgressMessage(threadId, assistantId, safeMessage);
                 }
                 
-                // 응답 후처리 - 자연스러운 형식으로 변환
-                response = this.processNaturalChoices(response);
+                // ✅ 수정: 응답 정리 (위험도 제거, 선택지 간소화)
+                response = this.cleanResponse(response);
                 
-                console.log(`[${LOG_HEADER}] Message processed with natural choices`);
+                console.log(`[${LOG_HEADER}] Message processed and cleaned`);
                 return response;
             }
 
@@ -133,14 +158,13 @@ class ChatService {
         }
     }
 
-    // ✅ 추가: 반복 응답 감지
+    // 반복 응답 감지
     isRepeatResponse(response) {
         const locationMatch = response.match(/위치:\s*(\w+)\s*-\s*([^=\n]+)/);
         if (locationMatch) {
             const roomId = locationMatch[1].trim();
             const roomName = locationMatch[2].trim();
             
-            // "01" 또는 "차가운 돌 감옥" 등 반복 패턴 감지
             if (roomId === "01" || roomName.includes("감옥")) {
                 console.log('Repeat response detected:', roomId, roomName);
                 return true;
@@ -149,7 +173,7 @@ class ChatService {
         return false;
     }
 
-    // ✅ 추가: 강제 진행 메시지
+    // 강제 진행 메시지
     async forceProgressMessage(threadId, assistantId, originalMessage) {
         const LOG_HEADER = "CHAT_SERVICE/FORCE_PROGRESS";
         
@@ -160,10 +184,10 @@ class ChatService {
 
 게임이 정체되었습니다. 지금 즉시:
 
-1. 플레이어를 다음 위치로 이동: "02 - 어두운 복도" 또는 "03 - 계단" 등
+1. 플레이어를 다음 위치로 이동: "02 - 연금술 실험실" 또는 "03 - 고문실" 등
 2. 완전히 새로운 환경 생성
 3. 새로운 위험 요소 추가
-4. 다른 선택지 제공
+4. 간단한 선택지 제공 (부가설명 없이)
 
 선택 ${originalMessage}번의 결과로 플레이어가 실제로 이동했습니다.
 새로운 상황을 지금 즉시 생성하세요!`
@@ -182,7 +206,7 @@ class ChatService {
             if (runStatus.status === 'completed') {
                 const messages = await openai.beta.threads.messages.list(threadId);
                 const response = messages.data[0].content[0].text.value;
-                return this.processNaturalChoices(response);
+                return this.cleanResponse(response);
             }
 
             throw new Error('Force progress failed');
@@ -193,50 +217,26 @@ class ChatService {
         }
     }
 
-    // 자연스러운 선택지로 변환
-    processNaturalChoices(response) {
-        const LOG_HEADER = "CHAT_SERVICE/NATURAL_CHOICES";
+    // ✅ 추가: 응답 정리 함수 (위험도 제거, 선택지 간소화)
+    cleanResponse(response) {
+        const LOG_HEADER = "CHAT_SERVICE/CLEAN_RESPONSE";
         
-        let processedResponse = response;
+        let cleanedResponse = response;
         
-        // 기존 형식을 자연스러운 형식으로 변환
-        const oldChoicePattern = /(\[(?:위로|아래로|왼쪽|오른쪽)\]|↑|↓|←|→)\s*([^-\n]+)\s*[-–]\s*\(([^)]+)\)/g;
+        // 1. 위험도 관련 줄 제거
+        cleanedResponse = cleanedResponse.replace(/위험도:\s*[^\n]+\s*/g, '');
         
-        processedResponse = processedResponse.replace(oldChoicePattern, (match, direction, action, risk) => {
-            // 방향 기호로 통일
-            let arrow;
-            if (direction.includes('위로') || direction === '↑') arrow = '↑';
-            else if (direction.includes('아래로') || direction === '↓') arrow = '↓';
-            else if (direction.includes('왼쪽') || direction === '←') arrow = '←';
-            else if (direction.includes('오른쪽') || direction === '→') arrow = '→';
-            
-            // 행동 정리
-            let cleanAction = action.trim();
-            
-            // 위험도를 자연스러운 표현으로 변환
-            let naturalFeeling;
-            const riskLower = risk.toLowerCase();
-            
-            if (riskLower.includes('안전') || riskLower.includes('무해')) {
-                naturalFeeling = Math.random() > 0.5 ? '안전해 보임' : '무난할 듯';
-            } else if (riskLower.includes('주의') || riskLower.includes('조심')) {
-                naturalFeeling = Math.random() > 0.5 ? '신중하게' : '조심스럽게';
-            } else if (riskLower.includes('위험') && !riskLower.includes('매우')) {
-                naturalFeeling = Math.random() > 0.5 ? '위험한 느낌' : '불안한 기운';
-            } else if (riskLower.includes('매우') || riskLower.includes('치명') || riskLower.includes('극도')) {
-                naturalFeeling = Math.random() > 0.5 ? '매우 위험할 것 같음' : '용기가 필요함';
-            } else {
-                naturalFeeling = '살펴보며';
-            }
-            
-            return `${arrow} ${cleanAction} - ${naturalFeeling}`;
-        });
+        // 2. 선택지에서 "- 부가설명" 부분 제거
+        cleanedResponse = cleanedResponse.replace(/(↑|↓|←|→)\s*([^-\n]+)\s*-\s*[^\n]+/g, '$1 $2');
         
-        // 괄호 형식 제거
-        processedResponse = processedResponse.replace(/\(위험\)|(\(안전\))|(\(주의\))|(\(매우위험\))/g, '');
+        // 3. 여러 개의 구분선 정리
+        cleanedResponse = cleanedResponse.replace(/={10,}/g, '===============================================');
         
-        console.log(`[${LOG_HEADER}] Converted to natural choice format`);
-        return processedResponse;
+        // 4. 불필요한 빈 줄 정리
+        cleanedResponse = cleanedResponse.replace(/\n{3,}/g, '\n\n');
+        
+        console.log(`[${LOG_HEADER}] Response cleaned successfully`);
+        return cleanedResponse;
     }
 
     // 게임 응답에서 상태 정보 파싱
@@ -314,7 +314,7 @@ class ChatService {
     async initializeChat(threadId, assistantId) {
         const LOG_HEADER = "CHAT_SERVICE/INIT";
         try {
-            // 최종 초기화 설정
+            // ✅ 수정: 개선된 초기화 설정
             await openai.beta.threads.messages.create(threadId, {
                 role: "user",
                 content: `***던전 탈출 게임 - 최종 시스템 초기화***
@@ -331,41 +331,42 @@ class ChatService {
 **필수 응답 형식:**
 
 ===============================================
-         던전 탈출 - 지하 [층]층
+         던전 탈출 - [층수]
 ===============================================
 
->> 위치: [ID] - [방이름]
+>> 위치: [ID] - [특수한 방 이름]
 
 [몰입감 있는 환경 묘사 2-3문장]
 
 STATS ================================
 체력: [현재]/[최대]  체력상태: [상태]  정신: [상태]
 소지품: [아이템들]
-골드: [수량]  시간: [게임시간]
+골드: [수량]  시간: [자연스러운 시간]
 위치: [층 정보]
 
-위험도: [레벨]  경고: [즉각적 위험]
+경고: [간단한 경고]
 
 ===============================================
 
-**선택지 형식 (반드시 지켜야 함):**
-↑ [간단한 행동] - [자연스러운 느낌]
-↓ [간단한 행동] - [자연스러운 느낌]
-← [간단한 행동] - [자연스러운 느낌]
-→ [간단한 행동] - [자연스러운 느낌]
+↑ [간단한 행동]
+↓ [간단한 행동]
+← [간단한 행동]  
+→ [간단한 행동]
 
 **중요 규칙:**
-1. 괄호 형식 (위험) 절대 사용 금지
-2. 화살표 기호 사용 필수
-3. 자연스러운 느낌 표현으로 위험도 전달
+1. 위험도 표시 금지 (위험도: 극한 등)
+2. 선택지에 "- 부가설명" 금지
+3. 화살표 기호 사용 필수
 4. 모든 선택에 실제 결과
 5. 한국어로만 작성
-6. **플레이어 선택 시 반드시 새로운 위치로 이동시키기**
+6. 플레이어 선택 시 반드시 새로운 위치로 이동시키기
+7. 층수는 스토리에 맞게 자유롭게 조정
+8. 시간은 실제 플레이 시간에 맞춰 자연스럽게
 
 지금 게임을 시작하세요. 플레이어가 차가운 돌 감옥에서 깨어납니다.`
             });
 
-            console.log(`[${LOG_HEADER}] Final system initialized with progress enforcement`);
+            console.log(`[${LOG_HEADER}] Final system initialized with improved format`);
             
             // 초기 응답 받기
             try {
@@ -479,7 +480,6 @@ STATS ================================
     async updateGameContext(threadId, gameState) {
         const LOG_HEADER = "CHAT_SERVICE/UPDATE_CONTEXT";
         try {
-            // Game State Update 메시지는 더 이상 생성하지 않음
             console.log(`[${LOG_HEADER}] Game context updated (no state update box)`);
 
         } catch (e) {
