@@ -1,4 +1,4 @@
-// routes/socket/services/chat.js - 최종 개선 버전
+// routes/socket/services/chat.js - 스토리 연결성 및 내부정보 숨김 개선
 
 const pool = require('../../../config/database');
 const openai = require('../../../config/openai');
@@ -23,43 +23,40 @@ class ChatService {
 
             const safeMessage = typeof message === 'string' ? message : String(message);
             
+            // ✅ 수정: 행동-결과 연결성 강화
             try {
                 await openai.beta.threads.messages.create(threadId, {
                     role: "user",
-                    content: `${safeMessage}\n\n[중요 지시사항] 반드시 새로운 상황이나 위치로 진행하세요. 동일한 방에 머무르지 말고 상황을 변화시키세요. 플레이어의 행동에 따른 실제 결과를 보여주세요.`
+                    content: `선택: ${safeMessage}번\n\n[중요] 이 선택지의 행동을 실제로 수행한 결과를 보여주세요. 선택지와 무관한 새로운 위치로 이동하지 말고, 선택한 행동의 직접적인 결과를 먼저 설명한 후 자연스럽게 상황을 전개하세요.`
                 });
             } catch (msgError) {
                 console.error(`[${LOG_HEADER}] Failed to add message: ${msgError.message}`);
                 await new Promise(resolve => setTimeout(resolve, 10000));
                 await openai.beta.threads.messages.create(threadId, {
                     role: "user",
-                    content: `${safeMessage}\n\n[중요] 게임을 진행시키고 새로운 상황을 만드세요.`
+                    content: `선택: ${safeMessage}번\n\n선택한 행동의 결과를 보여주세요.`
                 });
             }
 
-            // ✅ 수정: 개선된 게임 진행 시스템 메시지
+            // ✅ 수정: 스토리 연결성 강화 시스템 메시지
             await openai.beta.threads.messages.create(threadId, {
                 role: "user",
-                content: `[게임 마스터 지시사항 - 필수 준수]
+                content: `[게임 마스터 지시사항]
 
-**현재 선택**: ${safeMessage}번
-
-**반드시 실행해야 할 사항:**
-1. 플레이어를 새로운 위치로 이동시키거나 상황을 크게 변화시키세요
-2. 위치 ID를 변경하세요 (예: 01 → 02, 03 등)
-3. 층수는 스토리에 맞게 조정 (같은 층의 다른 특수한 방으로 이동 가능)
-4. 완전히 새로운 환경 설명을 작성하세요
-5. 시간은 실제 플레이 시간에 맞춰 자연스럽게 증가시키세요
-6. 선택지는 간단하게 작성하세요 (예: "↑ 문을 열어보며")
+**선택 ${safeMessage}번 처리 방법:**
+1. 먼저 플레이어가 선택한 행동을 실제로 수행합니다
+2. 그 행동의 직접적인 결과를 설명합니다
+3. 결과에 따라 자연스럽게 상황이 전개됩니다
+4. 필요시 새로운 위치로 이동하되, 논리적 연결이 있어야 합니다
 
 **응답 형식:**
 ===============================================
-         던전 탈출 - [층수 정보]
+         던전 탈출 - [층수]
 ===============================================
 
->> 위치: [새로운 ID] - [특수한 방 이름]
+>> 위치: [ID] - [방 이름]
 
-[환경 묘사]
+[선택한 행동의 결과 + 상황 전개]
 
 STATS ================================
 체력: [현재]/[최대]  체력상태: [상태]  정신: [상태]
@@ -68,21 +65,20 @@ STATS ================================
 위치: [층 정보]
 
 경고: [간단한 경고]
-
 ===============================================
 
-↑ [간단한 행동]
-↓ [간단한 행동]
-← [간단한 행동]
-→ [간단한 행동]
+↑ [현재 상황에 맞는 행동]
+↓ [현재 상황에 맞는 행동]
+← [현재 상황에 맞는 행동]
+→ [현재 상황에 맞는 행동]
 
 **금지사항:**
-- 동일한 방에서 단순 탐색만 반복
-- 위험도 표시 (위험도: 극한 등)
+- 선택지와 무관한 갑작스런 위치 이동
+- 위험도 표시
 - 선택지에 "- 부가설명" 추가
-- 이전과 같은 위치 ID 사용
+- 층수 표기 불일치
 
-지금 즉시 새로운 상황으로 진행하세요!`
+선택한 행동을 충실히 반영하여 게임을 진행하세요!`
             });
 
             // 새로운 run 시작
@@ -137,13 +133,7 @@ STATS ================================
                 
                 let response = firstMessage.content[0].text.value;
                 
-                // 응답 검증 및 재시도
-                if (this.isRepeatResponse(response)) {
-                    console.log(`[${LOG_HEADER}] Detected repeat response, forcing retry...`);
-                    return await this.forceProgressMessage(threadId, assistantId, safeMessage);
-                }
-                
-                // ✅ 수정: 응답 정리 (위험도 제거, 선택지 간소화)
+                // 응답 정리
                 response = this.cleanResponse(response);
                 
                 console.log(`[${LOG_HEADER}] Message processed and cleaned`);
@@ -158,66 +148,7 @@ STATS ================================
         }
     }
 
-    // 반복 응답 감지
-    isRepeatResponse(response) {
-        const locationMatch = response.match(/위치:\s*(\w+)\s*-\s*([^=\n]+)/);
-        if (locationMatch) {
-            const roomId = locationMatch[1].trim();
-            const roomName = locationMatch[2].trim();
-            
-            if (roomId === "01" || roomName.includes("감옥")) {
-                console.log('Repeat response detected:', roomId, roomName);
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // 강제 진행 메시지
-    async forceProgressMessage(threadId, assistantId, originalMessage) {
-        const LOG_HEADER = "CHAT_SERVICE/FORCE_PROGRESS";
-        
-        try {
-            await openai.beta.threads.messages.create(threadId, {
-                role: "user",
-                content: `[긴급 시스템 명령 - 즉시 실행]
-
-게임이 정체되었습니다. 지금 즉시:
-
-1. 플레이어를 다음 위치로 이동: "02 - 연금술 실험실" 또는 "03 - 고문실" 등
-2. 완전히 새로운 환경 생성
-3. 새로운 위험 요소 추가
-4. 간단한 선택지 제공 (부가설명 없이)
-
-선택 ${originalMessage}번의 결과로 플레이어가 실제로 이동했습니다.
-새로운 상황을 지금 즉시 생성하세요!`
-            });
-
-            const run = await openai.beta.threads.runs.create(threadId, {
-                assistant_id: assistantId
-            });
-
-            let runStatus;
-            do {
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
-            } while (['queued', 'in_progress'].includes(runStatus.status));
-
-            if (runStatus.status === 'completed') {
-                const messages = await openai.beta.threads.messages.list(threadId);
-                const response = messages.data[0].content[0].text.value;
-                return this.cleanResponse(response);
-            }
-
-            throw new Error('Force progress failed');
-
-        } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message}`);
-            throw e;
-        }
-    }
-
-    // ✅ 추가: 응답 정리 함수 (위험도 제거, 선택지 간소화)
+    // 응답 정리 함수
     cleanResponse(response) {
         const LOG_HEADER = "CHAT_SERVICE/CLEAN_RESPONSE";
         
@@ -250,7 +181,7 @@ STATS ================================
                 inventory: { items: [], gold: 0 }
             };
 
-            // 위치 정보 추출: >> 위치: [ID] - [방이름]
+            // 위치 정보 추출
             const locationPattern = />>\s*위치:\s*([^-]+)\s*-\s*([^\n]+)/;
             const locationMatch = response.match(locationPattern);
             if (locationMatch) {
@@ -314,63 +245,54 @@ STATS ================================
     async initializeChat(threadId, assistantId) {
         const LOG_HEADER = "CHAT_SERVICE/INIT";
         try {
-            // ✅ 수정: 개선된 초기화 설정
+            // 초기화 설정
             await openai.beta.threads.messages.create(threadId, {
                 role: "user",
-                content: `***던전 탈출 게임 - 최종 시스템 초기화***
+                content: `***던전 탈출 게임 - 시스템 초기화***
 
-당신은 극도로 위험한 던전 탈출 게임의 게임 마스터입니다.
+당신은 던전 탈출 게임의 게임 마스터입니다.
 
 **핵심 설정:**
-- 플레이어는 던전 최하층 감옥에서 시작
-- 목표: 던전 탈출 (극도로 어려움)
-- 모든 선택에는 실제 위험이 따름
-- 체력 0 = 사망
-- 분위기: 어둡고 위험한 서바이벌 호러
+- 플레이어는 던전에서 탈출 시도
+- 모든 선택에는 실제 결과가 따름
+- 선택지와 결과가 논리적으로 연결되어야 함
 
-**필수 응답 형식:**
-
+**응답 형식:**
 ===============================================
          던전 탈출 - [층수]
 ===============================================
 
->> 위치: [ID] - [특수한 방 이름]
+>> 위치: [ID] - [방 이름]
 
-[몰입감 있는 환경 묘사 2-3문장]
+[환경 묘사]
 
 STATS ================================
 체력: [현재]/[최대]  체력상태: [상태]  정신: [상태]
 소지품: [아이템들]
-골드: [수량]  시간: [자연스러운 시간]
+골드: [수량]  시간: [시간]
 위치: [층 정보]
 
-경고: [간단한 경고]
-
+경고: [경고사항]
 ===============================================
 
-↑ [간단한 행동]
-↓ [간단한 행동]
-← [간단한 행동]  
-→ [간단한 행동]
+↑ [행동]
+↓ [행동]
+← [행동]
+→ [행동]
 
 **중요 규칙:**
-1. 위험도 표시 금지 (위험도: 극한 등)
-2. 선택지에 "- 부가설명" 금지
-3. 화살표 기호 사용 필수
-4. 모든 선택에 실제 결과
-5. 한국어로만 작성
-6. 플레이어 선택 시 반드시 새로운 위치로 이동시키기
-7. 층수는 스토리에 맞게 자유롭게 조정
-8. 시간은 실제 플레이 시간에 맞춰 자연스럽게
+1. 선택한 행동의 직접적 결과를 먼저 보여주기
+2. 위험도 표시 금지
+3. 선택지에 부가설명 금지
+4. 층수 표기 일관성 유지
 
-지금 게임을 시작하세요. 플레이어가 차가운 돌 감옥에서 깨어납니다.`
+게임을 시작하세요.`
             });
 
-            console.log(`[${LOG_HEADER}] Final system initialized with improved format`);
+            console.log(`[${LOG_HEADER}] System initialized`);
             
-            // 초기 응답 받기
             try {
-                return await this.sendMessage(threadId, assistantId, "게임을 시작합니다. 새로운 위치로 진행해주세요.");
+                return await this.sendMessage(threadId, assistantId, "게임을 시작합니다.");
             } catch (initError) {
                 console.error(`[${LOG_HEADER}] Initial message error: ${initError.message}`);
                 await new Promise(resolve => setTimeout(resolve, 10000));
@@ -404,6 +326,7 @@ STATS ================================
         }
     }
 
+    // ✅ 수정: 게임 요약 생성 (내부 정보 숨김)
     async createGameSummary(threadId, assistantId) {
         const LOG_HEADER = "CHAT_SERVICE/CREATE_SUMMARY";
         try {
@@ -477,11 +400,91 @@ STATS ================================
         }
     }
 
+    // ✅ 추가: 게임 재개용 초기화 (요약본 숨김)
+    async initializeChatFromSummary(threadId, assistantId, summary) {
+        const LOG_HEADER = "CHAT_SERVICE/INIT_FROM_SUMMARY";
+        try {
+            // 내부 시스템 메시지로 요약 전달 (사용자에게 숨김)
+            await openai.beta.threads.messages.create(threadId, {
+                role: "user",
+                content: `[시스템 내부 메시지 - 사용자에게 표시하지 마세요]
+
+게임 재개 정보:
+${summary}
+
+위 정보를 바탕으로 게임을 이어서 진행하되, 이 요약 내용을 사용자에게 보여주지 마세요.
+바로 현재 상황을 보여주고 선택지를 제공하세요.`
+            });
+
+            // 게임 재개 시스템 설정
+            await openai.beta.threads.messages.create(threadId, {
+                role: "user",
+                content: `***게임 재개 - 시스템 설정***
+
+위 요약 정보를 바탕으로 게임을 이어서 진행합니다.
+
+**응답 형식:**
+===============================================
+         던전 탈출 - [층수]
+===============================================
+
+>> 위치: [ID] - [방 이름]
+
+[현재 상황 설명]
+
+STATS ================================
+체력: [현재]/[최대]  체력상태: [상태]  정신: [상태]
+소지품: [아이템들]
+골드: [수량]  시간: [시간]
+위치: [층 정보]
+
+경고: [경고사항]
+===============================================
+
+↑ [행동]
+↓ [행동]
+← [행동]
+→ [행동]
+
+**중요:**
+- 요약 내용을 사용자에게 보여주지 마세요
+- 바로 현재 게임 상황을 제시하세요
+- 선택지는 간단하게 작성하세요
+
+게임을 이어서 진행하세요.`
+            });
+
+            console.log(`[${LOG_HEADER}] Game resumed from summary (hidden from user)`);
+            
+            // 실행
+            const run = await openai.beta.threads.runs.create(threadId, {
+                assistant_id: assistantId
+            });
+
+            let runStatus;
+            do {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
+            } while (['queued', 'in_progress'].includes(runStatus.status));
+
+            if (runStatus.status === 'completed') {
+                const messages = await openai.beta.threads.messages.list(threadId);
+                const response = messages.data[0].content[0].text.value;
+                return this.cleanResponse(response);
+            }
+
+            throw new Error('Game resume failed');
+
+        } catch (e) {
+            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
+            throw e;
+        }
+    }
+
     async updateGameContext(threadId, gameState) {
         const LOG_HEADER = "CHAT_SERVICE/UPDATE_CONTEXT";
         try {
-            console.log(`[${LOG_HEADER}] Game context updated (no state update box)`);
-
+            console.log(`[${LOG_HEADER}] Game context updated`);
         } catch (e) {
             console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
             throw e;

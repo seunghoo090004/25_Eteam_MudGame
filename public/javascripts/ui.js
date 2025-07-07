@@ -1,4 +1,4 @@
-// public/javascripts/ui.js - 중복 메시지 해결 버전
+// public/javascripts/ui.js - 내부정보 숨김 및 중복 제거 완전 개선
 
 const GameUI = (function() {
     function initialize() {
@@ -134,9 +134,10 @@ const GameUI = (function() {
         selectedButton.addClass('processing');
         GameState.setProcessingChoice(true);
         
-        // ✅ 수정: 이전 메시지들을 제거하지 않고 유지
+        // ✅ 수정: 완전한 화면 정리
         $('.choice-buttons').remove();
         $('.system-message').remove();
+        $('.message.user-message').remove(); // 이전 사용자 메시지도 제거
         
         $('#chatbox').append(`<div class="message user-message">${choiceText}</div>`);
         
@@ -217,7 +218,7 @@ const GameUI = (function() {
         
         GameState.setGameState(gameInfo.game_id, gameInfo.game_data);
         
-        // ✅ 수정: 채팅창 완전 초기화
+        // 채팅창 완전 초기화
         $('#chatbox').empty();
         $('#chatbox').append(`<div class="message system-message">새 게임이 시작되었습니다...</div>`);
         
@@ -277,13 +278,19 @@ const GameUI = (function() {
         
         alert('게임이 저장되었습니다!');
         
+        // ✅ 수정: 요약본 숨김 처리
         $('#chatbox').empty();
-        $('#chatbox').append(`<div class="message user-message">이전 게임 요약: ${saveInfo.summary}</div>`);
-        $('#chatbox').append(`<div class="message assistant-message">${saveInfo.initial_response}</div>`);
         
-        const buttons = createChoiceButtons(saveInfo.initial_response);
-        if (buttons) {
-            $('#chatbox').append(buttons);
+        // 요약본은 표시하지 않고 바로 새 게임 상황만 표시
+        if (saveInfo.initial_response) {
+            $('#chatbox').append(`<div class="message assistant-message">${saveInfo.initial_response}</div>`);
+            
+            const buttons = createChoiceButtons(saveInfo.initial_response);
+            if (buttons) {
+                $('#chatbox').append(buttons);
+            }
+        } else {
+            $('#chatbox').append(`<div class="message system-message">게임이 저장되었습니다. 계속 진행하세요.</div>`);
         }
         
         $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
@@ -353,10 +360,11 @@ const GameUI = (function() {
             hideLoading();
             $('#connection-error').remove();
             
-            // ✅ 수정: 이전 AI 메시지와 선택지 완전 제거
+            // ✅ 수정: 완전한 중복 제거
             $('.message.assistant-message').last().remove();
             $('.choice-buttons').remove();
             $('.system-message').remove();
+            $('.message.user-message:not(:last)').remove(); // 마지막 사용자 메시지 제외하고 모두 제거
             
             // 새로운 AI 메시지 추가
             $('#chatbox').append(`<div class="message assistant-message">${data.response}</div>`);
@@ -381,7 +389,6 @@ const GameUI = (function() {
         $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
     }
     
-    // ✅ 수정: Socket 새 게임 응답 처리 - 중복 방지
     function handleSocketNewGame(event, data) {
         setButtonLoading($('#new-game'), false);
         
@@ -391,7 +398,7 @@ const GameUI = (function() {
             
             GameState.setGameState(data.game_id, data.game_data);
             
-            // ✅ 수정: 기존 시스템 메시지만 제거하고 새 메시지 추가
+            // 기존 시스템 메시지만 제거하고 새 메시지 추가
             $('.system-message').remove();
             
             if (data.initial_message) {
@@ -425,7 +432,6 @@ const GameUI = (function() {
         }
     }
     
-    // ✅ 수정: Socket 게임 로드 응답 처리 - 마지막 메시지만 표시
     function handleSocketGameLoad(event, data) {
         hideLoading();
         enableAllButtons();
@@ -436,15 +442,20 @@ const GameUI = (function() {
             $('#chatbox').empty();
             
             if (data.game.chatHistory && data.game.chatHistory.length > 0) {
-                // ✅ 수정: 마지막 AI 메시지만 찾아서 표시
-                const chatHistory = [...data.game.chatHistory].sort((a, b) => {
-                    return new Date(a.created_at) - new Date(b.created_at);
+                // ✅ 수정: 내부 시스템 메시지 필터링
+                const filteredHistory = data.game.chatHistory.filter(msg => {
+                    // 시스템 내부 메시지, 요약본, 선택지 기록 제외
+                    const content = msg.content.toLowerCase();
+                    return !content.includes('[시스템 내부 메시지]') &&
+                           !content.includes('게임 세션 요약') &&
+                           !content.includes('선택:') &&
+                           !content.includes('[게임 마스터 지시사항]') &&
+                           msg.role === 'assistant'; // AI 메시지만
                 });
                 
-                // 역순으로 정렬하여 마지막 AI 메시지 찾기
-                const lastAIMessage = chatHistory.reverse().find(msg => msg.role === 'assistant');
-                
-                if (lastAIMessage) {
+                if (filteredHistory.length > 0) {
+                    // 마지막 AI 메시지만 표시
+                    const lastAIMessage = filteredHistory[filteredHistory.length - 1];
                     $('#chatbox').append(`<div class="message assistant-message">${lastAIMessage.content}</div>`);
                     
                     const buttons = createChoiceButtons(lastAIMessage.content);
