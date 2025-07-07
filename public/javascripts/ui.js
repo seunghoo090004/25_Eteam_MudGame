@@ -353,6 +353,12 @@ const GameUI = (function() {
             hideLoading();
             $('#connection-error').remove();
             
+            // ✅ 수정: 이전 AI 메시지와 선택지 완전 제거
+            $('.message.assistant-message').last().remove();
+            $('.choice-buttons').remove();
+            $('.system-message').remove();
+            
+            // 새로운 AI 메시지 추가
             $('#chatbox').append(`<div class="message assistant-message">${data.response}</div>`);
             
             const buttons = createChoiceButtons(data.response);
