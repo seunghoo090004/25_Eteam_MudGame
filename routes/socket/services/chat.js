@@ -1,5 +1,4 @@
-// routes/socket/services/chat.js - 최종 개선된 버전
-// Game State Update 제거 + 자연스러운 선택지
+// routes/socket/services/chat.js - 게임 진행 강제 개선 버전
 
 const pool = require('../../../config/database');
 const openai = require('../../../config/openai');
@@ -22,78 +21,43 @@ class ChatService {
                 } while (['in_progress', 'queued'].includes(runStatus.status));
             }
 
-            // 메시지 추가
+            // ✅ 수정: 진행 강제 명령어 추가
             const safeMessage = typeof message === 'string' ? message : String(message);
             
             try {
                 await openai.beta.threads.messages.create(threadId, {
                     role: "user",
-                    content: safeMessage
+                    content: `${safeMessage}\n\n[중요 지시사항] 반드시 새로운 상황이나 위치로 진행하세요. 동일한 방에 머무르지 말고 상황을 변화시키세요. 플레이어의 행동에 따른 실제 결과를 보여주세요.`
                 });
             } catch (msgError) {
                 console.error(`[${LOG_HEADER}] Failed to add message: ${msgError.message}`);
                 await new Promise(resolve => setTimeout(resolve, 10000));
                 await openai.beta.threads.messages.create(threadId, {
                     role: "user",
-                    content: safeMessage
+                    content: `${safeMessage}\n\n[중요] 게임을 진행시키고 새로운 상황을 만드세요.`
                 });
             }
 
-            // 최종 게임 형식 지침 - 자연스러운 선택지
+            // 게임 진행 강제 시스템 메시지
             await openai.beta.threads.messages.create(threadId, {
                 role: "user",
-                content: `[FINAL SYSTEM DIRECTIVE - NATURAL CHOICE FORMAT]
+                content: `[게임 마스터 지시사항 - 필수 준수]
 
-**던전 탈출 게임 - 자연스러운 선택지 형식**
+**현재 선택**: ${safeMessage}번
 
-반드시 다음 형식으로 응답하세요:
+**반드시 실행해야 할 사항:**
+1. 플레이어를 새로운 위치로 이동시키거나 상황을 크게 변화시키세요
+2. 위치 ID를 변경하세요 (예: 01 → 02, 03 등)
+3. 완전히 새로운 환경 설명을 작성하세요
+4. 이전과 다른 선택지를 제공하세요
+5. 게임이 실제로 진행되고 있음을 보여주세요
 
-===============================================
-         던전 탈출 - 지하 [층수]층
-===============================================
+**금지사항:**
+- 동일한 방에서 단순 탐색만 반복
+- 이전과 같은 위치 ID 사용
+- 상황 변화 없는 설명
 
->> 위치: [방ID] - [방이름]
-
-[환경 묘사 - 2-3문장으로 몰입감 있게]
-[감각적 세부사항과 즉각적 위험 포함]
-
-STATS ================================
-체력: [현재]/[최대]  체력상태: [상태]  정신: [상태]
-소지품: [아이템 목록]
-골드: [수량]  시간: [게임시간]
-위치: [층 정보]
-
-위험도: [낮음/중간/높음/매우높음]
-경고: [즉각적 위험 또는 특별한 상태]
-
-===============================================
-
-**중요: 선택지는 반드시 이 형식으로!**
-
-↑ [간단한 행동] - [자연스러운 느낌 표현]
-↓ [간단한 행동] - [자연스러운 느낌 표현]
-← [간단한 행동] - [자연스러운 느낌 표현]
-→ [간단한 행동] - [자연스러운 느낌 표현]
-
-**좋은 느낌 표현 예시:**
-- 안전: "안전해 보임", "무난할 듯", "괜찮을 것 같음"
-- 주의: "신중하게", "조심스럽게", "살펴보며"
-- 위험: "위험한 느낌", "불안한 기운", "조심해야 할 것 같음"
-- 매우위험: "매우 위험할 것 같음", "목숨을 걸고", "용기가 필요함"
-
-**절대 하지 말 것:**
-- (위험), (안전) 같은 괄호 표현 금지
-- [위로], [아래로] 같은 대괄호 금지
-- 너무 긴 설명 금지
-
-**규칙:**
-1. 모든 텍스트는 한국어
-2. 선택지는 간결하고 자연스럽게
-3. 느낌 표현으로 위험도 전달
-4. 몰입감 있는 환경 묘사
-5. 실제 위험과 결과 제공
-
-지금부터 이 형식으로만 응답하세요.`
+지금 즉시 새로운 상황으로 진행하세요!`
             });
 
             // 새로운 run 시작
@@ -148,6 +112,12 @@ STATS ================================
                 
                 let response = firstMessage.content[0].text.value;
                 
+                // ✅ 추가: 응답 검증 및 재시도
+                if (this.isRepeatResponse(response)) {
+                    console.log(`[${LOG_HEADER}] Detected repeat response, forcing retry...`);
+                    return await this.forceProgressMessage(threadId, assistantId, safeMessage);
+                }
+                
                 // 응답 후처리 - 자연스러운 형식으로 변환
                 response = this.processNaturalChoices(response);
                 
@@ -159,6 +129,66 @@ STATS ================================
 
         } catch (e) {
             console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
+            throw e;
+        }
+    }
+
+    // ✅ 추가: 반복 응답 감지
+    isRepeatResponse(response) {
+        const locationMatch = response.match(/위치:\s*(\w+)\s*-\s*([^=\n]+)/);
+        if (locationMatch) {
+            const roomId = locationMatch[1].trim();
+            const roomName = locationMatch[2].trim();
+            
+            // "01" 또는 "차가운 돌 감옥" 등 반복 패턴 감지
+            if (roomId === "01" || roomName.includes("감옥")) {
+                console.log('Repeat response detected:', roomId, roomName);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ✅ 추가: 강제 진행 메시지
+    async forceProgressMessage(threadId, assistantId, originalMessage) {
+        const LOG_HEADER = "CHAT_SERVICE/FORCE_PROGRESS";
+        
+        try {
+            await openai.beta.threads.messages.create(threadId, {
+                role: "user",
+                content: `[긴급 시스템 명령 - 즉시 실행]
+
+게임이 정체되었습니다. 지금 즉시:
+
+1. 플레이어를 다음 위치로 이동: "02 - 어두운 복도" 또는 "03 - 계단" 등
+2. 완전히 새로운 환경 생성
+3. 새로운 위험 요소 추가
+4. 다른 선택지 제공
+
+선택 ${originalMessage}번의 결과로 플레이어가 실제로 이동했습니다.
+새로운 상황을 지금 즉시 생성하세요!`
+            });
+
+            const run = await openai.beta.threads.runs.create(threadId, {
+                assistant_id: assistantId
+            });
+
+            let runStatus;
+            do {
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
+            } while (['queued', 'in_progress'].includes(runStatus.status));
+
+            if (runStatus.status === 'completed') {
+                const messages = await openai.beta.threads.messages.list(threadId);
+                const response = messages.data[0].content[0].text.value;
+                return this.processNaturalChoices(response);
+            }
+
+            throw new Error('Force progress failed');
+
+        } catch (e) {
+            console.error(`[${LOG_HEADER}] Error: ${e.message}`);
             throw e;
         }
     }
@@ -330,15 +360,16 @@ STATS ================================
 3. 자연스러운 느낌 표현으로 위험도 전달
 4. 모든 선택에 실제 결과
 5. 한국어로만 작성
+6. **플레이어 선택 시 반드시 새로운 위치로 이동시키기**
 
 지금 게임을 시작하세요. 플레이어가 차가운 돌 감옥에서 깨어납니다.`
             });
 
-            console.log(`[${LOG_HEADER}] Final system initialized with natural choices`);
+            console.log(`[${LOG_HEADER}] Final system initialized with progress enforcement`);
             
             // 초기 응답 받기
             try {
-                return await this.sendMessage(threadId, assistantId, "게임을 시작합니다. 자연스러운 선택지로 진행해주세요.");
+                return await this.sendMessage(threadId, assistantId, "게임을 시작합니다. 새로운 위치로 진행해주세요.");
             } catch (initError) {
                 console.error(`[${LOG_HEADER}] Initial message error: ${initError.message}`);
                 await new Promise(resolve => setTimeout(resolve, 10000));
