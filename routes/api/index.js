@@ -1,4 +1,4 @@
-// routes/api/index.js
+// routes/api/index.js - 엔딩 라우트 추가 버전
 // API 라우터 통합 관리
 
 const express = require('express');
@@ -10,6 +10,7 @@ const gameLoadRouter = require('./game/load');
 const gameSaveRouter = require('./game/save');
 const gameDeleteRouter = require('./game/delete');
 const gameListRouter = require('./game/list');
+const gameEndingRouter = require('./game/ending'); // 엔딩 라우터 추가
 
 // 채팅 관련 API
 const chatSendRouter = require('./chat/send');
@@ -21,6 +22,8 @@ router.use('/game/load', gameLoadRouter);
 router.use('/game/save', gameSaveRouter);
 router.use('/game/delete', gameDeleteRouter);
 router.use('/game/list', gameListRouter);
+router.use('/game/ending', gameEndingRouter); // 엔딩 라우터 등록
+router.use('/game/endings', gameEndingRouter); // 엔딩 목록도 같은 라우터에서 처리
 
 router.use('/chat/send', chatSendRouter);
 router.use('/chat/history', chatHistoryRouter);
