@@ -59,7 +59,7 @@ router.get('/', async(req, res) => {
     }
 });
 
-// ✅ 신규 추가: 엔딩 페이지 라우트
+// 개별 엔딩 페이지 라우트
 router.get('/ending/:game_id', async(req, res) => {
     const LOG_HEADER = "ROUTE/ENDING";
     
@@ -73,7 +73,11 @@ router.get('/ending/:game_id', async(req, res) => {
         const gameId = req.params.game_id;
         console.log(`[${LOG_HEADER}] Rendering ending page for game: ${gameId}`);
         
-        return res.render('ending');
+        return res.render('ending', {
+            mode: 'single',
+            gameId: gameId,
+            userId: req.session.userId
+        });
 
     } catch (e) {
         console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
@@ -81,9 +85,9 @@ router.get('/ending/:game_id', async(req, res) => {
     }
 });
 
-// ✅ 신규 추가: 모든 엔딩 목록 페이지 (선택적)
+// 전체 엔딩 목록 페이지 라우트
 router.get('/endings', async(req, res) => {
-    const LOG_HEADER = "ROUTE/ENDINGS";
+    const LOG_HEADER = "ROUTE/ENDINGS_LIST";
     
     try {
         // 로그인 체크
@@ -92,9 +96,13 @@ router.get('/endings', async(req, res) => {
             return res.redirect('/auth/login');
         }
 
-        console.log(`[${LOG_HEADER}] Rendering endings list page`);
+        console.log(`[${LOG_HEADER}] Rendering endings list page for user: ${req.session.userId}`);
         
-        return res.render('endings'); // 추후 구현 가능
+        return res.render('ending', {
+            mode: 'list',
+            userId: req.session.userId,
+            username: req.session.username || '사용자'
+        });
 
     } catch (e) {
         console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
