@@ -1,4 +1,4 @@
-// routes/socket/handlers/chat.js - Socket 전용 버전
+// routes/socket/handlers/chat.js - 수정된 버전 (undefined 에러 해결)
 
 const gameService = require('../services/game');
 const chatService = require('../services/chat');
@@ -33,33 +33,65 @@ const chatHandler = (io, socket) => {
             const parsedState = chatService.parseGameResponse(aiResponse);
             
             if (parsedState) {
+                // 위치 정보 업데이트 (안전한 방식으로 수정)
                 if (parsedState.location && parsedState.location.current) {
+                    // location 객체가 없으면 초기화
+                    if (!updatedGameData.location) {
+                        updatedGameData.location = {};
+                    }
+                    
                     updatedGameData.location.current = parsedState.location.current;
                     
                     if (parsedState.location.roomId) {
                         updatedGameData.location.roomId = parsedState.location.roomId;
                     }
                     
+                    // discovered 배열이 없으면 초기화
+                    if (!updatedGameData.location.discovered) {
+                        updatedGameData.location.discovered = [];
+                    }
+                    
+                    // 새 위치가 발견 목록에 없으면 추가
                     if (!updatedGameData.location.discovered.includes(parsedState.location.current)) {
                         updatedGameData.location.discovered.push(parsedState.location.current);
                     }
                 }
                 
-                if (parsedState.player) {
-                    Object.keys(parsedState.player).forEach(key => {
-                        if (parsedState.player[key] !== undefined) {
-                            updatedGameData.player[key] = parsedState.player[key];
+                // 턴 수 업데이트
+                if (parsedState.turn_count) {
+                    updatedGameData.turn_count = parsedState.turn_count;
+                }
+                
+                // 발견 정보 업데이트
+                if (parsedState.discoveries && Array.isArray(parsedState.discoveries)) {
+                    if (!updatedGameData.discoveries) {
+                        updatedGameData.discoveries = [];
+                    }
+                    
+                    parsedState.discoveries.forEach(discovery => {
+                        if (!updatedGameData.discoveries.includes(discovery)) {
+                            updatedGameData.discoveries.push(discovery);
                         }
                     });
                 }
                 
-                if (parsedState.inventory) {
-                    Object.keys(parsedState.inventory).forEach(key => {
-                        if (parsedState.inventory[key] !== undefined) {
-                            updatedGameData.inventory[key] = parsedState.inventory[key];
-                        }
-                    });
+                // 사망 처리
+                if (parsedState.is_death) {
+                    // 사망 카운트 증가
+                    updatedGameData.death_count = (updatedGameData.death_count || 0) + 1;
+                    
+                    // 사망 원인 기록
+                    if (parsedState.death_cause) {
+                        updatedGameData.last_death_cause = parsedState.death_cause;
+                    }
                 }
+                
+                // 시간 업데이트 (게임 내 시간)
+                if (!updatedGameData.time_elapsed) {
+                    updatedGameData.time_elapsed = 0;
+                }
+                // 턴마다 약 2-3분씩 증가한다고 가정
+                updatedGameData.time_elapsed += Math.floor(Math.random() * 2) + 2;
             }
 
             socket.emit('chat response', {
