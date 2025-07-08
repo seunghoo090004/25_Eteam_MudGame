@@ -1,4 +1,4 @@
-// routes/socket/services/chat.js - 스토리 연결성 및 내부정보 숨김 개선
+// routes/socket/services/chat.js - 로그라이크 시스템 버전
 
 const pool = require('../../../config/database');
 const openai = require('../../../config/openai');
@@ -7,7 +7,7 @@ class ChatService {
     async sendMessage(threadId, assistantId, message) {
         const LOG_HEADER = "CHAT_SERVICE/SEND";
         try {
-            // 현재 실행 중인 run이 있는지 확인 및 완료 대기
+            // 현재 실행 중인 run 완료 대기
             const runs = await openai.beta.threads.runs.list(threadId);
             const activeRun = runs.data.find(run => ['in_progress', 'queued'].includes(run.status));
             
@@ -17,68 +17,64 @@ class ChatService {
                 do {
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     runStatus = await openai.beta.threads.runs.retrieve(threadId, activeRun.id);
-                    console.log(`[${LOG_HEADER}] Run status: ${runStatus.status}`);
                 } while (['in_progress', 'queued'].includes(runStatus.status));
             }
 
             const safeMessage = typeof message === 'string' ? message : String(message);
             
-            // ✅ 수정: 행동-결과 연결성 강화
+            // 로그라이크 선택지 처리
             try {
                 await openai.beta.threads.messages.create(threadId, {
                     role: "user",
-                    content: `선택: ${safeMessage}번\n\n[중요] 이 선택지의 행동을 실제로 수행한 결과를 보여주세요. 선택지와 무관한 새로운 위치로 이동하지 말고, 선택한 행동의 직접적인 결과를 먼저 설명한 후 자연스럽게 상황을 전개하세요.`
+                    content: `선택: ${safeMessage}번`
                 });
             } catch (msgError) {
                 console.error(`[${LOG_HEADER}] Failed to add message: ${msgError.message}`);
                 await new Promise(resolve => setTimeout(resolve, 10000));
                 await openai.beta.threads.messages.create(threadId, {
                     role: "user",
-                    content: `선택: ${safeMessage}번\n\n선택한 행동의 결과를 보여주세요.`
+                    content: `선택: ${safeMessage}번`
                 });
             }
 
-            // ✅ 수정: 스토리 연결성 강화 시스템 메시지
+            // 로그라이크 게임 지침
             await openai.beta.threads.messages.create(threadId, {
                 role: "user",
-                content: `[게임 마스터 지시사항]
+                content: `[로그라이크 게임 마스터 지침]
 
-**선택 ${safeMessage}번 처리 방법:**
-1. 먼저 플레이어가 선택한 행동을 실제로 수행합니다
-2. 그 행동의 직접적인 결과를 설명합니다
-3. 결과에 따라 자연스럽게 상황이 전개됩니다
-4. 필요시 새로운 위치로 이동하되, 논리적 연결이 있어야 합니다
+**선택 ${safeMessage}번 처리:**
+1. 선택한 행동을 실행합니다
+2. 턴을 1 증가시킵니다
+3. 턴별 위험도를 적용합니다:
+   - 1-3턴: 60% 즉사율
+   - 4-6턴: 70% 즉사율  
+   - 7-10턴: 80% 즉사율
+   - 11턴+: 50% 즉사율 (탈출 기회)
 
-**응답 형식:**
+**응답 형식 (필수):**
+[던전 상황 설명 - 위험 요소 포함]
+
+STATS
 ===============================================
-         던전 탈출 - [층수]
-===============================================
-
->> 위치: [ID] - [방 이름]
-
-[선택한 행동의 결과 + 상황 전개]
-
-STATS ================================
-체력: [현재]/[최대]  체력상태: [상태]  정신: [상태]
-소지품: [아이템들]
-골드: [수량]  시간: [자연스러운 시간]
-위치: [층 정보]
-
-경고: [간단한 경고]
+Turn: [현재 턴]
+Location: [위치 정보]
+Time: [경과 시간]
+Discoveries: [발견한 정보]
 ===============================================
 
-↑ [현재 상황에 맞는 행동]
-↓ [현재 상황에 맞는 행동]
-← [현재 상황에 맞는 행동]
-→ [현재 상황에 맞는 행동]
+↑ [행동]
+↓ [행동]  
+← [행동]
+→ [행동]
 
-**금지사항:**
-- 선택지와 무관한 갑작스런 위치 이동
-- 위험도 표시
-- 선택지에 "- 부가설명" 추가
-- 층수 표기 불일치
+**핵심 규칙:**
+- 체력 없음: 즉사 OR 생존
+- 잘못된 선택 시 즉시 사망
+- 아이템 발견 시 즉시 사용 후 소멸
+- 11턴 후 탈출 기회 제공
+- 위험도에 따른 즉사 확률 적용
 
-선택한 행동을 충실히 반영하여 게임을 진행하세요!`
+즉사 조건 충족 시 "당신은 죽었습니다"로 시작하여 사망 원인을 설명하세요.`
             });
 
             // 새로운 run 시작
@@ -102,7 +98,7 @@ STATS ================================
             // 실행 완료 대기
             let runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
             const startTime = Date.now();
-            const timeout = 120000; // 2분
+            const timeout = 120000;
             
             while (['queued', 'in_progress'].includes(runStatus.status)) {
                 if (Date.now() - startTime > timeout) {
@@ -154,39 +150,42 @@ STATS ================================
         
         let cleanedResponse = response;
         
-        // 1. 위험도 관련 줄 제거
-        cleanedResponse = cleanedResponse.replace(/위험도:\s*[^\n]+\s*/g, '');
+        // 1. 불필요한 메타 정보 제거
+        cleanedResponse = cleanedResponse.replace(/\[게임 마스터[^\]]*\]/g, '');
+        cleanedResponse = cleanedResponse.replace(/\[시스템[^\]]*\]/g, '');
         
-        // 2. 선택지에서 "- 부가설명" 부분 제거
-        cleanedResponse = cleanedResponse.replace(/(↑|↓|←|→)\s*([^-\n]+)\s*-\s*[^\n]+/g, '$1 $2');
-        
-        // 3. 여러 개의 구분선 정리
+        // 2. 구분선 정리
         cleanedResponse = cleanedResponse.replace(/={10,}/g, '===============================================');
         
-        // 4. 불필요한 빈 줄 정리
+        // 3. 빈 줄 정리
         cleanedResponse = cleanedResponse.replace(/\n{3,}/g, '\n\n');
         
         console.log(`[${LOG_HEADER}] Response cleaned successfully`);
         return cleanedResponse;
     }
 
-    // 게임 응답에서 상태 정보 파싱
+    // 로그라이크 게임 응답에서 상태 정보 파싱
     parseGameResponse(response) {
         const LOG_HEADER = "CHAT_SERVICE/PARSE_RESPONSE";
         
         try {
             const gameState = {
                 location: { current: "알 수 없음" },
-                player: { health: 100, maxHealth: 100, status: '양호', mental: '안정' },
-                inventory: { items: [], gold: 0 }
+                discoveries: [],
+                turn_count: 1,
+                is_death: false
             };
 
-            // 위치 정보 추출
-            const locationPattern = />>\s*위치:\s*([^-]+)\s*-\s*([^\n]+)/;
-            const locationMatch = response.match(locationPattern);
-            if (locationMatch) {
-                gameState.location.roomId = locationMatch[1].trim();
-                gameState.location.current = locationMatch[2].trim();
+            // 사망 체크
+            if (response.includes("당신은 죽었습니다") || response.includes("죽었습니다")) {
+                gameState.is_death = true;
+                
+                // 사망 원인 추출
+                const deathMatch = response.match(/원인[:\s]*([^.\n]+)/i) || 
+                                response.match(/당신은 ([^.]+)로 인해 죽었습니다/i);
+                if (deathMatch) {
+                    gameState.death_cause = deathMatch[1].trim();
+                }
             }
 
             // STATS 섹션 파싱
@@ -196,40 +195,28 @@ STATS ================================
             if (statsMatch) {
                 const statsContent = statsMatch[1];
                 
-                // 체력 정보
-                const healthPattern = /체력:\s*(\d+)\/(\d+)/;
-                const healthMatch = statsContent.match(healthPattern);
-                if (healthMatch) {
-                    gameState.player.health = parseInt(healthMatch[1]);
-                    gameState.player.maxHealth = parseInt(healthMatch[2]);
+                // 턴 정보
+                const turnPattern = /Turn:\s*(\d+)/;
+                const turnMatch = statsContent.match(turnPattern);
+                if (turnMatch) {
+                    gameState.turn_count = parseInt(turnMatch[1]);
                 }
                 
-                // 체력상태
-                const statusPattern = /체력상태:\s*([^\s]+)/;
-                const statusMatch = statsContent.match(statusPattern);
-                if (statusMatch) {
-                    gameState.player.status = statusMatch[1];
+                // 위치 정보
+                const locationPattern = /Location:\s*([^\n]+)/;
+                const locationMatch = statsContent.match(locationPattern);
+                if (locationMatch) {
+                    gameState.location.current = locationMatch[1].trim();
                 }
                 
-                // 정신상태
-                const mentalPattern = /정신:\s*([^\s]+)/;
-                const mentalMatch = statsContent.match(mentalPattern);
-                if (mentalMatch) {
-                    gameState.player.mental = mentalMatch[1];
-                }
-                
-                // 소지품
-                const itemsPattern = /소지품:\s*([^\n]+)/;
-                const itemsMatch = statsContent.match(itemsPattern);
-                if (itemsMatch) {
-                    gameState.inventory.keyItems = itemsMatch[1].trim();
-                }
-                
-                // 골드
-                const goldPattern = /골드:\s*(\d+)/;
-                const goldMatch = statsContent.match(goldPattern);
-                if (goldMatch) {
-                    gameState.inventory.gold = parseInt(goldMatch[1]);
+                // 발견 정보
+                const discoveryPattern = /Discoveries:\s*([^\n]+)/;
+                const discoveryMatch = statsContent.match(discoveryPattern);
+                if (discoveryMatch) {
+                    const discoveryText = discoveryMatch[1].trim();
+                    if (discoveryText !== '없음' && discoveryText !== 'None') {
+                        gameState.discoveries = discoveryText.split(',').map(d => d.trim());
+                    }
                 }
             }
 
@@ -245,46 +232,46 @@ STATS ================================
     async initializeChat(threadId, assistantId) {
         const LOG_HEADER = "CHAT_SERVICE/INIT";
         try {
-            // 초기화 설정
+            // 로그라이크 게임 초기화
             await openai.beta.threads.messages.create(threadId, {
                 role: "user",
-                content: `***던전 탈출 게임 - 시스템 초기화***
+                content: `***10턴 로그라이크 던전 탈출 게임 - 시스템 초기화***
 
-당신은 던전 탈출 게임의 게임 마스터입니다.
+당신은 극도로 위험한 로그라이크 던전 게임의 게임 마스터입니다.
 
 **핵심 설정:**
-- 플레이어는 던전에서 탈출 시도
-- 모든 선택에는 실제 결과가 따름
-- 선택지와 결과가 논리적으로 연결되어야 함
+- 체력 없음: 즉사 OR 생존
+- 턴 기반: 각 선택마다 턴 증가
+- 위험도: 1-10턴 극도 위험, 11턴+ 탈출 기회
+- 즉시 사용 아이템: 발견 시 자동 사용 후 소멸
 
-**응답 형식:**
+**위험도 시스템:**
+- 1-3턴: 60% 즉사율 (함정, 추락)
+- 4-6턴: 70% 즉사율 (독, 몬스터)  
+- 7-10턴: 80% 즉사율 (복합 위험)
+- 11턴+: 50% 즉사율 (탈출 기회)
+
+**응답 형식 (필수):**
+[던전 상황 설명]
+
+STATS
 ===============================================
-         던전 탈출 - [층수]
-===============================================
-
->> 위치: [ID] - [방 이름]
-
-[환경 묘사]
-
-STATS ================================
-체력: [현재]/[최대]  체력상태: [상태]  정신: [상태]
-소지품: [아이템들]
-골드: [수량]  시간: [시간]
-위치: [층 정보]
-
-경고: [경고사항]
+Turn: [턴 번호]
+Location: [위치]
+Time: [시간]
+Discoveries: [발견 정보]
 ===============================================
 
 ↑ [행동]
 ↓ [행동]
-← [행동]
+← [행동] 
 → [행동]
 
 **중요 규칙:**
-1. 선택한 행동의 직접적 결과를 먼저 보여주기
-2. 위험도 표시 금지
-3. 선택지에 부가설명 금지
-4. 층수 표기 일관성 유지
+1. 잘못된 선택 시 즉시 사망
+2. 아이템 발견 시 즉시 사용
+3. 11턴 후 탈출 루트 제공
+4. 사망 시 "당신은 죽었습니다" 명시
 
 게임을 시작하세요.`
             });
@@ -310,6 +297,14 @@ STATS ================================
         try {
             const messages = await openai.beta.threads.messages.list(threadId);
             const history = messages.data
+                .filter(msg => {
+                    // 시스템 메시지 필터링
+                    const content = msg.content[0]?.text?.value || '';
+                    return !content.includes('[로그라이크 게임 마스터 지침]') &&
+                           !content.includes('[시스템 내부') &&
+                           !content.includes('선택:') &&
+                           msg.role === 'assistant';
+                })
                 .map(msg => ({
                     role: msg.role,
                     content: msg.content[0].text.value,
@@ -326,32 +321,30 @@ STATS ================================
         }
     }
 
-    // ✅ 수정: 게임 요약 생성 (내부 정보 숨김)
+    // 로그라이크 게임 요약 생성
     async createGameSummary(threadId, assistantId) {
         const LOG_HEADER = "CHAT_SERVICE/CREATE_SUMMARY";
         try {
             await openai.beta.threads.messages.create(threadId, {
                 role: "user",
-                content: `### 게임 세션 요약 생성
+                content: `### 로그라이크 게임 세션 요약 생성
 
-이 게임 세션을 새 스레드에 이어갈 수 있도록 핵심 정보만 간략히 요약해주세요:
+이 로그라이크 게임 세션을 새 스레드에 이어갈 수 있도록 요약해주세요:
 
 **요약 형식:**
-캐릭터: [레벨, 체력, 주요 능력]
-위치: [현재 방ID, 방이름, 던전 레벨]
-진행: [주요 퀘스트, 마지막 행동]
-세계: [중요한 변화, NPC 상호작용]
-자원: [핵심 아이템, 발견사항]
+현재 턴: [턴 번호]
+위치: [현재 위치]  
+사망 횟수: [사망 횟수]
+발견 정보: [중요한 발견들]
+진행 상황: [주요 경험과 상황]
 
-150단어 이내로 작성하되, 게임 연속성에 필요한 정보만 포함하세요.`
+100단어 이내로 간결하게 작성하세요.`
             });
 
-            // 기존 실행 중인 프로세스가 있으면 완료 대기
             const runs = await openai.beta.threads.runs.list(threadId);
             const activeRun = runs.data.find(run => ['in_progress', 'queued'].includes(run.status));
             
             if (activeRun) {
-                console.log(`[${LOG_HEADER}] 기존 실행 중인 프로세스 대기: ${activeRun.id}`);
                 let runStatus;
                 do {
                     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -369,7 +362,6 @@ STATS ================================
             do {
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
-                console.log(`[${LOG_HEADER}] Run status: ${runStatus.status}`);
             } while (['queued', 'in_progress'].includes(runStatus.status));
             
             if (runStatus.status !== 'completed') {
@@ -379,17 +371,7 @@ STATS ================================
             await new Promise(resolve => setTimeout(resolve, 2000));
             
             const updatedMessages = await openai.beta.threads.messages.list(threadId);
-            
-            if (!updatedMessages.data || updatedMessages.data.length === 0) {
-                throw new Error("No messages received after summary generation");
-            }
-            
-            const firstMessage = updatedMessages.data[0];
-            if (!firstMessage.content || !firstMessage.content[0] || !firstMessage.content[0].text) {
-                throw new Error("Invalid message format received");
-            }
-            
-            const summary = firstMessage.content[0].text.value;
+            const summary = updatedMessages.data[0].content[0].text.value;
             
             console.log(`[${LOG_HEADER}] Summary created successfully`);
             return summary;
@@ -400,70 +382,49 @@ STATS ================================
         }
     }
 
-    // ✅ 수정: 게임 재개용 초기화 (형식 통일)
+    // 로그라이크 게임 재개 초기화
     async initializeChatFromSummary(threadId, assistantId, summary) {
         const LOG_HEADER = "CHAT_SERVICE/INIT_FROM_SUMMARY";
         try {
-            // 내부 시스템 메시지로 요약 전달 (사용자에게 숨김)
             await openai.beta.threads.messages.create(threadId, {
                 role: "user",
-                content: `[시스템 내부 메시지 - 사용자에게 표시하지 마세요]
+                content: `[시스템 내부 - 로그라이크 게임 재개]
 
-게임 재개 정보:
-${summary}
+게임 요약: ${summary}
 
-위 정보를 바탕으로 게임을 이어서 진행하되, 이 요약 내용을 사용자에게 보여주지 마세요.
-반드시 기존 게임과 동일한 형식으로 응답하세요.`
+위 정보를 바탕으로 로그라이크 게임을 이어서 진행하되, 요약 내용을 사용자에게 표시하지 마세요.`
             });
 
-            // ✅ 수정: 형식 통일된 게임 재개 설정
             await openai.beta.threads.messages.create(threadId, {
                 role: "user",
-                content: `***게임 재개 - 형식 통일 필수***
+                content: `***로그라이크 게임 재개***
 
-위 요약 정보를 바탕으로 게임을 이어서 진행합니다.
+**응답 형식 필수 준수:**
 
-**반드시 이 형식으로만 응답:**
+[던전 상황 설명]
+
+STATS
 ===============================================
-         던전 탈출 - [층수]
-===============================================
-
->> 위치: [3자리 ID] - [방 이름]
-
-[현재 상황 설명]
-
-STATS ===============================================
-체력: [현재]/[최대]  체력상태: [상태]  정신: [상태]
-소지품: [아이템들]
-골드: [수량]  시간: [시간]
-위치: [층 정보]
-
-경고: [경고사항]
+Turn: [현재 턴]
+Location: [위치]
+Time: [시간]  
+Discoveries: [발견 정보]
 ===============================================
 
-↑ [간단한 행동]
-↓ [간단한 행동]
-← [간단한 행동]
-→ [간단한 행동]
+↑ [행동]
+↓ [행동]
+← [행동]
+→ [행동]
 
-**절대 금지:**
-- [위치: 1|어둠의 입구] 형식 사용
-- 선택지에 (위험: ...) 부가설명
-- [상태: 95%|...] 형식 사용
-- 다른 형식의 구분선 사용
-- 요약 내용을 사용자에게 표시
-
-**필수 사항:**
-- 위 형식과 100% 동일하게 작성
-- 새 게임과 동일한 출력 형태
-- 선택지는 간단한 행동만
+**핵심 규칙:**
+- 체력 없음 (즉사/생존)
+- 턴별 위험도 적용
+- 아이템 즉시 사용
+- 11턴+ 탈출 기회
 
 게임을 이어서 진행하세요.`
             });
 
-            console.log(`[${LOG_HEADER}] Game format standardized for resume`);
-            
-            // 실행
             const run = await openai.beta.threads.runs.create(threadId, {
                 assistant_id: assistantId
             });
@@ -482,16 +443,6 @@ STATS ===============================================
 
             throw new Error('Game resume failed');
 
-        } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
-            throw e;
-        }
-    }
-
-    async updateGameContext(threadId, gameState) {
-        const LOG_HEADER = "CHAT_SERVICE/UPDATE_CONTEXT";
-        try {
-            console.log(`[${LOG_HEADER}] Game context updated`);
         } catch (e) {
             console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
             throw e;
