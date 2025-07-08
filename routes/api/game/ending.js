@@ -176,7 +176,36 @@ router.get('/:game_id', async(req, res) => {
 
     let ending_data = null;
     try {
-        // game_state에서 엔딩 데이터 조회
+        // 먼저 게임이 완료되었는지 확인
+        const [gameCheck] = await connection.query(
+            `SELECT is_completed, ending_data, game_data, created_at, last_updated
+            FROM game_state 
+            WHERE game_id = ? AND user_id = ?`,
+            [req_game_id, req_user_id]
+        );
+
+        if (gameCheck.length === 0) {
+            throw "Game not found or unauthorized";
+        }
+
+        const game = gameCheck[0];
+        
+        // 게임이 완료되지 않은 경우
+        if (!game.is_completed) {
+            ret_status = 404;
+            ret_data = {
+                code: "game_not_completed",
+                value: 0,
+                value_ext1: ret_status,
+                value_ext2: "게임이 아직 완료되지 않았습니다. 게임을 끝까지 진행해주세요.",
+                EXT_data,
+            };
+            connection.release();
+            console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+            return res.status(ret_status).json(ret_data);
+        }
+
+        // 엔딩 데이터 조회
         const [games] = await connection.query(
             `SELECT gs.ending_data, gs.game_data, gs.created_at, gs.last_updated,
                     ge.ending_type, ge.final_turn, ge.total_deaths, 
@@ -188,21 +217,21 @@ router.get('/:game_id', async(req, res) => {
         );
 
         if (games.length === 0) {
-            throw "Ending not found or game not completed";
+            throw "Ending data not found";
         }
 
-        const game = games[0];
+        const gameData = games[0];
         ending_data = {
             game_id: req_game_id,
-            ending_data: game.ending_data ? JSON.parse(game.ending_data) : null,
-            game_data: game.game_data ? JSON.parse(game.game_data) : null,
-            ending_type: game.ending_type,
-            final_turn: game.final_turn,
-            total_deaths: game.total_deaths,
-            discoveries_count: game.discoveries_count,
-            ending_story: game.ending_story,
-            created_at: game.created_at,
-            completed_at: game.ending_created_at || game.last_updated
+            ending_data: gameData.ending_data ? JSON.parse(gameData.ending_data) : null,
+            game_data: gameData.game_data ? JSON.parse(gameData.game_data) : null,
+            ending_type: gameData.ending_type,
+            final_turn: gameData.final_turn,
+            total_deaths: gameData.total_deaths,
+            discoveries_count: gameData.discoveries_count,
+            ending_story: gameData.ending_story,
+            created_at: gameData.created_at,
+            completed_at: gameData.ending_created_at || gameData.last_updated
         };
 
     } catch (e) {
@@ -238,7 +267,7 @@ router.get('/:game_id', async(req, res) => {
 });
 
 //========================================================================
-// GET /api/game/endings - 사용자의 모든 엔딩 목록 조회
+// GET /api/game/ending - 사용자의 모든 엔딩 목록 조회
 //========================================================================
 router.get('/', async(req, res) => {
     const LOG_FAIL_HEADER = "[FAIL]";
