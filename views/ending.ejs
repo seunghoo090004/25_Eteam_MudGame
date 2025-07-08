@@ -1,11 +1,11 @@
-<!-- views/ending.ejs - 로그라이크 엔딩 화면 -->
+<!-- views/endings-list.ejs - 엔딩 목록 페이지 -->
 
 <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>게임 엔딩 - 던전 탈출</title>
+    <title>엔딩 기록 - 던전 탈출</title>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <style>
         body {
@@ -15,433 +15,388 @@
             color: #ffffff;
             font-family: 'Arial', sans-serif;
             min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
         }
 
-        .ending-container {
-            background: rgba(0, 0, 0, 0.8);
-            border: 2px solid #444;
-            border-radius: 15px;
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
             padding: 2rem;
-            max-width: 800px;
-            width: 90%;
-            box-shadow: 0 0 30px rgba(0, 123, 255, 0.3);
-            backdrop-filter: blur(10px);
         }
 
-        .ending-header {
+        .header {
             text-align: center;
-            padding: 1.5rem;
-            border-radius: 10px;
-            margin-bottom: 2rem;
-            position: relative;
-            overflow: hidden;
+            margin-bottom: 3rem;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 2rem;
+            border-radius: 15px;
+            border: 2px solid #007bff;
         }
 
-        .ending-header.death {
-            background: linear-gradient(135deg, #dc3545, #8B0000);
-            box-shadow: 0 0 20px rgba(220, 53, 69, 0.5);
-        }
-
-        .ending-header.escape {
-            background: linear-gradient(135deg, #28a745, #006400);
-            box-shadow: 0 0 20px rgba(40, 167, 69, 0.5);
-        }
-
-        .ending-header.quit {
-            background: linear-gradient(135deg, #6c757d, #495057);
-            box-shadow: 0 0 20px rgba(108, 117, 125, 0.5);
-        }
-
-        .ending-header::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent);
-            animation: shine 3s infinite;
-        }
-
-        @keyframes shine {
-            0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
-            100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
-        }
-
-        .ending-title {
+        .header h1 {
             font-size: 2.5rem;
-            font-weight: bold;
             margin: 0;
+            color: #00bcd4;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
-            position: relative;
-            z-index: 1;
         }
 
-        .ending-subtitle {
+        .header p {
             font-size: 1.2rem;
-            margin: 0.5rem 0 0 0;
+            margin: 1rem 0 0 0;
             opacity: 0.9;
-            position: relative;
-            z-index: 1;
         }
 
-        .game-response {
-            background: rgba(30, 30, 30, 0.9);
-            border: 1px solid #555;
-            border-radius: 8px;
-            padding: 1.5rem;
-            margin: 1.5rem 0;
-            line-height: 1.6;
-            font-size: 1.1rem;
-            white-space: pre-wrap;
-            max-height: 300px;
-            overflow-y: auto;
-        }
-
-        .stats-container {
+        .stats-summary {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 1rem;
-            margin: 2rem 0;
+            margin-bottom: 3rem;
         }
 
         .stat-card {
             background: rgba(40, 40, 40, 0.8);
             border: 1px solid #666;
-            border-radius: 8px;
-            padding: 1rem;
+            border-radius: 10px;
+            padding: 1.5rem;
             text-align: center;
             transition: transform 0.3s ease;
         }
 
         .stat-card:hover {
             transform: translateY(-5px);
-            box-shadow: 0 5px 15px rgba(0, 123, 255, 0.3);
+            box-shadow: 0 10px 20px rgba(0, 123, 255, 0.3);
         }
 
         .stat-number {
-            font-size: 2rem;
+            font-size: 2.5rem;
             font-weight: bold;
             color: #00bcd4;
             display: block;
         }
 
         .stat-label {
-            font-size: 0.9rem;
+            font-size: 1rem;
             color: #ccc;
             margin-top: 0.5rem;
         }
 
-        .ending-story {
-            background: rgba(25, 25, 25, 0.9);
-            border-left: 4px solid #007bff;
-            padding: 1.5rem;
-            margin: 2rem 0;
-            border-radius: 0 8px 8px 0;
-            font-style: italic;
-            line-height: 1.8;
+        .endings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
         }
 
-        .discoveries-list {
-            background: rgba(40, 40, 40, 0.8);
-            border-radius: 8px;
-            padding: 1rem;
+        .ending-card {
+            background: rgba(30, 30, 30, 0.9);
+            border: 2px solid #444;
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .ending-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .ending-card.death {
+            border-color: #dc3545;
+            background: linear-gradient(135deg, rgba(220, 53, 69, 0.1), rgba(30, 30, 30, 0.9));
+        }
+
+        .ending-card.escape {
+            border-color: #28a745;
+            background: linear-gradient(135deg, rgba(40, 167, 69, 0.1), rgba(30, 30, 30, 0.9));
+        }
+
+        .ending-card.quit {
+            border-color: #6c757d;
+            background: linear-gradient(135deg, rgba(108, 117, 125, 0.1), rgba(30, 30, 30, 0.9));
+        }
+
+        .ending-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #555;
+        }
+
+        .ending-type {
+            font-size: 1.2rem;
+            font-weight: bold;
+            padding: 0.3rem 0.8rem;
+            border-radius: 20px;
+        }
+
+        .ending-type.death {
+            background: #dc3545;
+            color: white;
+        }
+
+        .ending-type.escape {
+            background: #28a745;
+            color: white;
+        }
+
+        .ending-type.quit {
+            background: #6c757d;
+            color: white;
+        }
+
+        .ending-date {
+            font-size: 0.9rem;
+            color: #aaa;
+        }
+
+        .ending-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
             margin: 1rem 0;
         }
 
-        .discovery-item {
-            background: rgba(0, 123, 255, 0.1);
-            border: 1px solid rgba(0, 123, 255, 0.3);
-            border-radius: 4px;
-            padding: 0.5rem;
-            margin: 0.5rem 0;
+        .ending-stat {
+            text-align: center;
+            padding: 0.8rem;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+        }
+
+        .ending-stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #00bcd4;
+        }
+
+        .ending-stat-label {
+            font-size: 0.8rem;
+            color: #ccc;
+            margin-top: 0.3rem;
+        }
+
+        .ending-story {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: rgba(0, 0, 0, 0.2);
+            border-left: 3px solid #007bff;
+            border-radius: 0 8px 8px 0;
+            font-style: italic;
+            line-height: 1.5;
+            max-height: 100px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .ending-story.expanded {
+            max-height: none;
+        }
+
+        .expand-btn {
+            background: none;
+            border: none;
+            color: #007bff;
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+            text-decoration: underline;
+        }
+
+        .cause-of-death {
+            margin-top: 1rem;
+            padding: 0.8rem;
+            background: rgba(220, 53, 69, 0.2);
+            border: 1px solid rgba(220, 53, 69, 0.5);
+            border-radius: 8px;
             font-size: 0.9rem;
         }
 
-        .action-buttons {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 1rem;
-            justify-content: center;
-            margin-top: 2rem;
-            padding-top: 2rem;
-            border-top: 1px solid #555;
+        .no-endings {
+            text-align: center;
+            padding: 4rem 2rem;
+            background: rgba(40, 40, 40, 0.8);
+            border-radius: 15px;
+            margin: 2rem 0;
         }
 
-        .btn {
-            padding: 0.8rem 1.5rem;
+        .no-endings h3 {
+            color: #00bcd4;
+            font-size: 1.8rem;
+            margin-bottom: 1rem;
+        }
+
+        .back-button {
+            position: fixed;
+            top: 2rem;
+            left: 2rem;
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            color: white;
             border: none;
-            border-radius: 8px;
+            border-radius: 50px;
+            padding: 1rem 1.5rem;
             font-size: 1rem;
             font-weight: bold;
             cursor: pointer;
             transition: all 0.3s ease;
             text-decoration: none;
-            display: inline-flex;
+            display: flex;
             align-items: center;
-            justify-content: center;
-            min-width: 150px;
+            gap: 0.5rem;
+            z-index: 1000;
         }
 
-        .btn-primary {
-            background: linear-gradient(135deg, #007bff, #0056b3);
-            color: white;
-        }
-
-        .btn-primary:hover {
+        .back-button:hover {
             background: linear-gradient(135deg, #0056b3, #003f7f);
             transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0, 123, 255, 0.4);
-        }
-
-        .btn-secondary {
-            background: linear-gradient(135deg, #6c757d, #545b62);
-            color: white;
-        }
-
-        .btn-secondary:hover {
-            background: linear-gradient(135deg, #545b62, #3d4043);
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(108, 117, 125, 0.4);
-        }
-
-        .btn-success {
-            background: linear-gradient(135deg, #28a745, #1e7e34);
-            color: white;
-        }
-
-        .btn-success:hover {
-            background: linear-gradient(135deg, #1e7e34, #155724);
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(40, 167, 69, 0.4);
-        }
-
-        .loading {
-            display: none;
-            text-align: center;
-            margin: 1rem 0;
-        }
-
-        .spinner {
-            width: 40px;
-            height: 40px;
-            border: 4px solid rgba(255, 255, 255, 0.3);
-            border-top: 4px solid #007bff;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 1rem;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            box-shadow: 0 10px 20px rgba(0, 123, 255, 0.4);
         }
 
         @media (max-width: 768px) {
-            .ending-container {
+            .container {
                 padding: 1rem;
-                margin: 1rem;
             }
             
-            .ending-title {
+            .header h1 {
                 font-size: 2rem;
             }
             
-            .stats-container {
+            .endings-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .stats-summary {
                 grid-template-columns: repeat(2, 1fr);
             }
             
-            .action-buttons {
-                flex-direction: column;
-                align-items: center;
-            }
-            
-            .btn {
-                width: 100%;
-                max-width: 300px;
+            .back-button {
+                position: static;
+                margin-bottom: 2rem;
+                align-self: flex-start;
             }
         }
     </style>
 </head>
 <body>
-    <div class="ending-container">
-        <!-- 엔딩 헤더 -->
-        <div class="ending-header <%= ending.ending_type || 'death' %>">
-            <h1 class="ending-title">
-                <% if (ending.ending_type === 'death') { %>
-                    던전에서의 죽음
-                <% } else if (ending.ending_type === 'escape') { %>
-                    기적적인 탈출!
-                <% } else { %>
-                    모험의 끝
-                <% } %>
-            </h1>
-            <p class="ending-subtitle">
-                <% if (ending.ending_type === 'death') { %>
-                    <%= ending.final_turn || 1 %>턴 만에 생을 마감했습니다
-                <% } else if (ending.ending_type === 'escape') { %>
-                    <%= ending.final_turn || 11 %>턴 만에 불가능한 탈출을 성공했습니다!
-                <% } else { %>
-                    모험이 종료되었습니다
-                <% } %>
-            </p>
+    <a href="/" class="back-button">
+        ← 메인으로 돌아가기
+    </a>
+
+    <div class="container">
+        <div class="header">
+            <h1>📚 엔딩 기록</h1>
+            <p><%= username %>님의 던전 탈출 기록</p>
         </div>
 
-        <!-- AI 응답 표시 -->
-        <% if (ai_response) { %>
-        <div class="game-response">
-            <%= ai_response %>
-        </div>
-        <% } %>
-
-        <!-- 게임 통계 -->
-        <div class="stats-container">
-            <div class="stat-card">
-                <span class="stat-number"><%= ending.final_turn || 1 %></span>
-                <div class="stat-label">최종 턴</div>
+        <% if (endings && endings.length > 0) { %>
+            <!-- 통계 요약 -->
+            <div class="stats-summary">
+                <div class="stat-card">
+                    <span class="stat-number"><%= endings.length %></span>
+                    <div class="stat-label">총 게임 수</div>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-number"><%= endings.filter(e => e.ending_type === 'death').length %></span>
+                    <div class="stat-label">사망 횟수</div>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-number"><%= endings.filter(e => e.ending_type === 'escape').length %></span>
+                    <div class="stat-label">탈출 성공</div>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-number"><%= Math.round(endings.reduce((sum, e) => sum + (e.final_turn || 0), 0) / endings.length) %></span>
+                    <div class="stat-label">평균 생존 턴</div>
+                </div>
             </div>
-            <div class="stat-card">
-                <span class="stat-number"><%= ending.total_deaths || 0 %></span>
-                <div class="stat-label">총 사망 횟수</div>
+
+            <!-- 엔딩 목록 -->
+            <div class="endings-grid">
+                <% endings.forEach(function(ending) { %>
+                <div class="ending-card <%= ending.ending_type %>">
+                    <div class="ending-header">
+                        <span class="ending-type <%= ending.ending_type %>">
+                            <% if (ending.ending_type === 'death') { %>
+                                💀 사망
+                            <% } else if (ending.ending_type === 'escape') { %>
+                                ✨ 탈출 성공
+                            <% } else { %>
+                                🚪 게임 종료
+                            <% } %>
+                        </span>
+                        <span class="ending-date">
+                            <%= new Date(ending.completed_at).toLocaleDateString('ko-KR') %>
+                        </span>
+                    </div>
+
+                    <div class="ending-stats">
+                        <div class="ending-stat">
+                            <div class="ending-stat-value"><%= ending.final_turn || 1 %></div>
+                            <div class="ending-stat-label">최종 턴</div>
+                        </div>
+                        <div class="ending-stat">
+                            <div class="ending-stat-value"><%= ending.total_deaths || 0 %></div>
+                            <div class="ending-stat-label">총 사망</div>
+                        </div>
+                        <div class="ending-stat">
+                            <div class="ending-stat-value"><%= ending.discoveries_count || 0 %></div>
+                            <div class="ending-stat-label">발견 정보</div>
+                        </div>
+                        <div class="ending-stat">
+                            <div class="ending-stat-value"><%= ending.time_elapsed || 0 %></div>
+                            <div class="ending-stat-label">플레이 시간(분)</div>
+                        </div>
+                    </div>
+
+                    <% if (ending.ending_type === 'death' && ending.cause_of_death) { %>
+                    <div class="cause-of-death">
+                        <strong>💀 사망 원인:</strong> <%= ending.cause_of_death %>
+                    </div>
+                    <% } %>
+
+                    <% if (ending.ending_story) { %>
+                    <div class="ending-story" data-full-story="<%= ending.ending_story.replace(/"/g, '&quot;') %>">
+                        <%= ending.ending_story.length > 100 ? ending.ending_story.substring(0, 100) + '...' : ending.ending_story %>
+                        <% if (ending.ending_story.length > 100) { %>
+                        <button class="expand-btn" onclick="toggleStory(this)">더 보기</button>
+                        <% } %>
+                    </div>
+                    <% } %>
+                </div>
+                <% }); %>
             </div>
-            <div class="stat-card">
-                <span class="stat-number"><%= ending.discoveries_count || 0 %></span>
-                <div class="stat-label">발견한 정보</div>
+        <% } else { %>
+            <div class="no-endings">
+                <h3>🎮 아직 완료된 게임이 없습니다</h3>
+                <p>던전 탈출에 도전해보세요!</p>
+                <a href="/" class="back-button" style="position: static; margin-top: 2rem;">새 게임 시작하기</a>
             </div>
-            <% if (ending.time_elapsed) { %>
-            <div class="stat-card">
-                <span class="stat-number"><%= Math.floor(ending.time_elapsed / 60) %></span>
-                <div class="stat-label">플레이 시간 (분)</div>
-            </div>
-            <% } %>
-        </div>
-
-        <!-- 사망 원인 (사망 엔딩인 경우) -->
-        <% if (ending.ending_type === 'death' && ending.cause_of_death) { %>
-        <div class="stat-card" style="margin: 1rem 0; background: rgba(220, 53, 69, 0.1); border-color: #dc3545;">
-            <strong>사망 원인:</strong> <%= ending.cause_of_death %>
-        </div>
         <% } %>
-
-        <!-- 발견 정보 목록 -->
-        <% if (ending.discoveries && ending.discoveries.length > 0) { %>
-        <div class="discoveries-list">
-            <h4>발견한 정보들:</h4>
-            <% ending.discoveries.forEach(function(discovery) { %>
-            <div class="discovery-item">🔍 <%= discovery %></div>
-            <% }); %>
-        </div>
-        <% } %>
-
-        <!-- 엔딩 스토리 -->
-        <% if (ending.ending_story) { %>
-        <div class="ending-story">
-            <%= ending.ending_story %>
-        </div>
-        <% } %>
-
-        <!-- 액션 버튼들 -->
-        <div class="action-buttons">
-            <button id="new-game-btn" class="btn btn-primary">
-                🎮 새 게임 시작
-            </button>
-            <button id="view-endings-btn" class="btn btn-secondary">
-                📚 엔딩 기록 보기
-            </button>
-            <a href="/" class="btn btn-success">
-                🏠 메인으로 돌아가기
-            </a>
-        </div>
-
-        <!-- 로딩 표시 -->
-        <div class="loading" id="loading">
-            <div class="spinner"></div>
-            <p>처리 중...</p>
-        </div>
     </div>
 
     <script>
-        $(document).ready(function() {
-            // 새 게임 시작
-            $('#new-game-btn').click(function() {
-                if (confirm('새 로그라이크 게임을 시작하시겠습니까?')) {
-                    window.location.href = '/';
-                }
-            });
-
-            // 엔딩 기록 보기
-            $('#view-endings-btn').click(function() {
-                $('#loading').show();
-                
-                // 엔딩 목록 페이지로 이동하거나 모달로 표시
-                // 현재는 간단히 새 창으로 엔딩 목록 페이지 열기
-                window.open('/endings', '_blank');
-                $('#loading').hide();
-            });
-
-            // 키보드 단축키
-            $(document).keydown(function(e) {
-                switch(e.key) {
-                    case 'n':
-                    case 'N':
-                        $('#new-game-btn').click();
-                        break;
-                    case 'e':
-                    case 'E':
-                        $('#view-endings-btn').click();
-                        break;
-                    case 'h':
-                    case 'H':
-                        window.location.href = '/';
-                        break;
-                }
-            });
-
-            // 엔딩 타입에 따른 추가 효과
-            const endingType = '<%= ending.ending_type || "death" %>';
+        function toggleStory(button) {
+            const storyDiv = button.parentElement;
+            const fullStory = storyDiv.getAttribute('data-full-story');
             
-            if (endingType === 'escape') {
-                // 탈출 성공 시 축하 효과
-                createCelebrationEffect();
-            } else if (endingType === 'death') {
-                // 사망 시 어두운 효과
-                document.body.style.filter = 'brightness(0.8)';
-            }
-        });
-
-        // 축하 효과 (탈출 성공 시)
-        function createCelebrationEffect() {
-            const colors = ['#28a745', '#007bff', '#ffc107', '#dc3545'];
-            
-            for (let i = 0; i < 50; i++) {
-                setTimeout(() => {
-                    const sparkle = $('<div>')
-                        .css({
-                            position: 'fixed',
-                            width: '6px',
-                            height: '6px',
-                            background: colors[Math.floor(Math.random() * colors.length)],
-                            borderRadius: '50%',
-                            pointerEvents: 'none',
-                            zIndex: 9999,
-                            left: Math.random() * window.innerWidth + 'px',
-                            top: Math.random() * window.innerHeight + 'px',
-                            opacity: 1
-                        })
-                        .appendTo('body')
-                        .animate({
-                            top: '+=' + (Math.random() * 200 - 100) + 'px',
-                            left: '+=' + (Math.random() * 200 - 100) + 'px',
-                            opacity: 0
-                        }, 2000, function() {
-                            $(this).remove();
-                        });
-                }, i * 50);
+            if (storyDiv.classList.contains('expanded')) {
+                // 축소
+                storyDiv.innerHTML = fullStory.substring(0, 100) + '... <button class="expand-btn" onclick="toggleStory(this)">더 보기</button>';
+                storyDiv.classList.remove('expanded');
+            } else {
+                // 확장
+                storyDiv.innerHTML = fullStory + ' <button class="expand-btn" onclick="toggleStory(this)">접기</button>';
+                storyDiv.classList.add('expanded');
             }
         }
+
+        // 키보드 단축키
+        $(document).keydown(function(e) {
+            if (e.key === 'Escape' || e.key === 'Backspace') {
+                window.location.href = '/';
+            }
+        });
     </script>
 </body>
 </html>
