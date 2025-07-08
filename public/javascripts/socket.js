@@ -1,8 +1,8 @@
-// public/javascripts/socket.js - 이벤트 중복 방지 버전
+// public/javascripts/socket.js - 엔딩 이벤트 추가 버전
 const GameSocket = (function() {
     let socket = null;
     let isConnected = false;
-    let eventsRegistered = false; // ✅ 추가: 이벤트 등록 상태 추적
+    let eventsRegistered = false;
     
     function initialize() {
         socket = io({
@@ -66,7 +66,6 @@ const GameSocket = (function() {
     }
     
     function setupSocketEventHandlers() {
-        // ✅ 수정: 이벤트 중복 등록 방지
         if (eventsRegistered) {
             console.log('Socket events already registered, skipping...');
             return;
@@ -76,6 +75,12 @@ const GameSocket = (function() {
         socket.on('chat response', function(data) {
             console.log('Socket received chat response:', data);
             $(document).trigger('chat:response', [data]);
+        });
+        
+        // ✅ 새로 추가: 게임 엔딩 핸들러
+        socket.on('game ending', function(data) {
+            console.log('Socket received game ending:', data);
+            $(document).trigger('game:ending', [data.ending]);
         });
         
         // 새 게임 응답 핸들러
@@ -96,7 +101,7 @@ const GameSocket = (function() {
             $(document).trigger('chat:history', [data]);
         });
         
-        eventsRegistered = true; // ✅ 추가: 이벤트 등록 완료 표시
+        eventsRegistered = true;
         console.log('Socket event handlers registered');
     }
     
