@@ -19,7 +19,7 @@ const authRouter = require('./routes/auth');
 // assistant routes - list만 유지
 const assistantListRouter = require('./routes/assistant/list');
 
-// ✅ 신규 추가: API 라우터
+// ✅ API 라우터 (엔딩 시스템 포함)
 const apiRouter = require('./routes/api');
 
 const app = express();
@@ -90,7 +90,7 @@ app.use('/', indexRouter);
 app.use('/auth', authRouter);
 app.use('/assistant/list', assistantListRouter);
 
-// ✅ 신규 추가: API 라우터 등록
+// ✅ API 라우터 등록 (엔딩 시스템 포함)
 app.use('/api', apiRouter);
 
 // 404 에러 핸들러
