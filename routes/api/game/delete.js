@@ -95,15 +95,7 @@ router.post('/', async(req, res) =>
     await connection.beginTransaction();
 
     try {
-      // 1. game_endings 테이블에서 관련 기록 삭제 (외래키 제약 때문에 먼저 삭제)
-      const [endingDeleteResult] = await connection.query(
-        'DELETE FROM game_endings WHERE game_id = ? AND user_id = ?',
-        [req_game_id, req_user_id]
-      );
-      
-      console.log(`[DELETE_GAME] Deleted ${endingDeleteResult.affectedRows} ending records`);
-
-      // 2. game_state 테이블에서 게임 삭제
+      // game_state 테이블에서 게임 삭제 (엔딩 기록은 유지)
       const [gameDeleteResult] = await connection.query(
         'DELETE FROM game_state WHERE game_id = ? AND user_id = ?',
         [req_game_id, req_user_id]
@@ -113,7 +105,7 @@ router.post('/', async(req, res) =>
         throw "No game was deleted - possible race condition";
       }
       
-      console.log(`[DELETE_GAME] Deleted game state successfully`);
+      console.log(`[DELETE_GAME] Deleted game state successfully (ending records preserved)`);
 
       // 트랜잭션 커밋
       await connection.commit();
@@ -175,7 +167,7 @@ router.post('/', async(req, res) =>
     value_ext2: {
       game_id: req_game_id,
       deleted_thread_id: thread_id_to_delete,
-      message: "게임이 성공적으로 삭제되었습니다."
+      message: "게임이 성공적으로 삭제되었습니다. (엔딩 기록은 보존됨)"
     },
     EXT_data,
   };
