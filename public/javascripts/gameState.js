@@ -1,4 +1,4 @@
-// public/javascripts/gameState.js - 10턴 데스 게임 대응 버전
+// public/javascripts/gameState.js - 상태 관리 개선 버전
 
 const GameState = (function() {
     let currentGameId = null;
@@ -16,15 +16,13 @@ const GameState = (function() {
     
     function setGameState(id, data, newGame = false) {
         currentGameId = id;
-        gameData = normalizeGameData(data);
+        gameData = data;
         isNewGame = newGame;
         
         console.log('Game state updated:', {
             gameId: id,
             isNewGame: newGame,
-            turnCount: gameData?.progress?.turnCount || 0,
-            escapePhase: gameData?.progress?.escapePhase || false,
-            location: gameData?.location?.current
+            location: data?.location?.current
         });
     }
     
@@ -51,140 +49,7 @@ const GameState = (function() {
         isNewGame = false;
     }
     
-    // ✅ 새로 추가: 턴 증가 함수
-    function incrementTurn() {
-        if (gameData && gameData.progress) {
-            gameData.progress.turnCount++;
-            
-            // 11턴 이후 탈출 모드 활성화
-            if (gameData.progress.turnCount >= 11) {
-                gameData.progress.escapePhase = true;
-            }
-            
-            console.log(`Turn ${gameData.progress.turnCount} - Escape phase: ${gameData.progress.escapePhase}`);
-        }
-    }
-    
-    // ✅ 새로 추가: 사망 처리
-    function handleDeath() {
-        if (gameData && gameData.progress) {
-            gameData.progress.deathCount++;
-            gameData.player.health = 0;
-            
-            console.log(`Player death #${gameData.progress.deathCount}`);
-        }
-    }
-    
-    // ✅ 새로 추가: 엔딩 조건 체크
-    function checkEndingConditions(aiResponse) {
-        if (!gameData) return null;
-        
-        // 사망 체크
-        if (gameData.player.health <= 0) {
-            return {
-                type: 'death',
-                turnCount: gameData.progress.turnCount,
-                deathCount: gameData.progress.deathCount,
-                cause: 'health_zero'
-            };
-        }
-        
-        // 탈출 체크 (11턴 이후)
-        if (gameData.progress.escapePhase && aiResponse) {
-            const escapeKeywords = ['탈출구', '출구', '자유', '탈출 성공', '던전을 벗어나'];
-            const hasEscapeKeyword = escapeKeywords.some(keyword => 
-                aiResponse.includes(keyword)
-            );
-            
-            if (hasEscapeKeyword) {
-                return {
-                    type: 'escape',
-                    turnCount: gameData.progress.turnCount,
-                    deathCount: gameData.progress.deathCount,
-                    escapeMethod: 'survival'
-                };
-            }
-        }
-        
-        return null;
-    }
-    
-    // ✅ 수정: 게임 데이터 정규화 (턴 카운트 포함)
-    function normalizeGameData(data) {
-        let gameDataObj;
-        
-        try {
-            gameDataObj = typeof data === 'string' ? JSON.parse(data) : data;
-        } catch (err) {
-            gameDataObj = getDefaultGameData();
-        }
-        
-        // 기본 구조 보장
-        gameDataObj.player = gameDataObj.player || {};
-        gameDataObj.player.health = gameDataObj.player.health || 100;
-        gameDataObj.player.maxHealth = gameDataObj.player.maxHealth || 100;
-        gameDataObj.player.status = gameDataObj.player.status || '양호';
-        gameDataObj.player.mental = gameDataObj.player.mental || '안정';
-        
-        gameDataObj.location = gameDataObj.location || {};
-        gameDataObj.location.current = gameDataObj.location.current || "던전 입구";
-        gameDataObj.location.roomId = gameDataObj.location.roomId || "001";
-        
-        gameDataObj.inventory = gameDataObj.inventory || {};
-        gameDataObj.inventory.items = gameDataObj.inventory.items || [];
-        gameDataObj.inventory.gold = gameDataObj.inventory.gold || 0;
-        gameDataObj.inventory.keyItems = gameDataObj.inventory.keyItems || '없음';
-        
-        gameDataObj.progress = gameDataObj.progress || {};
-        gameDataObj.progress.playTime = gameDataObj.progress.playTime || "방금 시작";
-        gameDataObj.progress.deathCount = gameDataObj.progress.deathCount || 0;
-        
-        // ✅ 새로 추가: 턴 관련 필드
-        gameDataObj.progress.turnCount = gameDataObj.progress.turnCount || 0;
-        gameDataObj.progress.escapePhase = gameDataObj.progress.escapePhase || false;
-        
-        return gameDataObj;
-    }
-    
-    function getDefaultGameData() {
-        return {
-            player: {
-                name: "플레이어",
-                level: 1,
-                health: 100,
-                maxHealth: 100,
-                status: '양호',
-                mental: '안정'
-            },
-            location: {
-                roomId: "001",
-                current: "던전 입구",
-                discovered: ["던전 입구"]
-            },
-            inventory: {
-                items: [],
-                gold: 0,
-                keyItems: '없음'
-            },
-            progress: {
-                deathCount: 0,
-                discoveries: '없음',
-                puzzlesSolved: 0,
-                phase: "생존",
-                playTime: "방금 시작",
-                lastAction: "게임 시작",
-                // ✅ 새로 추가
-                turnCount: 0,
-                escapePhase: false,
-                flags: {
-                    tutorialComplete: false,
-                    foundEscapeClue: false
-                }
-            }
-        };
-    }
-    
-    // 기존 함수들 유지
+    // ✅ 추가: 강제 위치 업데이트 함수
     function forceLocationUpdate(response) {
         if (!gameData || !response) return false;
         
@@ -193,64 +58,123 @@ const GameState = (function() {
             const newRoomId = locationMatch[1].trim();
             const newLocation = locationMatch[2].trim();
             
+            console.log('Location update attempt:', {
+                current: gameData.location.current,
+                new: newLocation,
+                roomId: newRoomId
+            });
+            
+            // 위치가 실제로 변경되었는지 확인
             if (gameData.location.current !== newLocation || gameData.location.roomId !== newRoomId) {
                 gameData.location.current = newLocation;
                 gameData.location.roomId = newRoomId;
                 
+                // 발견한 위치 목록에 추가
                 if (!gameData.location.discovered.includes(newLocation)) {
                     gameData.location.discovered.push(newLocation);
                 }
                 
-                console.log('Location updated:', gameData.location);
+                console.log('Location updated successfully:', gameData.location);
                 return true;
             }
         }
         return false;
     }
     
-    // ✅ 수정: 새 형식 파싱
+    function extractLocationFromResponse(response) {
+        if (!response) return null;
+        
+        const locationPattern = />>\s*위치:\s*([^-]+)\s*-\s*([^\n]+)/;
+        const match = response.match(locationPattern);
+        
+        if (match) {
+            return {
+                roomId: match[1].trim(),
+                roomName: match[2].trim()
+            };
+        }
+        
+        return null;
+    }
+    
+    function extractLocationFromSummary(summary) {
+        if (!summary) return null;
+        
+        let locationPattern1 = /현재\s*위치(?:는|:)\s*([^,.]+?)(?:로|에서|입니다|에|이며|\.|\,|$)/i;
+        let match1 = summary.match(locationPattern1);
+        
+        let locationPattern2 = /위치\s*:\s*([^,.]+?)(?:로|에서|입니다|에|이며|\.|\,|$)/i;
+        let match2 = summary.match(locationPattern2);
+        
+        let locationPattern3 = /위치는\s*([^,.]+?)(?:로|에서|입니다|에|이며|\.|\,|$)/i;
+        let match3 = summary.match(locationPattern3);
+        
+        if (match1) return match1[1].trim();
+        if (match2) return match2[1].trim();
+        if (match3) return match3[1].trim();
+        
+        return null;
+    }
+    
+    // ✅ 수정: parseStatsFromResponse 개선
     function parseStatsFromResponse(response) {
         if (!response) return null;
         
         const gameState = {
             player: {},
             location: {},
-            inventory: {},
-            progress: {}
+            inventory: {}
         };
         
         try {
-            // 위치 정보 파싱 (Location: 형식)
-            const locationMatch = response.match(/Location:\s*([^\n]+)/i);
+            // 위치 정보 강제 파싱
+            const locationMatch = response.match(/위치:\s*(\w+)\s*-\s*([^=\n]+)/);
             if (locationMatch) {
-                gameState.location.current = locationMatch[1].trim();
+                gameState.location.roomId = locationMatch[1].trim();
+                gameState.location.current = locationMatch[2].trim();
             }
             
             // STATS 섹션 파싱
-            const statsPattern = /STATS\s*={3,}([\s\S]*?)={3,}/i;
+            const statsPattern = /STATS[^=]*={3,}([\s\S]*?)={3,}/;
             const statsMatch = response.match(statsPattern);
             
             if (statsMatch) {
                 const statsContent = statsMatch[1];
                 
-                // 체력 정보 (Health: 형식)
-                const healthMatch = statsContent.match(/Health:\s*(\d+)\/(\d+)/i);
+                // 체력 정보
+                const healthPattern = /체력:\s*(\d+)\/(\d+)/;
+                const healthMatch = statsContent.match(healthPattern);
                 if (healthMatch) {
                     gameState.player.health = parseInt(healthMatch[1]);
                     gameState.player.maxHealth = parseInt(healthMatch[2]);
                 }
                 
-                // 턴 수 (Turn: 형식)
-                const turnMatch = statsContent.match(/Turn:\s*(\d+)/i);
-                if (turnMatch) {
-                    gameState.progress.turnCount = parseInt(turnMatch[1]);
-                    gameState.progress.escapePhase = gameState.progress.turnCount >= 11;
+                // 체력상태
+                const statusPattern = /체력상태:\s*([^\s\n]+)/;
+                const statusMatch = statsContent.match(statusPattern);
+                if (statusMatch) {
+                    gameState.player.status = statusMatch[1];
                 }
                 
-                // 시간 정보
-                const timeMatch = statsContent.match(/Time:\s*([^\n]+)/i);
-                if (timeMatch) {
-                    gameState.progress.playTime = timeMatch[1].trim();
+                // 정신상태
+                const mentalPattern = /정신:\s*([^\s\n]+)/;
+                const mentalMatch = statsContent.match(mentalPattern);
+                if (mentalMatch) {
+                    gameState.player.mental = mentalMatch[1];
+                }
+                
+                // 소지품
+                const itemsPattern = /소지품:\s*([^\n]+)/;
+                const itemsMatch = statsContent.match(itemsPattern);
+                if (itemsMatch) {
+                    gameState.inventory.keyItems = itemsMatch[1].trim();
+                }
+                
+                // 골드
+                const goldPattern = /골드:\s*(\d+)/;
+                const goldMatch = statsContent.match(goldPattern);
+                if (goldMatch) {
+                    gameState.inventory.gold = parseInt(goldMatch[1]);
                 }
             }
             
@@ -263,21 +187,55 @@ const GameState = (function() {
         }
     }
     
+    function updateGameLocation(locationInfo) {
+        if (gameData && locationInfo) {
+            if (typeof locationInfo === 'string') {
+                gameData.location.current = locationInfo;
+            } else if (typeof locationInfo === 'object') {
+                if (locationInfo.roomId) {
+                    gameData.location.roomId = locationInfo.roomId;
+                }
+                if (locationInfo.roomName) {
+                    gameData.location.current = locationInfo.roomName;
+                }
+            }
+            
+            if (Array.isArray(gameData.location.discovered) && 
+                !gameData.location.discovered.includes(gameData.location.current)) {
+                gameData.location.discovered.push(gameData.location.current);
+            }
+            
+            return true;
+        }
+        return false;
+    }
+    
+    // ✅ 수정: updateGameStateFromParsing 강화
     function updateGameStateFromParsing(parsedState) {
         if (!gameData || !parsedState) return false;
         
         let updated = false;
         
-        // 위치 정보 업데이트
-        if (parsedState.location && parsedState.location.current) {
-            const oldLocation = gameData.location.current;
-            gameData.location.current = parsedState.location.current;
-            
-            if (oldLocation !== parsedState.location.current) {
-                updated = true;
+        // 위치 정보 업데이트 - 강제 적용
+        if (parsedState.location) {
+            if (parsedState.location.current) {
+                const oldLocation = gameData.location.current;
+                gameData.location.current = parsedState.location.current;
+                
+                if (oldLocation !== parsedState.location.current) {
+                    updated = true;
+                    console.log('Location changed:', oldLocation, '->', parsedState.location.current);
+                }
+                
                 if (!gameData.location.discovered.includes(parsedState.location.current)) {
                     gameData.location.discovered.push(parsedState.location.current);
+                    updated = true;
                 }
+            }
+            
+            if (parsedState.location.roomId) {
+                gameData.location.roomId = parsedState.location.roomId;
+                updated = true;
             }
         }
         
@@ -287,30 +245,60 @@ const GameState = (function() {
                 if (parsedState.player[key] !== undefined && parsedState.player[key] !== gameData.player[key]) {
                     gameData.player[key] = parsedState.player[key];
                     updated = true;
+                    console.log(`Player ${key} updated:`, gameData.player[key]);
                 }
             });
         }
         
-        // 진행 상태 업데이트
-        if (parsedState.progress) {
-            Object.keys(parsedState.progress).forEach(key => {
-                if (parsedState.progress[key] !== undefined && parsedState.progress[key] !== gameData.progress[key]) {
-                    gameData.progress[key] = parsedState.progress[key];
+        // 인벤토리 업데이트
+        if (parsedState.inventory) {
+            Object.keys(parsedState.inventory).forEach(key => {
+                if (parsedState.inventory[key] !== undefined && parsedState.inventory[key] !== gameData.inventory[key]) {
+                    gameData.inventory[key] = parsedState.inventory[key];
                     updated = true;
+                    console.log(`Inventory ${key} updated:`, gameData.inventory[key]);
                 }
             });
+        }
+        
+        if (updated) {
+            console.log('Game state updated:', gameData);
         }
         
         return updated;
     }
     
+    // ✅ 추가: 게임 진행 검증 함수
+    function validateGameProgress(response) {
+        if (!response || !gameData) return false;
+        
+        // 응답에서 새로운 내용 검증
+        const hasNewLocation = response.includes('위치:') && 
+                              !response.includes(gameData.location.current);
+        
+        const hasNewDescription = response.length > 500; // 충분한 설명이 있는지
+        
+        const hasChoices = (response.match(/[↑↓←→]/g) || []).length >= 4;
+        
+        console.log('Progress validation:', {
+            hasNewLocation,
+            hasNewDescription,
+            hasChoices,
+            currentLocation: gameData.location.current
+        });
+        
+        return hasNewLocation || hasNewDescription && hasChoices;
+    }
+    
     function setupEventHandlers() {
+        // 새 게임 이벤트 - 플래그 설정
         $(document).on('game:new', function(event, data) {
             if (data.success) {
                 setGameState(data.game_id, data.game_data, true);
             }
         });
         
+        // 게임 로드 이벤트 - 기존 게임
         $(document).on('game:load', function(event, data) {
             if (data.success) {
                 setGameState(data.game.game_id, data.game.game_data, false);
@@ -319,7 +307,7 @@ const GameState = (function() {
         
         $(document).on('game:save', function(event, data) {
             if (data.success && data.gameData) {
-                gameData = normalizeGameData(data.gameData);
+                gameData = data.gameData;
                 isNewGame = false;
             }
         });
@@ -330,9 +318,10 @@ const GameState = (function() {
             }
         });
         
+        // 채팅 응답 이벤트 - 새 게임 플래그 해제
         $(document).on('chat:response', function(event, data) {
             if (data.success && data.game_state) {
-                gameData = normalizeGameData(data.game_state);
+                gameData = data.game_state;
                 if (isNewGame) {
                     isNewGame = false;
                 }
@@ -354,16 +343,12 @@ const GameState = (function() {
         setProcessingChoice: setProcessingChoice,
         isNewGameState: isNewGameState,
         clearNewGameFlag: clearNewGameFlag,
-        
-        // ✅ 새로 추가된 함수들
-        incrementTurn: incrementTurn,
-        handleDeath: handleDeath,
-        checkEndingConditions: checkEndingConditions,
-        normalizeGameData: normalizeGameData,
-        
-        // 기존 함수들
         forceLocationUpdate: forceLocationUpdate,
+        validateGameProgress: validateGameProgress,
+        extractLocationFromSummary: extractLocationFromSummary,
+        extractLocationFromResponse: extractLocationFromResponse,
         parseStatsFromResponse: parseStatsFromResponse,
+        updateGameLocation: updateGameLocation,
         updateGameStateFromParsing: updateGameStateFromParsing
     };
 })();

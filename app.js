@@ -1,4 +1,4 @@
-// app.js - 엔딩 라우터 추가 버전
+// app.js
 // Express 애플리케이션 설정 및 미들웨어 구성
 
 const createError = require('http-errors');
@@ -19,11 +19,8 @@ const authRouter = require('./routes/auth');
 // assistant routes - list만 유지
 const assistantListRouter = require('./routes/assistant/list');
 
-// ✅ API 라우터
+// ✅ 신규 추가: API 라우터
 const apiRouter = require('./routes/api');
-
-// ✅ 새로 추가: 엔딩 라우터
-const endingRouter = require('./routes/ending');
 
 const app = express();
 
@@ -93,11 +90,8 @@ app.use('/', indexRouter);
 app.use('/auth', authRouter);
 app.use('/assistant/list', assistantListRouter);
 
-// API 라우터 등록
+// ✅ 신규 추가: API 라우터 등록
 app.use('/api', apiRouter);
-
-// ✅ 새로 추가: 엔딩 라우터 등록
-app.use('/ending', endingRouter);
 
 // 404 에러 핸들러
 app.use(function(req, res, next) {
