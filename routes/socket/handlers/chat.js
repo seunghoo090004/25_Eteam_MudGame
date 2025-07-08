@@ -247,4 +247,4 @@ function extractAchievement(response) {
     return '숨겨진 진실 발견';
 }
 
-module.exports = chatHandler;s
+module.exports = chatHandler;
