@@ -208,6 +208,7 @@ const GameState = (function() {
         return false;
     }
     
+    // ✅ 수정: 새 형식 파싱
     function parseStatsFromResponse(response) {
         if (!response) return null;
         
@@ -219,24 +220,38 @@ const GameState = (function() {
         };
         
         try {
-            // 위치 정보 파싱
-            const locationMatch = response.match(/위치:\s*([^=\n]+)/);
+            // 위치 정보 파싱 (Location: 형식)
+            const locationMatch = response.match(/Location:\s*([^\n]+)/i);
             if (locationMatch) {
                 gameState.location.current = locationMatch[1].trim();
             }
             
-            // 체력 정보 파싱
-            const healthMatch = response.match(/체력:\s*(\d+)\/(\d+)/);
-            if (healthMatch) {
-                gameState.player.health = parseInt(healthMatch[1]);
-                gameState.player.maxHealth = parseInt(healthMatch[2]);
-            }
+            // STATS 섹션 파싱
+            const statsPattern = /STATS\s*={3,}([\s\S]*?)={3,}/i;
+            const statsMatch = response.match(statsPattern);
             
-            // 턴 수 파싱
-            const turnMatch = response.match(/턴\s*수?:\s*(\d+)/);
-            if (turnMatch) {
-                gameState.progress.turnCount = parseInt(turnMatch[1]);
-                gameState.progress.escapePhase = gameState.progress.turnCount >= 11;
+            if (statsMatch) {
+                const statsContent = statsMatch[1];
+                
+                // 체력 정보 (Health: 형식)
+                const healthMatch = statsContent.match(/Health:\s*(\d+)\/(\d+)/i);
+                if (healthMatch) {
+                    gameState.player.health = parseInt(healthMatch[1]);
+                    gameState.player.maxHealth = parseInt(healthMatch[2]);
+                }
+                
+                // 턴 수 (Turn: 형식)
+                const turnMatch = statsContent.match(/Turn:\s*(\d+)/i);
+                if (turnMatch) {
+                    gameState.progress.turnCount = parseInt(turnMatch[1]);
+                    gameState.progress.escapePhase = gameState.progress.turnCount >= 11;
+                }
+                
+                // 시간 정보
+                const timeMatch = statsContent.match(/Time:\s*([^\n]+)/i);
+                if (timeMatch) {
+                    gameState.progress.playTime = timeMatch[1].trim();
+                }
             }
             
             console.log('Parsed game state:', gameState);
