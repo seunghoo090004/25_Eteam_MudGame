@@ -109,6 +109,26 @@
             opacity: 0.9;
         }
 
+        .game-summary-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+
+        .game-summary-section h4 {
+            margin-top: 0;
+            color: #495057;
+        }
+
+        .game-summary-content {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            line-height: 1.6;
+            border-left: 4px solid #007bff;
+        }
+
         .discoveries-section {
             background: #e9ecef;
             padding: 20px;
@@ -406,7 +426,6 @@
                     });
 
                     if (response.data.code === "result" && response.data.value === 1) {
-                        // 수정: response.data.value_ext2.ending → response.data.value_ext2
                         displayEnding(response.data.value_ext2);
                     } else {
                         throw new Error(response.data.value_ext2 || '엔딩 데이터를 찾을 수 없습니다.');
@@ -420,10 +439,13 @@
             function displayEnding(ending) {
                 $('#loading').hide();
                 
-                const endingData = ending.ending_data || {};
+                const endingData = ending;
                 const endingType = endingData.ending_type || 'quit';
                 const endingTypeText = getEndingTypeText(endingType);
                 const discoveries = endingData.discoveries || [];
+                
+                // 게임 요약 생성
+                const gameSummary = generateGameSummary(endingData);
                 
                 const endingHtml = `
                     <div class="ending-header ${endingType}">
@@ -458,6 +480,13 @@
                             <strong>사망 원인:</strong> ${endingData.cause_of_death}
                         </div>
                     ` : ''}
+
+                    <div class="game-summary-section">
+                        <h4>🎮 게임 요약</h4>
+                        <div class="game-summary-content">
+                            ${gameSummary}
+                        </div>
+                    </div>
 
                     ${discoveries.length > 0 ? `
                         <div class="discoveries-section">
@@ -499,6 +528,43 @@
                     });
                 }
             }
+        }
+
+        // 게임 요약 생성 함수
+        function generateGameSummary(endingData) {
+            const turn = endingData.final_turn || 0;
+            const deaths = endingData.total_deaths || 0;
+            const discoveries = endingData.discoveries_count || 0;
+            
+            let summary = `${turn}턴 동안 진행된 로그라이크 던전 탈출 게임`;
+            
+            if (deaths === 0) {
+                summary += " - 완벽한 플레이로 한 번도 죽지 않고 도전";
+            } else if (deaths <= 2) {
+                summary += ` - ${deaths}번의 죽음을 딛고 도전`;
+            } else {
+                summary += ` - ${deaths}번의 죽음을 통해 경험을 쌓으며 도전`;
+            }
+            
+            if (discoveries > 0) {
+                summary += `. ${discoveries}개의 정보를 발견하며 던전의 비밀에 다가감`;
+            } else {
+                summary += ". 위험한 던전에서 생존에만 집중";
+            }
+            
+            if (endingData.ending_type === 'death') {
+                if (turn <= 3) {
+                    summary += ". 초반 함정의 위험성을 몸소 체험";
+                } else if (turn <= 6) {
+                    summary += ". 중반까지의 생존력을 보였으나 던전의 위험을 극복하지 못함";
+                } else {
+                    summary += ". 후반까지 생존한 놀라운 적응력을 보임";
+                }
+            } else if (endingData.ending_type === 'escape') {
+                summary += ". 불가능에 가까운 던전 탈출에 성공한 전설적인 모험";
+            }
+            
+            return summary + ".";
         }
 
         function getEndingTypeText(type) {
