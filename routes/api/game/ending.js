@@ -384,13 +384,13 @@ router.get('/', async(req, res) => {
         );
         total_count = countResult[0].total;
         
-        // 페이지네이션된 엔딩 목록 조회 (오래된 순서로 정렬)
+        // 페이지네이션된 엔딩 목록 조회 (최신 순서로 정렬)
         const offset = (page - 1) * limit;
         const [endings] = await connection.query(
             `SELECT ge.*, COALESCE(ge.game_id, CONCAT('deleted_', ge.id)) as display_id
             FROM game_endings ge
             WHERE ge.user_id = ?
-            ORDER BY ge.created_at ASC
+            ORDER BY ge.created_at DESC
             LIMIT ? OFFSET ?`,
             [req_user_id, limit, offset]
         );
@@ -408,7 +408,7 @@ router.get('/', async(req, res) => {
             play_duration: ending.play_duration,
             completed_at: ending.created_at,
             is_deleted: !ending.game_id,
-            game_number: offset + index + 1 // 순서 번호 추가
+            game_number: total_count - offset - index // 역순 번호 계산
         }));
 
     } catch (e) {
