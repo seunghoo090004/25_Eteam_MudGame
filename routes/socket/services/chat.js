@@ -1,9 +1,14 @@
-// routes/socket/services/chat.js - 로그라이크 시스템 버전
+// routes/socket/services/chat.js - 로그라이크 시스템 버전 (생존 보장 로직 추가)
 
 const pool = require('../../../config/database');
 const openai = require('../../../config/openai');
 
 class ChatService {
+    constructor() {
+        // 생존 선택지 보장을 위한 메모리
+        this.survivalChoices = new Map(); // threadId -> survivalChoice
+    }
+
     async sendMessage(threadId, assistantId, message) {
         const LOG_HEADER = "CHAT_SERVICE/SEND";
         try {
@@ -22,6 +27,9 @@ class ChatService {
 
             const safeMessage = typeof message === 'string' ? message : String(message);
             
+            // 생존 보장 로직 확인
+            const guaranteedSurvival = this.checkSurvivalGuarantee(threadId, safeMessage);
+            
             // 로그라이크 선택지 처리
             try {
                 await openai.beta.threads.messages.create(threadId, {
@@ -37,44 +45,10 @@ class ChatService {
                 });
             }
 
-            // 로그라이크 게임 지침
+            // 로그라이크 게임 지침 (생존 보장 추가)
             await openai.beta.threads.messages.create(threadId, {
                 role: "user",
-                content: `[로그라이크 게임 마스터 지침]
-
-**선택 ${safeMessage}번 처리:**
-1. 선택한 행동을 실행합니다
-2. 턴을 1 증가시킵니다
-3. 턴별 위험도를 적용합니다:
-   - 1-3턴: 60% 즉사율
-   - 4-6턴: 70% 즉사율  
-   - 7-10턴: 80% 즉사율
-   - 11턴+: 50% 즉사율 (탈출 기회)
-
-**응답 형식 (필수):**
-[던전 상황 설명 - 위험 요소 포함]
-
-STATS
-===============================================
-Turn: [현재 턴]
-Location: [위치 정보]
-Time: [경과 시간]
-Discoveries: [발견한 정보]
-===============================================
-
-↑ [행동]
-↓ [행동]  
-← [행동]
-→ [행동]
-
-**핵심 규칙:**
-- 체력 없음: 즉사 OR 생존
-- 잘못된 선택 시 즉시 사망
-- 아이템 발견 시 즉시 사용 후 소멸
-- 11턴 후 탈출 기회 제공
-- 위험도에 따른 즉사 확률 적용
-
-즉사 조건 충족 시 "당신은 죽었습니다"로 시작하여 사망 원인을 설명하세요.`
+                content: this.generateGameInstructions(safeMessage, guaranteedSurvival)
             });
 
             // 새로운 run 시작
@@ -132,6 +106,9 @@ Discoveries: [발견한 정보]
                 // 응답 정리
                 response = this.cleanResponse(response);
                 
+                // 다음 턴을 위한 생존 선택지 설정
+                this.setSurvivalChoiceForNextTurn(threadId);
+                
                 console.log(`[${LOG_HEADER}] Message processed and cleaned`);
                 return response;
             }
@@ -144,6 +121,81 @@ Discoveries: [발견한 정보]
         }
     }
 
+    // 생존 보장 확인
+    checkSurvivalGuarantee(threadId, selectedChoice) {
+        const survivalChoice = this.survivalChoices.get(threadId);
+        
+        if (survivalChoice && selectedChoice === survivalChoice.toString()) {
+            console.log(`[SURVIVAL_GUARANTEE] Choice ${selectedChoice} is guaranteed survival for thread ${threadId}`);
+            // 사용된 생존 선택지 제거
+            this.survivalChoices.delete(threadId);
+            return true;
+        }
+        
+        return false;
+    }
+
+    // 다음 턴을 위한 생존 선택지 설정 (1-4 중 랜덤)
+    setSurvivalChoiceForNextTurn(threadId) {
+        const survivalChoice = Math.floor(Math.random() * 4) + 1; // 1, 2, 3, 4 중 랜덤
+        this.survivalChoices.set(threadId, survivalChoice);
+        console.log(`[SURVIVAL_GUARANTEE] Next survival choice for thread ${threadId}: ${survivalChoice}`);
+    }
+
+    // 게임 지침 생성 (생존 보장 포함)
+    generateGameInstructions(selectedChoice, guaranteedSurvival) {
+        const baseInstructions = `[로그라이크 게임 마스터 지침]
+
+**선택 ${selectedChoice}번 처리:**
+1. 선택한 행동을 실행합니다
+2. 턴을 1 증가시킵니다
+3. 턴별 위험도를 적용합니다:
+   - 1-3턴: 60% 즉사율
+   - 4-6턴: 70% 즉사율  
+   - 7-10턴: 80% 즉사율
+   - 11턴+: 50% 즉사율 (탈출 기회)
+
+**응답 형식 (필수):**
+[던전 상황 설명 - 위험 요소 포함]
+
+STATS
+===============================================
+Turn: [현재 턴]
+Location: [위치 정보]
+Time: [경과 시간]
+Discoveries: [발견한 정보]
+===============================================
+
+↑ [행동]
+↓ [행동]  
+← [행동]
+→ [행동]
+
+**핵심 규칙:**
+- 체력 없음: 즉사 OR 생존
+- 잘못된 선택 시 즉시 사망
+- 아이템 발견 시 즉시 사용 후 소멸
+- 11턴 후 탈출 기회 제공
+- 위험도에 따른 즉사 확률 적용`;
+
+        // 생존 보장이 있는 경우 특별 지침 추가
+        if (guaranteedSurvival) {
+            return baseInstructions + `
+
+**🛡️ 특별 지침: 이번 선택은 반드시 생존해야 합니다.**
+- 선택한 행동이 성공적으로 실행됩니다
+- 위험한 상황이 있어도 운 좋게 피하거나 극복합니다
+- 사망하지 않고 다음 상황으로 진행합니다
+- 하지만 여전히 긴장감 있는 상황을 만들어주세요
+
+즉사 조건이 있어도 이번에는 생존시키고, 다음 턴의 선택지를 제시하세요.`;
+        }
+
+        return baseInstructions + `
+
+즉사 조건 충족 시 "당신은 죽었습니다"로 시작하여 사망 원인을 설명하세요.`;
+    }
+
     // 응답 정리 함수
     cleanResponse(response) {
         const LOG_HEADER = "CHAT_SERVICE/CLEAN_RESPONSE";
@@ -153,6 +205,7 @@ Discoveries: [발견한 정보]
         // 1. 불필요한 메타 정보 제거
         cleanedResponse = cleanedResponse.replace(/\[게임 마스터[^\]]*\]/g, '');
         cleanedResponse = cleanedResponse.replace(/\[시스템[^\]]*\]/g, '');
+        cleanedResponse = cleanedResponse.replace(/\[🛡️[^\]]*\]/g, ''); // 생존 보장 메시지 제거
         
         // 2. 구분선 정리
         cleanedResponse = cleanedResponse.replace(/={10,}/g, '===============================================');
@@ -214,8 +267,8 @@ Discoveries: [발견한 정보]
                 const discoveryMatch = statsContent.match(discoveryPattern);
                 if (discoveryMatch) {
                     const discoveryText = discoveryMatch[1].trim();
-                    if (discoveryText !== '없음' && discoveryText !== 'None') {
-                        gameState.discoveries = discoveryText.split(',').map(d => d.trim());
+                    if (discoveryText !== '없음' && discoveryText !== 'None' && discoveryText !== '') {
+                        gameState.discoveries = discoveryText.split(',').map(d => d.trim()).filter(d => d);
                     }
                 }
             }
@@ -244,6 +297,7 @@ Discoveries: [발견한 정보]
 - 턴 기반: 각 선택마다 턴 증가
 - 위험도: 1-10턴 극도 위험, 11턴+ 탈출 기회
 - 즉시 사용 아이템: 발견 시 자동 사용 후 소멸
+- **생존 보장**: 매 턴마다 4개 선택지 중 1개는 반드시 생존 가능
 
 **위험도 시스템:**
 - 1-3턴: 60% 즉사율 (함정, 추락)
@@ -272,11 +326,15 @@ Discoveries: [발견 정보]
 2. 아이템 발견 시 즉시 사용
 3. 11턴 후 탈출 루트 제공
 4. 사망 시 "당신은 죽었습니다" 명시
+5. **매 턴 4개 선택지 중 1개는 반드시 생존 가능하게 설계**
 
 게임을 시작하세요.`
             });
 
             console.log(`[${LOG_HEADER}] System initialized`);
+            
+            // 첫 턴을 위한 생존 선택지 설정
+            this.setSurvivalChoiceForNextTurn(threadId);
             
             try {
                 return await this.sendMessage(threadId, assistantId, "게임을 시작합니다.");
@@ -421,9 +479,13 @@ Discoveries: [발견 정보]
 - 턴별 위험도 적용
 - 아이템 즉시 사용
 - 11턴+ 탈출 기회
+- **매 턴 4개 선택지 중 1개는 반드시 생존 가능**
 
 게임을 이어서 진행하세요.`
             });
+
+            // 재개된 게임을 위한 생존 선택지 설정
+            this.setSurvivalChoiceForNextTurn(threadId);
 
             const run = await openai.beta.threads.runs.create(threadId, {
                 assistant_id: assistantId
