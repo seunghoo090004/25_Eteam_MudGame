@@ -1,4 +1,4 @@
-// public/javascripts/ui.js - 로그라이크 엔딩 시스템
+// public/javascripts/ui.js - 로그라이크 엔딩 시스템 (수정됨)
 
 const GameUI = (function() {
     function initialize() {
@@ -203,7 +203,7 @@ const GameUI = (function() {
         $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
     }
     
-    // 엔딩 처리
+    // 엔딩 처리 (수정됨 - 누적 사망 횟수 계산)
     async function handleGameEnding(endingCondition, aiResponse) {
         const currentGameId = GameState.getCurrentGameId();
         const gameData = GameState.getGameData();
@@ -211,15 +211,29 @@ const GameUI = (function() {
         try {
             showLoading('엔딩을 처리하는 중...');
             
+            // 현재 사용자의 총 사망 횟수 가져오기
+            const gameListResponse = await GameAPI.game.ending.list();
+            let totalDeaths = 0;
+            
+            if (gameListResponse.code === "result") {
+                // 기존 사망 게임 수 계산
+                const deathGames = gameListResponse.value_ext2.endings.filter(
+                    ending => ending.ending_type === 'death'
+                ).length;
+                
+                // 현재 게임이 사망이면 +1
+                totalDeaths = endingCondition.type === 'death' ? deathGames + 1 : deathGames;
+            }
+            
             // 엔딩 스토리 생성
-            let endingStory = generateEndingStory(endingCondition, gameData, aiResponse);
+            let endingStory = generateEndingStory(endingCondition, gameData, aiResponse, totalDeaths);
             
             const endingData = {
                 ending_type: endingCondition.type,
                 final_turn: endingCondition.final_turn,
-                total_deaths: endingCondition.total_deaths,
-                discoveries: endingCondition.discoveries,
-                discoveries_count: endingCondition.discoveries_count,
+                total_deaths: totalDeaths,
+                discoveries: [], // 발견 정보 제거
+                discoveries_count: 0, // 발견 정보 제거
                 cause_of_death: endingCondition.cause || null,
                 ending_story: endingStory,
                 completed_at: new Date().toISOString()
@@ -247,19 +261,16 @@ const GameUI = (function() {
         }
     }
     
-    // 엔딩 스토리 생성
-    function generateEndingStory(endingCondition, gameData, aiResponse) {
+    // 엔딩 스토리 생성 (수정됨 - 발견 정보 제거, 누적 사망 횟수 사용)
+    function generateEndingStory(endingCondition, gameData, aiResponse, totalDeaths) {
         const turn = endingCondition.final_turn;
-        const deaths = endingCondition.total_deaths;
-        const discoveries = endingCondition.discoveries_count;
         
         let story = '';
         
         if (endingCondition.type === 'death') {
             story = `던전의 어둠 속에서 ${turn}턴 만에 생을 마감했습니다.\n\n`;
             story += `사망 원인: ${endingCondition.cause}\n`;
-            story += `총 사망 횟수: ${deaths}회\n`;
-            story += `발견한 정보: ${discoveries}개\n\n`;
+            story += `총 사망 횟수: ${totalDeaths}회\n\n`;
             
             if (turn <= 3) {
                 story += "초반 함정에 걸려 빠른 죽음을 맞이했습니다.";
@@ -273,12 +284,11 @@ const GameUI = (function() {
         } else if (endingCondition.type === 'escape') {
             story = `축하합니다! ${turn}턴 만에 던전 탈출에 성공했습니다!\n\n`;
             story += `최종 턴: ${turn}턴\n`;
-            story += `총 사망 횟수: ${deaths}회\n`;
-            story += `발견한 정보: ${discoveries}개\n\n`;
+            story += `총 사망 횟수: ${totalDeaths}회\n\n`;
             
-            if (deaths === 0) {
+            if (totalDeaths === 0) {
                 story += "완벽한 플레이! 전설적인 모험가입니다.";
-            } else if (deaths <= 2) {
+            } else if (totalDeaths <= 2) {
                 story += "최소한의 희생으로 탈출에 성공했습니다.";
             } else {
                 story += "수많은 시행착오를 거쳐 마침내 탈출했습니다.";
@@ -288,7 +298,7 @@ const GameUI = (function() {
         return story;
     }
     
-    // 엔딩 화면 표시
+    // 엔딩 화면 표시 (수정됨 - 발견 정보 제거)
     function showEndingScreen(endingData, aiResponse) {
         $('#chatbox').empty();
         
@@ -312,7 +322,6 @@ const GameUI = (function() {
                     <h4>게임 통계</h4>
                     <p><strong>최종 턴:</strong> ${endingData.final_turn}턴</p>
                     <p><strong>총 사망 횟수:</strong> ${endingData.total_deaths}회</p>
-                    <p><strong>발견한 정보:</strong> ${endingData.discoveries_count}개</p>
                     ${endingData.cause_of_death ? `<p><strong>사망 원인:</strong> ${endingData.cause_of_death}</p>` : ''}
                 </div>
                 
@@ -583,6 +592,7 @@ const GameUI = (function() {
         }
     }
     
+    // 게임 목록 로드 (수정됨 - 사망 횟수 및 턴 정보 개선)
     async function loadGamesList(forceRefresh = false) {
         try {
             if (forceRefresh) {
@@ -591,10 +601,20 @@ const GameUI = (function() {
                 savedGamesList.append('<p>게임 목록 업데이트 중...</p>');
             }
             
+            // 현재 사용자의 총 사망 횟수 가져오기
+            const endingsResponse = await GameAPI.game.ending.list();
+            let totalUserDeaths = 0;
+            
+            if (endingsResponse.code === "result") {
+                totalUserDeaths = endingsResponse.value_ext2.endings.filter(
+                    ending => ending.ending_type === 'death'
+                ).length;
+            }
+            
             const response = await GameAPI.game.list();
             
             if (response.code === "result" && response.value >= 0) {
-                handleGamesListSuccess(response.value_ext2.games, forceRefresh);
+                handleGamesListSuccess(response.value_ext2.games, forceRefresh, totalUserDeaths);
             }
         } catch (error) {
             console.error('게임 목록 로드 오류:', error);
@@ -602,7 +622,8 @@ const GameUI = (function() {
         }
     }
     
-    function handleGamesListSuccess(games, forceRefresh = false) {
+    // 게임 목록 성공 처리 (수정됨)
+    function handleGamesListSuccess(games, forceRefresh = false, totalUserDeaths = 0) {
         const savedGamesList = $('#saved_games_list');
         savedGamesList.empty();
 
@@ -615,13 +636,10 @@ const GameUI = (function() {
             const gameDate = new Date(game.last_updated).toLocaleString();
             const gameData = game.game_data || {};
             const location = gameData.location || {};
-            const progress = gameData.progress || {};
             
             const currentLocation = location.current || "알 수 없음";
             const turnCount = gameData.turn_count || 1;
-            const deathCount = gameData.death_count || 0;
             const gameMode = gameData.game_mode || 'legacy';
-            const discoveries = (gameData.discoveries || []).length;
             
             const isCurrentGame = (game.game_id === GameState.getCurrentGameId());
             const highlightClass = isCurrentGame ? 'current-game' : '';
@@ -632,7 +650,7 @@ const GameUI = (function() {
                     <span><strong>${modeIcon} ${gameMode === 'roguelike' ? '로그라이크' : '레거시'}</strong></span>
                     <span><strong>저장:</strong> ${gameDate}</span>
                     <span class="location-info"><strong>위치:</strong> ${currentLocation}</span>
-                    <span>🔢 ${turnCount}턴 💀 ${deathCount}회 🔍 ${discoveries}개</span>
+                    <span>🔢 ${turnCount}턴 💀 ${totalUserDeaths}회</span>
                     <div class="game-actions">
                         <button class="btn btn-primary" onclick="loadGame('${game.game_id}')">불러오기</button>
                         <button class="btn btn-danger" onclick="deleteGame('${game.game_id}')" style="margin-left: 5px;">삭제</button>

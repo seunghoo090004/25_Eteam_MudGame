@@ -129,27 +129,6 @@
             border-left: 4px solid #007bff;
         }
 
-        .discoveries-section {
-            background: #e9ecef;
-            padding: 20px;
-            border-radius: 10px;
-            margin: 20px 0;
-        }
-
-        .discoveries-section h4 {
-            margin-top: 0;
-            color: #495057;
-        }
-
-        .discovery-item {
-            background: white;
-            padding: 8px 12px;
-            margin: 5px 0;
-            border-radius: 5px;
-            border-left: 3px solid #28a745;
-            font-size: 0.95rem;
-        }
-
         .action-buttons {
             display: flex;
             justify-content: center;
@@ -452,7 +431,7 @@
                                 <span class="ending-item-date">${formatDate(ending.completed_at)}</span>
                             </div>
                             <div class="ending-item-stats">
-                                턴: ${ending.final_turn} | 사망: ${ending.total_deaths}회 | 발견: ${ending.discoveries_count}개
+                                턴: ${ending.final_turn} | 사망: ${ending.total_deaths}회
                             </div>
                         </div>
                     `;
@@ -549,7 +528,6 @@
                 const endingData = ending;
                 const endingType = endingData.ending_type || 'quit';
                 const endingTypeText = getEndingTypeText(endingType);
-                const discoveries = endingData.discoveries || [];
                 
                 // 게임 요약 생성
                 const gameSummary = generateGameSummary(endingData);
@@ -573,10 +551,6 @@
                             <span class="stat-label">총 사망 횟수</span>
                         </div>
                         <div class="stat-card">
-                            <span class="stat-number">${endingData.discoveries_count || 0}</span>
-                            <span class="stat-label">발견한 정보</span>
-                        </div>
-                        <div class="stat-card">
                             <span class="stat-number">${formatDate(ending.completed_at)}</span>
                             <span class="stat-label">완료 시간</span>
                         </div>
@@ -594,15 +568,6 @@
                             ${gameSummary}
                         </div>
                     </div>
-
-                    ${discoveries.length > 0 ? `
-                        <div class="discoveries-section">
-                            <h4>🔍 발견한 정보들</h4>
-                            ${discoveries.map(discovery => `
-                                <div class="discovery-item">${discovery}</div>
-                            `).join('')}
-                        </div>
-                    ` : ''}
 
                     <div class="action-buttons">
                         <a href="/" class="btn btn-primary">새 게임 시작</a>
@@ -637,11 +602,10 @@
             }
         }
 
-        // 게임 요약 생성 함수
+        // 게임 요약 생성 함수 (수정됨 - 발견 정보 제거)
         function generateGameSummary(endingData) {
             const turn = endingData.final_turn || 0;
             const deaths = endingData.total_deaths || 0;
-            const discoveries = endingData.discoveries_count || 0;
             
             let summary = `${turn}턴 동안 진행된 로그라이크 던전 탈출 게임`;
             
@@ -653,11 +617,7 @@
                 summary += ` - ${deaths}번의 죽음을 통해 경험을 쌓으며 도전`;
             }
             
-            if (discoveries > 0) {
-                summary += `. ${discoveries}개의 정보를 발견하며 던전의 비밀에 다가감`;
-            } else {
-                summary += ". 위험한 던전에서 생존에만 집중";
-            }
+            summary += ". 위험한 던전에서 생존에만 집중";
             
             if (endingData.ending_type === 'death') {
                 if (turn <= 3) {

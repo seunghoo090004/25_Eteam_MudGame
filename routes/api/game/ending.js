@@ -62,6 +62,20 @@ router.post('/', async(req, res) => {
         return res.status(ret_status).json(ret_data);
 
     try {
+        // 현재 사용자의 총 사망 횟수 계산
+        const [deathCount] = await connection.query(
+            'SELECT COUNT(*) as count FROM game_endings WHERE user_id = ? AND ending_type = "death"',
+            [req_user_id]
+        );
+        
+        const currentDeathCount = deathCount[0].count;
+        
+        // 현재 게임이 사망이면 +1
+        const totalDeaths = req_ending_data.ending_type === 'death' ? currentDeathCount + 1 : currentDeathCount;
+        
+        // 엔딩 데이터에 누적 사망 횟수 반영
+        req_ending_data.total_deaths = totalDeaths;
+
         // game_state 테이블 업데이트 (완료 상태로 변경)
         await connection.query(
             `UPDATE game_state 
@@ -87,8 +101,8 @@ router.post('/', async(req, res) => {
                 req_user_id,
                 req_ending_data.ending_type,
                 req_ending_data.final_turn || 1,
-                req_ending_data.total_deaths || 0,
-                req_ending_data.discoveries_count || 0,
+                totalDeaths,
+                0, // 발견 정보 제거
                 req_ending_data.ending_story || "게임이 종료되었습니다.",
                 req_ending_data.cause_of_death || null,
                 gameSummary,
@@ -218,7 +232,7 @@ router.get('/:game_id', async(req, res) => {
                 ending_type: endingRecord.ending_type,
                 final_turn: endingRecord.final_turn,
                 total_deaths: endingRecord.total_deaths,
-                discoveries_count: endingRecord.discoveries_count,
+                discoveries_count: 0, // 발견 정보 제거
                 ending_story: endingRecord.ending_story,
                 cause_of_death: endingRecord.cause_of_death,
                 game_summary: endingRecord.game_summary,
@@ -281,6 +295,8 @@ router.get('/:game_id', async(req, res) => {
                 game_id: req_game_id,
                 ...parsedEndingData,
                 game_data: parsedGameData,
+                total_deaths: gameData.total_deaths, // DB에서 가져온 누적 사망 횟수
+                discoveries_count: 0, // 발견 정보 제거
                 created_at: gameData.created_at,
                 completed_at: gameData.ending_created_at || gameData.last_updated,
                 is_deleted_game: false
@@ -401,7 +417,7 @@ router.get('/', async(req, res) => {
             ending_type: ending.ending_type,
             final_turn: ending.final_turn,
             total_deaths: ending.total_deaths,
-            discoveries_count: ending.discoveries_count,
+            discoveries_count: 0, // 발견 정보 제거
             ending_story: ending.ending_story,
             game_summary: ending.game_summary,
             location_info: ending.location_info,
@@ -456,11 +472,10 @@ router.get('/', async(req, res) => {
     return res.status(ret_status).json(ret_data);
 });
 
-// 게임 요약 생성 함수
+// 게임 요약 생성 함수 (발견 정보 제거)
 function generateGameSummary(endingData) {
     const turn = endingData.final_turn || 0;
     const deaths = endingData.total_deaths || 0;
-    const discoveries = endingData.discoveries_count || 0;
     
     let summary = `${turn}턴 동안 진행된 로그라이크 던전 탈출 게임`;
     
@@ -472,11 +487,7 @@ function generateGameSummary(endingData) {
         summary += ` - ${deaths}번의 죽음을 통해 경험을 쌓으며 도전`;
     }
     
-    if (discoveries > 0) {
-        summary += `. ${discoveries}개의 정보를 발견하며 던전의 비밀에 다가감`;
-    } else {
-        summary += ". 위험한 던전에서 생존에만 집중";
-    }
+    summary += ". 위험한 던전에서 생존에만 집중";
     
     if (endingData.ending_type === 'death') {
         if (turn <= 3) {

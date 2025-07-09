@@ -1,4 +1,4 @@
-// public/javascripts/gameState.js - 로그라이크 버전
+// public/javascripts/gameState.js - 로그라이크 버전 (수정됨 - 발견 정보 제거)
 
 const GameState = (function() {
     let currentGameId = null;
@@ -66,19 +66,6 @@ const GameState = (function() {
         }
     }
     
-    // 발견 정보 추가
-    function addDiscovery(discovery) {
-        if (gameData && discovery) {
-            if (!gameData.discoveries) {
-                gameData.discoveries = [];
-            }
-            if (!gameData.discoveries.includes(discovery)) {
-                gameData.discoveries.push(discovery);
-                console.log('Discovery added:', discovery);
-            }
-        }
-    }
-    
     // 위치 업데이트
     function updateLocation(newLocation) {
         if (gameData && newLocation) {
@@ -88,14 +75,13 @@ const GameState = (function() {
         }
     }
     
-    // 로그라이크 응답에서 상태 파싱
+    // 로그라이크 응답에서 상태 파싱 (수정됨 - 발견 정보 제거)
     function parseStatsFromResponse(response) {
         if (!response) return null;
         
         const gameState = {
             turn_count: null,
             location: { current: null },
-            discoveries: [],
             is_death: false
         };
         
@@ -132,16 +118,6 @@ const GameState = (function() {
                 if (locationMatch) {
                     gameState.location.current = locationMatch[1].trim();
                 }
-                
-                // 발견 정보
-                const discoveryPattern = /Discoveries:\s*([^\n]+)/;
-                const discoveryMatch = statsContent.match(discoveryPattern);
-                if (discoveryMatch) {
-                    const discoveryText = discoveryMatch[1].trim();
-                    if (discoveryText !== '없음' && discoveryText !== 'None' && discoveryText !== '') {
-                        gameState.discoveries = discoveryText.split(',').map(d => d.trim()).filter(d => d);
-                    }
-                }
             }
             
             console.log('Parsed game state:', gameState);
@@ -153,7 +129,7 @@ const GameState = (function() {
         }
     }
     
-    // 게임 상태 업데이트
+    // 게임 상태 업데이트 (수정됨 - 발견 정보 제거)
     function updateGameStateFromParsing(parsedState) {
         if (!gameData || !parsedState) return false;
         
@@ -178,23 +154,10 @@ const GameState = (function() {
             }
         }
         
-        // 발견 정보 업데이트
-        if (parsedState.discoveries && parsedState.discoveries.length > 0) {
-            if (!gameData.discoveries) gameData.discoveries = [];
-            
-            parsedState.discoveries.forEach(discovery => {
-                if (!gameData.discoveries.includes(discovery)) {
-                    gameData.discoveries.push(discovery);
-                    updated = true;
-                    console.log('Discovery added:', discovery);
-                }
-            });
-        }
-        
         return updated;
     }
     
-    // 엔딩 조건 체크
+    // 엔딩 조건 체크 (수정됨 - 발견 정보 제거)
     function checkEndingConditions(response) {
         if (!response || !gameData) return null;
         
@@ -212,8 +175,8 @@ const GameState = (function() {
                 cause: deathCause,
                 final_turn: gameData.turn_count || 1,
                 total_deaths: (gameData.death_count || 0) + 1,
-                discoveries: gameData.discoveries || [],
-                discoveries_count: (gameData.discoveries || []).length
+                discoveries: [], // 발견 정보 제거
+                discoveries_count: 0 // 발견 정보 제거
             };
         }
         
@@ -230,8 +193,8 @@ const GameState = (function() {
                     cause: null,
                     final_turn: gameData.turn_count || 1,
                     total_deaths: gameData.death_count || 0,
-                    discoveries: gameData.discoveries || [],
-                    discoveries_count: (gameData.discoveries || []).length
+                    discoveries: [], // 발견 정보 제거
+                    discoveries_count: 0 // 발견 정보 제거
                 };
             }
         }
@@ -301,7 +264,6 @@ const GameState = (function() {
         clearNewGameFlag: clearNewGameFlag,
         incrementTurn: incrementTurn,
         incrementDeathCount: incrementDeathCount,
-        addDiscovery: addDiscovery,
         updateLocation: updateLocation,
         parseStatsFromResponse: parseStatsFromResponse,
         updateGameStateFromParsing: updateGameStateFromParsing,
