@@ -376,14 +376,14 @@
 
                 let endingsHtml = '<h3>🏆 모든 엔딩 기록</h3><div class="endings-list">';
                 
-                endings.forEach(ending => {
+                endings.forEach((ending, index) => {
                     const typeIcon = getEndingIcon(ending.ending_type);
                     const typeText = getEndingTypeText(ending.ending_type);
                     
                     endingsHtml += `
-                        <div class="ending-item ${ending.ending_type}" onclick="viewEndingDetail('${ending.game_id}')">
+                        <div class="ending-item ${ending.ending_type}" onclick="viewEndingDetail('${ending.game_id || ending.id}')">
                             <div class="ending-item-header">
-                                <span class="ending-item-type">${typeIcon} ${typeText}</span>
+                                <span class="ending-item-type">${typeIcon} ${typeText} #${index + 1}</span>
                                 <span class="ending-item-date">${formatDate(ending.completed_at)}</span>
                             </div>
                             <div class="ending-item-stats">

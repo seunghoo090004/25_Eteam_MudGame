@@ -72,11 +72,16 @@ router.post('/', async(req, res) => {
             [JSON.stringify(req_ending_data), req_game_id, req_user_id]
         );
 
-        // game_endings 테이블에 기록
+        // game_endings 테이블에 완전한 정보 기록
+        const gameSummary = generateGameSummary(req_ending_data);
+        const locationInfo = req_ending_data.game_data?.location?.current || "알 수 없음";
+        const playDuration = Math.floor((new Date() - new Date(req_ending_data.game_started || Date.now())) / (1000 * 60));
+        
         await connection.query(
             `INSERT INTO game_endings 
-            (game_id, user_id, ending_type, final_turn, total_deaths, discoveries_count, ending_story)
-            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            (game_id, user_id, ending_type, final_turn, total_deaths, discoveries_count, 
+             ending_story, cause_of_death, game_summary, location_info, play_duration)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 req_game_id,
                 req_user_id,
@@ -84,7 +89,11 @@ router.post('/', async(req, res) => {
                 req_ending_data.final_turn || 1,
                 req_ending_data.total_deaths || 0,
                 req_ending_data.discoveries_count || 0,
-                req_ending_data.ending_story || "게임이 종료되었습니다."
+                req_ending_data.ending_story || "게임이 종료되었습니다.",
+                req_ending_data.cause_of_death || null,
+                gameSummary,
+                locationInfo,
+                playDuration
             ]
         );
 
@@ -176,43 +185,16 @@ router.get('/:game_id', async(req, res) => {
 
     let ending_data = null;
     try {
-        // 먼저 게임이 완료되었는지 확인
-        const [gameCheck] = await connection.query(
-            `SELECT is_completed, ending_data, game_data, created_at, last_updated
-            FROM game_state 
-            WHERE game_id = ? AND user_id = ?`,
-            [req_game_id, req_user_id]
-        );
-
-        if (gameCheck.length === 0) {
-            throw "Game not found or unauthorized";
-        }
-
-        const game = gameCheck[0];
-        
-        // 게임이 완료되지 않은 경우
-        if (!game.is_completed) {
-            ret_status = 404;
-            ret_data = {
-                code: "game_not_completed",
-                value: 0,
-                value_ext1: ret_status,
-                value_ext2: "게임이 아직 완료되지 않았습니다. 게임을 끝까지 진행해주세요.",
-                EXT_data,
-            };
-            connection.release();
-            console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
-            return res.status(ret_status).json(ret_data);
-        }
-
-        // 엔딩 데이터 조회 (수정된 부분)
+        // 엔딩 데이터 조회 (수정된 부분 - 삭제된 게임도 조회 가능)
         const [games] = await connection.query(
             `SELECT gs.ending_data, gs.game_data, gs.created_at, gs.last_updated,
                     ge.ending_type, ge.final_turn, ge.total_deaths, 
-                    ge.discoveries_count, ge.ending_story, ge.created_at as ending_created_at
-            FROM game_state gs
-            LEFT JOIN game_endings ge ON gs.game_id = ge.game_id
-            WHERE gs.game_id = ? AND gs.user_id = ? AND gs.is_completed = TRUE`,
+                    ge.discoveries_count, ge.ending_story, ge.cause_of_death,
+                    ge.game_summary, ge.location_info, ge.play_duration,
+                    ge.created_at as ending_created_at
+            FROM game_endings ge
+            LEFT JOIN game_state gs ON ge.game_id = gs.game_id
+            WHERE ge.game_id = ? AND ge.user_id = ?`,
             [req_game_id, req_user_id]
         );
 
@@ -222,45 +204,64 @@ router.get('/:game_id', async(req, res) => {
 
         const gameData = games[0];
         
-        // 엔딩 데이터 파싱 및 구조화 (수정된 부분)
-        let parsedEndingData = {};
-        if (gameData.ending_data) {
-            // MySQL2가 자동으로 JSON을 파싱하므로 타입 체크 후 처리
-            if (typeof gameData.ending_data === 'string') {
-                try {
-                    parsedEndingData = JSON.parse(gameData.ending_data);
-                } catch (parseError) {
-                    console.error("Error parsing ending_data string:", parseError);
-                    parsedEndingData = {};
+        // 삭제된 게임인지 확인
+        const isDeletedGame = !gameData.ending_data;
+        
+        if (isDeletedGame) {
+            // 삭제된 게임 - game_endings 테이블 데이터만 사용
+            ending_data = {
+                game_id: req_game_id,
+                ending_type: gameData.ending_type,
+                final_turn: gameData.final_turn,
+                total_deaths: gameData.total_deaths,
+                discoveries_count: gameData.discoveries_count,
+                ending_story: gameData.ending_story,
+                cause_of_death: gameData.cause_of_death,
+                game_summary: gameData.game_summary,
+                location_info: gameData.location_info,
+                play_duration: gameData.play_duration,
+                completed_at: gameData.ending_created_at,
+                is_deleted_game: true
+            };
+        } else {
+            // 기존 로직 유지
+            let parsedEndingData = {};
+            if (gameData.ending_data) {
+                if (typeof gameData.ending_data === 'string') {
+                    try {
+                        parsedEndingData = JSON.parse(gameData.ending_data);
+                    } catch (parseError) {
+                        console.error("Error parsing ending_data string:", parseError);
+                        parsedEndingData = {};
+                    }
+                } else if (typeof gameData.ending_data === 'object') {
+                    parsedEndingData = gameData.ending_data;
                 }
-            } else if (typeof gameData.ending_data === 'object') {
-                parsedEndingData = gameData.ending_data;
             }
-        }
 
-        // 게임 데이터도 동일하게 처리
-        let parsedGameData = null;
-        if (gameData.game_data) {
-            if (typeof gameData.game_data === 'string') {
-                try {
-                    parsedGameData = JSON.parse(gameData.game_data);
-                } catch (parseError) {
-                    console.error("Error parsing game_data string:", parseError);
-                    parsedGameData = null;
+            let parsedGameData = null;
+            if (gameData.game_data) {
+                if (typeof gameData.game_data === 'string') {
+                    try {
+                        parsedGameData = JSON.parse(gameData.game_data);
+                    } catch (parseError) {
+                        console.error("Error parsing game_data string:", parseError);
+                        parsedGameData = null;
+                    }
+                } else if (typeof gameData.game_data === 'object') {
+                    parsedGameData = gameData.game_data;
                 }
-            } else if (typeof gameData.game_data === 'object') {
-                parsedGameData = gameData.game_data;
             }
-        }
 
-        // 단순화된 구조로 반환
-        ending_data = {
-            game_id: req_game_id,
-            ...parsedEndingData,  // ending_data의 내용을 직접 전개
-            game_data: parsedGameData,
-            created_at: gameData.created_at,
-            completed_at: gameData.ending_created_at || gameData.last_updated
-        };
+            ending_data = {
+                game_id: req_game_id,
+                ...parsedEndingData,
+                game_data: parsedGameData,
+                created_at: gameData.created_at,
+                completed_at: gameData.ending_created_at || gameData.last_updated,
+                is_deleted_game: false
+            };
+        }
 
     } catch (e) {
         ret_status = fail_status + -1 * catch_query;
@@ -345,9 +346,8 @@ router.get('/', async(req, res) => {
     let endings_list = [];
     try {
         const [endings] = await connection.query(
-            `SELECT ge.*, gs.created_at as game_started
+            `SELECT ge.*, COALESCE(ge.game_id, CONCAT('deleted_', ge.id)) as display_id
             FROM game_endings ge
-            JOIN game_state gs ON ge.game_id = gs.game_id
             WHERE ge.user_id = ?
             ORDER BY ge.created_at DESC`,
             [req_user_id]
@@ -355,14 +355,17 @@ router.get('/', async(req, res) => {
 
         endings_list = endings.map(ending => ({
             id: ending.id,
-            game_id: ending.game_id,
+            game_id: ending.display_id,
             ending_type: ending.ending_type,
             final_turn: ending.final_turn,
             total_deaths: ending.total_deaths,
             discoveries_count: ending.discoveries_count,
             ending_story: ending.ending_story,
-            game_started: ending.game_started,
-            completed_at: ending.created_at
+            game_summary: ending.game_summary,
+            location_info: ending.location_info,
+            play_duration: ending.play_duration,
+            completed_at: ending.created_at,
+            is_deleted: !ending.game_id
         }));
 
     } catch (e) {
@@ -396,5 +399,42 @@ router.get('/', async(req, res) => {
 
     return res.status(ret_status).json(ret_data);
 });
+
+// 게임 요약 생성 함수
+function generateGameSummary(endingData) {
+    const turn = endingData.final_turn || 0;
+    const deaths = endingData.total_deaths || 0;
+    const discoveries = endingData.discoveries_count || 0;
+    
+    let summary = `${turn}턴 동안 진행된 로그라이크 던전 탈출 게임`;
+    
+    if (deaths === 0) {
+        summary += " - 완벽한 플레이로 한 번도 죽지 않고 도전";
+    } else if (deaths <= 2) {
+        summary += ` - ${deaths}번의 죽음을 딛고 도전`;
+    } else {
+        summary += ` - ${deaths}번의 죽음을 통해 경험을 쌓으며 도전`;
+    }
+    
+    if (discoveries > 0) {
+        summary += `. ${discoveries}개의 정보를 발견하며 던전의 비밀에 다가감`;
+    } else {
+        summary += ". 위험한 던전에서 생존에만 집중";
+    }
+    
+    if (endingData.ending_type === 'death') {
+        if (turn <= 3) {
+            summary += ". 초반 함정의 위험성을 몸소 체험";
+        } else if (turn <= 6) {
+            summary += ". 중반까지의 생존력을 보였으나 던전의 위험을 극복하지 못함";
+        } else {
+            summary += ". 후반까지 생존한 놀라운 적응력을 보임";
+        }
+    } else if (endingData.ending_type === 'escape') {
+        summary += ". 불가능에 가까운 던전 탈출에 성공한 전설적인 모험";
+    }
+    
+    return summary + ".";
+}
 
 module.exports = router;

@@ -1,4 +1,4 @@
-// routes/socket/handlers/chat.js - 수정된 버전 (undefined 에러 해결)
+// routes/socket/handlers/chat.js - 수정된 버전 (사망 카운터 포함)
 
 const gameService = require('../services/game');
 const chatService = require('../services/chat');
@@ -75,7 +75,7 @@ const chatHandler = (io, socket) => {
                     });
                 }
                 
-                // 사망 처리
+                // 사망 처리 (수정된 부분)
                 if (parsedState.is_death) {
                     // 사망 카운트 증가
                     updatedGameData.death_count = (updatedGameData.death_count || 0) + 1;
@@ -84,6 +84,9 @@ const chatHandler = (io, socket) => {
                     if (parsedState.death_cause) {
                         updatedGameData.last_death_cause = parsedState.death_cause;
                     }
+                    
+                    console.log(`[${LOG_HEADER}] Death detected - Count increased to: ${updatedGameData.death_count}`);
+                    console.log(`[${LOG_HEADER}] Death cause: ${parsedState.death_cause || 'Unknown'}`);
                 }
                 
                 // 시간 업데이트 (게임 내 시간)
