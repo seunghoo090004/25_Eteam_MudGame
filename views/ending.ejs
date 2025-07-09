@@ -406,7 +406,8 @@
                     });
 
                     if (response.data.code === "result" && response.data.value === 1) {
-                        displayEnding(response.data.value_ext2.ending);
+                        // 수정: response.data.value_ext2.ending → response.data.value_ext2
+                        displayEnding(response.data.value_ext2);
                     } else {
                         throw new Error(response.data.value_ext2 || '엔딩 데이터를 찾을 수 없습니다.');
                     }
