@@ -123,7 +123,7 @@ router.post('/', async(req, res) => {
 });
 
 //========================================================================
-// GET /api/game/ending/:game_id - 엔딩 데이터 조회
+// GET /api/game/ending/:game_id - 엔딩 데이터 조회 (수정됨)
 //========================================================================
 router.get('/:game_id', async(req, res) => {
     const LOG_FAIL_HEADER = "[FAIL]";
@@ -205,7 +205,7 @@ router.get('/:game_id', async(req, res) => {
             return res.status(ret_status).json(ret_data);
         }
 
-        // 엔딩 데이터 조회
+        // 엔딩 데이터 조회 (수정된 부분)
         const [games] = await connection.query(
             `SELECT gs.ending_data, gs.game_data, gs.created_at, gs.last_updated,
                     ge.ending_type, ge.final_turn, ge.total_deaths, 
@@ -221,15 +221,23 @@ router.get('/:game_id', async(req, res) => {
         }
 
         const gameData = games[0];
+        
+        // 엔딩 데이터 파싱 및 구조화 (수정된 부분)
+        let parsedEndingData = {};
+        if (gameData.ending_data) {
+            try {
+                parsedEndingData = JSON.parse(gameData.ending_data);
+            } catch (parseError) {
+                console.error("Error parsing ending_data:", parseError);
+                parsedEndingData = {};
+            }
+        }
+
+        // 단순화된 구조로 반환
         ending_data = {
             game_id: req_game_id,
-            ending_data: gameData.ending_data ? JSON.parse(gameData.ending_data) : null,
+            ...parsedEndingData,  // ending_data의 내용을 직접 전개
             game_data: gameData.game_data ? JSON.parse(gameData.game_data) : null,
-            ending_type: gameData.ending_type,
-            final_turn: gameData.final_turn,
-            total_deaths: gameData.total_deaths,
-            discoveries_count: gameData.discoveries_count,
-            ending_story: gameData.ending_story,
             created_at: gameData.created_at,
             completed_at: gameData.ending_created_at || gameData.last_updated
         };
@@ -252,13 +260,12 @@ router.get('/:game_id', async(req, res) => {
         return res.status(ret_status).json(ret_data);
     }
     
+    // 수정된 응답 구조
     ret_data = {
         code: "result",
         value: 1,
         value_ext1: ret_status,
-        value_ext2: {
-            ending: ending_data
-        },
+        value_ext2: ending_data,  // ending 래퍼 제거
         EXT_data,
     };
     console.log(LOG_SUCC_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
