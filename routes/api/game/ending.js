@@ -154,6 +154,8 @@ router.get('/:game_id', async(req, res) => {
         
         req_user_id = req.session.userId;
         req_game_id = req.params.game_id;
+        
+        console.log(`[ENDING_GET] Requested game_id: ${req_game_id}`);
     } catch (e) {
         ret_status = 401;
         ret_data = {
@@ -185,46 +187,68 @@ router.get('/:game_id', async(req, res) => {
 
     let ending_data = null;
     try {
-        // 엔딩 데이터 조회 (수정된 부분 - 삭제된 게임도 조회 가능)
-        const [games] = await connection.query(
-            `SELECT gs.ending_data, gs.game_data, gs.created_at, gs.last_updated,
-                    ge.ending_type, ge.final_turn, ge.total_deaths, 
-                    ge.discoveries_count, ge.ending_story, ge.cause_of_death,
-                    ge.game_summary, ge.location_info, ge.play_duration,
-                    ge.created_at as ending_created_at
-            FROM game_endings ge
-            LEFT JOIN game_state gs ON ge.game_id = gs.game_id
-            WHERE ge.game_id = ? AND ge.user_id = ?`,
-            [req_game_id, req_user_id]
-        );
-
-        if (games.length === 0) {
-            throw "Ending data not found";
-        }
-
-        const gameData = games[0];
-        
-        // 삭제된 게임인지 확인
-        const isDeletedGame = !gameData.ending_data;
+        // 삭제된 게임 ID 처리 (deleted_ 접두사)
+        const isDeletedGame = req_game_id.startsWith('deleted_');
+        let queryGameId = req_game_id;
         
         if (isDeletedGame) {
-            // 삭제된 게임 - game_endings 테이블 데이터만 사용
+            // deleted_16 -> 16번 엔딩 레코드 조회
+            const endingId = req_game_id.replace('deleted_', '');
+            console.log(`[ENDING_GET] Deleted game - searching by ending ID: ${endingId}`);
+            
+            const [endings] = await connection.query(
+                `SELECT ge.*, 
+                        NULL as ending_data, 
+                        NULL as game_data, 
+                        NULL as created_at, 
+                        NULL as last_updated,
+                        ge.created_at as ending_created_at
+                FROM game_endings ge
+                WHERE ge.id = ? AND ge.user_id = ?`,
+                [endingId, req_user_id]
+            );
+            
+            if (endings.length === 0) {
+                throw "Ending data not found";
+            }
+            
+            const endingRecord = endings[0];
             ending_data = {
                 game_id: req_game_id,
-                ending_type: gameData.ending_type,
-                final_turn: gameData.final_turn,
-                total_deaths: gameData.total_deaths,
-                discoveries_count: gameData.discoveries_count,
-                ending_story: gameData.ending_story,
-                cause_of_death: gameData.cause_of_death,
-                game_summary: gameData.game_summary,
-                location_info: gameData.location_info,
-                play_duration: gameData.play_duration,
-                completed_at: gameData.ending_created_at,
+                ending_type: endingRecord.ending_type,
+                final_turn: endingRecord.final_turn,
+                total_deaths: endingRecord.total_deaths,
+                discoveries_count: endingRecord.discoveries_count,
+                ending_story: endingRecord.ending_story,
+                cause_of_death: endingRecord.cause_of_death,
+                game_summary: endingRecord.game_summary,
+                location_info: endingRecord.location_info,
+                play_duration: endingRecord.play_duration,
+                completed_at: endingRecord.ending_created_at,
                 is_deleted_game: true
             };
         } else {
-            // 기존 로직 유지
+            // 일반 게임 - 기존 로직
+            console.log(`[ENDING_GET] Active game - searching by game_id: ${req_game_id}`);
+            
+            const [games] = await connection.query(
+                `SELECT gs.ending_data, gs.game_data, gs.created_at, gs.last_updated,
+                        ge.ending_type, ge.final_turn, ge.total_deaths, 
+                        ge.discoveries_count, ge.ending_story, ge.cause_of_death,
+                        ge.game_summary, ge.location_info, ge.play_duration,
+                        ge.created_at as ending_created_at
+                FROM game_state gs
+                LEFT JOIN game_endings ge ON gs.game_id = ge.game_id
+                WHERE gs.game_id = ? AND gs.user_id = ? AND gs.is_completed = 1`,
+                [req_game_id, req_user_id]
+            );
+
+            if (games.length === 0) {
+                throw "Ending data not found";
+            }
+
+            const gameData = games[0];
+            
             let parsedEndingData = {};
             if (gameData.ending_data) {
                 if (typeof gameData.ending_data === 'string') {
@@ -269,7 +293,7 @@ router.get('/:game_id', async(req, res) => {
             code: "query(get_ending)",
             value: catch_query,
             value_ext1: ret_status,
-            value_ext2: e,
+            value_ext2: e.toString(),
             EXT_data,
         };
         console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
@@ -281,12 +305,11 @@ router.get('/:game_id', async(req, res) => {
         return res.status(ret_status).json(ret_data);
     }
     
-    // 수정된 응답 구조
     ret_data = {
         code: "result",
         value: 1,
         value_ext1: ret_status,
-        value_ext2: ending_data,  // ending 래퍼 제거
+        value_ext2: ending_data,
         EXT_data,
     };
     console.log(LOG_SUCC_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
