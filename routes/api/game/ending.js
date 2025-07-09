@@ -225,11 +225,31 @@ router.get('/:game_id', async(req, res) => {
         // 엔딩 데이터 파싱 및 구조화 (수정된 부분)
         let parsedEndingData = {};
         if (gameData.ending_data) {
-            try {
-                parsedEndingData = JSON.parse(gameData.ending_data);
-            } catch (parseError) {
-                console.error("Error parsing ending_data:", parseError);
-                parsedEndingData = {};
+            // MySQL2가 자동으로 JSON을 파싱하므로 타입 체크 후 처리
+            if (typeof gameData.ending_data === 'string') {
+                try {
+                    parsedEndingData = JSON.parse(gameData.ending_data);
+                } catch (parseError) {
+                    console.error("Error parsing ending_data string:", parseError);
+                    parsedEndingData = {};
+                }
+            } else if (typeof gameData.ending_data === 'object') {
+                parsedEndingData = gameData.ending_data;
+            }
+        }
+
+        // 게임 데이터도 동일하게 처리
+        let parsedGameData = null;
+        if (gameData.game_data) {
+            if (typeof gameData.game_data === 'string') {
+                try {
+                    parsedGameData = JSON.parse(gameData.game_data);
+                } catch (parseError) {
+                    console.error("Error parsing game_data string:", parseError);
+                    parsedGameData = null;
+                }
+            } else if (typeof gameData.game_data === 'object') {
+                parsedGameData = gameData.game_data;
             }
         }
 
@@ -237,7 +257,7 @@ router.get('/:game_id', async(req, res) => {
         ending_data = {
             game_id: req_game_id,
             ...parsedEndingData,  // ending_data의 내용을 직접 전개
-            game_data: gameData.game_data ? JSON.parse(gameData.game_data) : null,
+            game_data: parsedGameData,
             created_at: gameData.created_at,
             completed_at: gameData.ending_created_at || gameData.last_updated
         };
