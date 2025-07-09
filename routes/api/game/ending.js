@@ -318,7 +318,7 @@ router.get('/:game_id', async(req, res) => {
 });
 
 //========================================================================
-// GET /api/game/ending - 사용자의 모든 엔딩 목록 조회
+// GET /api/game/ending - 사용자의 모든 엔딩 목록 조회 (페이지네이션 추가)
 //========================================================================
 router.get('/', async(req, res) => {
     const LOG_FAIL_HEADER = "[FAIL]";
@@ -333,10 +333,18 @@ router.get('/', async(req, res) => {
     const catch_sqlconn = -2;
     const catch_query = -3;
 
-    let req_user_id;
+    let req_user_id, page, limit;
     try {
         if (!req.session || !req.session.userId) throw "user not authenticated";
         req_user_id = req.session.userId;
+        
+        // 페이지네이션 파라미터
+        page = parseInt(req.query.page) || 1;
+        limit = parseInt(req.query.limit) || 5;
+        
+        if (page < 1) page = 1;
+        if (limit < 1 || limit > 50) limit = 5;
+        
     } catch (e) {
         ret_status = 401;
         ret_data = {
@@ -367,16 +375,27 @@ router.get('/', async(req, res) => {
     }
 
     let endings_list = [];
+    let total_count = 0;
     try {
+        // 총 개수 조회
+        const [countResult] = await connection.query(
+            `SELECT COUNT(*) as total FROM game_endings WHERE user_id = ?`,
+            [req_user_id]
+        );
+        total_count = countResult[0].total;
+        
+        // 페이지네이션된 엔딩 목록 조회 (오래된 순서로 정렬)
+        const offset = (page - 1) * limit;
         const [endings] = await connection.query(
             `SELECT ge.*, COALESCE(ge.game_id, CONCAT('deleted_', ge.id)) as display_id
             FROM game_endings ge
             WHERE ge.user_id = ?
-            ORDER BY ge.created_at DESC`,
-            [req_user_id]
+            ORDER BY ge.created_at ASC
+            LIMIT ? OFFSET ?`,
+            [req_user_id, limit, offset]
         );
 
-        endings_list = endings.map(ending => ({
+        endings_list = endings.map((ending, index) => ({
             id: ending.id,
             game_id: ending.display_id,
             ending_type: ending.ending_type,
@@ -388,7 +407,8 @@ router.get('/', async(req, res) => {
             location_info: ending.location_info,
             play_duration: ending.play_duration,
             completed_at: ending.created_at,
-            is_deleted: !ending.game_id
+            is_deleted: !ending.game_id,
+            game_number: offset + index + 1 // 순서 번호 추가
         }));
 
     } catch (e) {
@@ -409,12 +429,25 @@ router.get('/', async(req, res) => {
         return res.status(ret_status).json(ret_data);
     }
     
+    // 페이지네이션 정보 계산
+    const total_pages = Math.ceil(total_count / limit);
+    const has_prev = page > 1;
+    const has_next = page < total_pages;
+    
     ret_data = {
         code: "result",
         value: endings_list.length,
         value_ext1: ret_status,
         value_ext2: {
-            endings: endings_list
+            endings: endings_list,
+            pagination: {
+                current_page: page,
+                total_pages: total_pages,
+                total_count: total_count,
+                limit: limit,
+                has_prev: has_prev,
+                has_next: has_next
+            }
         },
         EXT_data,
     };

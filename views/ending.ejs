@@ -224,8 +224,8 @@
 
         /* 엔딩 목록 관련 스타일 */
         .endings-list {
-            max-height: 600px;
-            overflow-y: auto;
+            max-height: none;
+            overflow: visible;
         }
 
         .ending-item {
@@ -277,6 +277,53 @@
             color: #495057;
         }
 
+        /* 페이지네이션 스타일 */
+        .pagination-container {
+            margin-top: 30px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .pagination-btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            min-width: 44px;
+            text-align: center;
+        }
+
+        .pagination-btn:hover {
+            background: #0056b3;
+            transform: translateY(-1px);
+        }
+
+        .pagination-btn.active {
+            background: #28a745;
+        }
+
+        .pagination-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .pagination-info {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            color: #495057;
+            margin: 0 10px;
+        }
+
         @media (max-width: 768px) {
             .container {
                 padding: 10px;
@@ -297,6 +344,16 @@
             
             .btn {
                 width: 200px;
+            }
+
+            .pagination-container {
+                gap: 5px;
+            }
+
+            .pagination-btn {
+                padding: 8px 12px;
+                font-size: 0.9rem;
+                min-width: 36px;
             }
         }
     </style>
@@ -334,21 +391,29 @@
 
     <script>
         var mode = '<%= locals.mode || "single" %>';
+        var currentPage = 1;
+        var totalPages = 1;
+        var currentPageGroup = 1;
         
         if (mode === 'list') {
             // 전체 엔딩 목록 모드
             $(document).ready(function() {
-                loadAllEndings();
+                loadAllEndings(1);
             });
 
-            async function loadAllEndings() {
+            async function loadAllEndings(page = 1) {
                 try {
-                    const response = await axios.get('/api/game/ending', {
+                    const response = await axios.get(`/api/game/ending?page=${page}&limit=5`, {
                         withCredentials: true
                     });
 
                     if (response.data.code === "result") {
-                        displayEndingsList(response.data.value_ext2.endings);
+                        const pagination = response.data.value_ext2.pagination;
+                        currentPage = pagination.current_page;
+                        totalPages = pagination.total_pages;
+                        currentPageGroup = Math.ceil(currentPage / 10);
+                        
+                        displayEndingsList(response.data.value_ext2.endings, pagination);
                     } else {
                         throw new Error(response.data.value_ext2 || '엔딩 목록을 불러올 수 없습니다.');
                     }
@@ -358,7 +423,7 @@
                 }
             }
 
-            function displayEndingsList(endings) {
+            function displayEndingsList(endings, pagination) {
                 $('#loading').hide();
                 
                 if (endings.length === 0) {
@@ -376,14 +441,14 @@
 
                 let endingsHtml = '<h3>🏆 모든 엔딩 기록</h3><div class="endings-list">';
                 
-                endings.forEach((ending, index) => {
+                endings.forEach((ending) => {
                     const typeIcon = getEndingIcon(ending.ending_type);
                     const typeText = getEndingTypeText(ending.ending_type);
                     
                     endingsHtml += `
-                        <div class="ending-item ${ending.ending_type}" onclick="viewEndingDetail('${ending.game_id || ending.id}')">
+                        <div class="ending-item ${ending.ending_type}" onclick="viewEndingDetail('${ending.game_id}')">
                             <div class="ending-item-header">
-                                <span class="ending-item-type">${typeIcon} ${typeText} #${index + 1}</span>
+                                <span class="ending-item-type">${typeIcon} ${typeText} #${ending.game_number}</span>
                                 <span class="ending-item-date">${formatDate(ending.completed_at)}</span>
                             </div>
                             <div class="ending-item-stats">
@@ -395,12 +460,54 @@
                 
                 endingsHtml += '</div>';
                 
+                // 페이지네이션 추가
+                endingsHtml += createPaginationHtml(pagination);
+                
                 $('#content').html(endingsHtml + `
                     <div class="action-buttons">
                         <a href="/" class="btn btn-primary">새 게임 시작</a>
                         <button onclick="window.close()" class="btn btn-secondary">창 닫기</button>
                     </div>
                 `).show();
+            }
+
+            function createPaginationHtml(pagination) {
+                if (pagination.total_pages <= 1) return '';
+                
+                let paginationHtml = '<div class="pagination-container">';
+                
+                // 페이지 정보
+                paginationHtml += `<div class="pagination-info">${pagination.current_page} / ${pagination.total_pages} 페이지</div>`;
+                
+                // 이전 10페이지군으로 이동 (<<)
+                if (currentPageGroup > 1) {
+                    const prevGroupPage = (currentPageGroup - 2) * 10 + 1;
+                    paginationHtml += `<button class="pagination-btn" onclick="changePage(${prevGroupPage})">&lt;&lt;</button>`;
+                }
+                
+                // 현재 10페이지군의 페이지 번호들
+                const startPage = (currentPageGroup - 1) * 10 + 1;
+                const endPage = Math.min(startPage + 9, pagination.total_pages);
+                
+                for (let i = startPage; i <= endPage; i++) {
+                    const activeClass = i === pagination.current_page ? ' active' : '';
+                    paginationHtml += `<button class="pagination-btn${activeClass}" onclick="changePage(${i})">${i}</button>`;
+                }
+                
+                // 다음 10페이지군으로 이동 (>>)
+                if (endPage < pagination.total_pages) {
+                    const nextGroupPage = endPage + 1;
+                    paginationHtml += `<button class="pagination-btn" onclick="changePage(${nextGroupPage})">&gt;&gt;</button>`;
+                }
+                
+                paginationHtml += '</div>';
+                return paginationHtml;
+            }
+
+            function changePage(page) {
+                if (page >= 1 && page <= totalPages && page !== currentPage) {
+                    loadAllEndings(page);
+                }
             }
 
             function viewEndingDetail(gameId) {
