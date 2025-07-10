@@ -394,11 +394,14 @@ const GameUI = (function() {
     }
     
     async function handleNewGame() {
-        // 기존 게임 삭제 (있을 경우)
+        // 기존 게임 삭제 (있을 경우만)
         try {
             await GameAPI.game.deleteCurrent();
         } catch (error) {
-            console.log('기존 게임:', error.response?.status === 404 ? '없음' : '삭제 완료');
+            // 404는 정상 상황 (게임이 이미 없음)
+            if (error.response?.status !== 404) {
+                console.error('게임 삭제 오류:', error);
+            }
         }
         
         if (GameState.getCurrentGameId() && !confirm('새 게임을 시작하시겠습니까?')) return;
