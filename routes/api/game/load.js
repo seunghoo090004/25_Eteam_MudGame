@@ -63,7 +63,17 @@ router.get('/', async(req, res) => {
         );
 
         if (games.length === 0) {
-            throw "No incomplete game found";
+            // 게임이 없을 때 404 응답
+            ret_status = 404;
+            ret_data = {
+                code: "no_game_found",
+                value: 0,
+                value_ext1: ret_status,
+                value_ext2: "불러올 수 있는 게임이 없습니다.",
+                EXT_data,
+            };
+            console.log(LOG_SUCC_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+            return res.status(ret_status).json(ret_data);
         }
 
         game_data = games[0];
@@ -244,6 +254,20 @@ router.delete('/', async(req, res) => {
             });
         }
 
+        // 게임이 없어도 성공으로 처리 (중복 삭제 방지)
+        ret_data = {
+            code: "result",
+            value: deleted_games.length,
+            value_ext1: ret_status,
+            value_ext2: {
+                deleted_games: deleted_games,
+                message: deleted_games.length > 0 
+                    ? `${deleted_games.length}개의 미완료 게임이 삭제되었습니다.`
+                    : "삭제할 게임이 없습니다."
+            },
+            EXT_data,
+        };
+
     } catch (e) {
         ret_status = fail_status + -1 * catch_query;
         ret_data = {
@@ -258,22 +282,7 @@ router.delete('/', async(req, res) => {
         connection.release();
     }
 
-    if (ret_status != 200) {
-        return res.status(ret_status).json(ret_data);
-    }
-
-    ret_data = {
-        code: "result",
-        value: deleted_games.length,
-        value_ext1: ret_status,
-        value_ext2: {
-            deleted_games: deleted_games,
-            message: `${deleted_games.length}개의 미완료 게임이 삭제되었습니다.`
-        },
-        EXT_data,
-    };
     console.log(LOG_SUCC_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
-
     return res.status(ret_status).json(ret_data);
 });
 

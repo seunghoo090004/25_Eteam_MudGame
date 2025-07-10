@@ -1,9 +1,47 @@
 // public/javascripts/ui.js - 수정된 버전
 
 const GameUI = (function() {
+    let gameExists = false; // 게임 존재 여부 상태
+    
     function initialize() {
         bindUIEvents();
         setupEventHandlers();
+        checkGameState(); // 초기 게임 상태 확인
+    }
+    
+    // 게임 존재 여부 확인
+    async function checkGameState() {
+        try {
+            const response = await GameAPI.game.loadCurrent();
+            
+            if (response.code === "result" && response.value === 1) {
+                // 게임이 존재함
+                gameExists = true;
+                updateLoadButtonState(true);
+            } else {
+                // 게임이 없음 (404 포함)
+                gameExists = false;
+                updateLoadButtonState(false);
+            }
+        } catch (error) {
+            // 에러 발생 시 버튼 비활성화
+            gameExists = false;
+            updateLoadButtonState(false);
+            console.log('게임 상태 확인:', error.response?.status === 404 ? '불러올 게임 없음' : '에러 발생');
+        }
+    }
+    
+    // 불러오기 버튼 상태 업데이트
+    function updateLoadButtonState(hasGame) {
+        const loadButton = $('#load-game');
+        
+        if (hasGame) {
+            loadButton.prop('disabled', false);
+            loadButton.text('불러오기');
+        } else {
+            loadButton.prop('disabled', true);
+            loadButton.text('불러올 게임 없음');
+        }
     }
     
     function disableAllButtons() {
@@ -12,8 +50,10 @@ const GameUI = (function() {
     }
 
     function enableAllButtons() {
-        $('#new-game, #load-game, #view-endings').prop('disabled', false);
+        $('#new-game, #view-endings').prop('disabled', false);
         $('.choice-button').prop('disabled', false);
+        // 불러오기 버튼은 게임 존재 여부에 따라 결정
+        updateLoadButtonState(gameExists);
     }
 
     function bindUIEvents() {
@@ -231,6 +271,9 @@ const GameUI = (function() {
             if (response.code === "result" && response.value === 1) {
                 hideLoading();
                 showEndingScreen(endingData, aiResponse);
+                // 엔딩 처리 완료 후 게임 상태 업데이트
+                gameExists = false;
+                updateLoadButtonState(false);
             } else {
                 throw new Error(response.value_ext2 || '엔딩 처리 실패');
             }
@@ -321,49 +364,56 @@ const GameUI = (function() {
         `);
         
         $('#new-game-ending').click(async function() {
+            // 게임 삭제 시도 (이미 삭제되었을 수 있음)
             try {
                 await GameAPI.game.deleteCurrent();
-                GameState.clearGameState();
-                $('#chatbox').empty();
-                $('#assistant-select').prop('disabled', false);
-                handleNewGame();
             } catch (error) {
-                console.error('게임 삭제 오류:', error);
-                handleNewGame();
+                console.log('게임 삭제:', error.response?.status === 404 ? '이미 삭제됨' : '완료');
             }
+            
+            GameState.clearGameState();
+            $('#chatbox').empty();
+            $('#assistant-select').prop('disabled', false);
+            gameExists = false;
+            updateLoadButtonState(false);
+            handleNewGame();
         });
         
         $('#view-endings-ending').click(async function() {
             try {
                 await GameAPI.game.deleteCurrent();
-                GameState.clearGameState();
-                window.open('/endings', '_blank');
             } catch (error) {
-                console.error('게임 삭제 오류:', error);
-                window.open('/endings', '_blank');
+                console.log('게임 삭제:', error.response?.status === 404 ? '이미 삭제됨' : '완료');
             }
+            
+            GameState.clearGameState();
+            gameExists = false;
+            updateLoadButtonState(false);
+            window.open('/endings', '_blank');
         });
         
         $('#back-to-main').click(async function() {
             try {
                 await GameAPI.game.deleteCurrent();
-                GameState.clearGameState();
-                location.reload();
             } catch (error) {
-                console.error('게임 삭제 오류:', error);
-                location.reload();
+                console.log('게임 삭제:', error.response?.status === 404 ? '이미 삭제됨' : '완료');
             }
+            
+            GameState.clearGameState();
+            gameExists = false;
+            updateLoadButtonState(false);
+            location.reload();
         });
         
         $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
     }
     
     async function handleNewGame() {
+        // 기존 게임 삭제 (있을 경우)
         try {
-            // 기존 게임 삭제
             await GameAPI.game.deleteCurrent();
         } catch (error) {
-            console.log('기존 게임 없음 또는 삭제 완료');
+            console.log('기존 게임:', error.response?.status === 404 ? '없음' : '삭제 완료');
         }
         
         if (GameState.getCurrentGameId() && !confirm('새 게임을 시작하시겠습니까?')) return;
@@ -378,6 +428,8 @@ const GameUI = (function() {
             
             if (response.code === "result" && response.value === 1) {
                 handleNewGameSuccess(response.value_ext2);
+                gameExists = true;
+                updateLoadButtonState(true);
             } else {
                 throw new Error(response.value_ext2 || '게임 생성에 실패했습니다.');
             }
@@ -416,6 +468,11 @@ const GameUI = (function() {
             return;
         }
         
+        if (!gameExists) {
+            alert('불러올 수 있는 게임이 없습니다.');
+            return;
+        }
+        
         disableAllButtons();
         setButtonLoading($('#load-game'), true);
         showLoading('게임을 불러오는 중...');
@@ -432,8 +489,17 @@ const GameUI = (function() {
             console.error('게임 로드 오류:', error);
             hideLoading();
             setButtonLoading($('#load-game'), false);
+            
+            if (error.response?.status === 404) {
+                // 게임이 없을 때
+                gameExists = false;
+                updateLoadButtonState(false);
+                alert('불러올 수 있는 게임이 없습니다.');
+            } else {
+                alert('게임 로드 중 오류: ' + (error.message || error));
+            }
+            
             enableAllButtons();
-            alert('게임 로드 중 오류: ' + (error.message || error));
         }
     }
     
@@ -494,7 +560,10 @@ const GameUI = (function() {
             </div>
         `);
         
+        gameExists = false;
+        updateLoadButtonState(false);
         enableAllButtons();
+        checkGameState(); // 게임 상태 재확인
     }
     
     function handleGameContinue() {
@@ -617,6 +686,8 @@ const GameUI = (function() {
         disableAllButtons: disableAllButtons,
         enableAllButtons: enableAllButtons,
         handleGameEnding: handleGameEnding,
-        showEndingScreen: showEndingScreen
+        showEndingScreen: showEndingScreen,
+        checkGameState: checkGameState,
+        updateLoadButtonState: updateLoadButtonState
     };
 })();
