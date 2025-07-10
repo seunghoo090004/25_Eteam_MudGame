@@ -6,8 +6,6 @@ const router = express.Router();
 // 게임 관련 API
 const gameCreateRouter = require('./game/create');
 const gameLoadRouter = require('./game/load');
-const gameDeleteRouter = require('./game/delete');
-const gameListRouter = require('./game/list');
 const gameEndingRouter = require('./game/ending');
 
 // 채팅 관련 API
@@ -17,8 +15,6 @@ const chatHistoryRouter = require('./chat/history');
 // 게임 라우터 등록
 router.use('/game/create', gameCreateRouter);
 router.use('/game/current', gameLoadRouter);
-router.use('/game/delete', gameDeleteRouter);
-router.use('/game/list', gameListRouter);
 router.use('/game/ending', gameEndingRouter);
 
 // 채팅 라우터 등록
