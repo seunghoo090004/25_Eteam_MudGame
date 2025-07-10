@@ -1,11 +1,10 @@
-// routes/socket/handlers/game.js
-// Socket 전용 게임 핸들러 (채팅 초기화만 담당) - 수정됨
+// routes/socket/handlers/game.js - 수정된 버전
 
 const gameService = require('../services/game');
 const chatService = require('../services/chat');
 
 const gameHandler = (io, socket) => {
-    // ✅ 수정: 새 게임 (초기 메시지 생성용) - 데이터 검증 강화
+    // 새 게임 초기 메시지 생성
     socket.on('new game', async (data) => {
         const LOG_HEADER = "SOCKET/NEW_GAME";
         
@@ -13,7 +12,6 @@ const gameHandler = (io, socket) => {
             const userId = socket.request.session.userId;
             if (!userId) throw new Error("Not authenticated");
             
-            // ✅ 추가: 필수 데이터 검증
             if (!data.assistant_id) throw new Error("Assistant ID required");
             if (!data.thread_id) throw new Error("Thread ID required");
             if (!data.game_id) throw new Error("Game ID required");
@@ -25,7 +23,6 @@ const gameHandler = (io, socket) => {
                 has_game_data: !!data.game_data
             });
     
-            // Socket에서는 초기 메시지만 생성
             const initialResponse = await chatService.initializeChat(data.thread_id, data.assistant_id);
             
             socket.emit('new game response', {
@@ -46,7 +43,7 @@ const gameHandler = (io, socket) => {
         }
     });
 
-    // ✅ 수정: 게임 로드 (채팅 히스토리용) - 데이터 검증 강화
+    // 게임 로드 (채팅 히스토리용)
     socket.on('load game', async (data) => {
         const LOG_HEADER = "SOCKET/LOAD_GAME";
         
@@ -76,9 +73,6 @@ const gameHandler = (io, socket) => {
             });
         }
     });
-
-    // ❌ 제거: save game, delete game, get games list
-    // 이제 API에서 처리
 };
 
 module.exports = gameHandler;

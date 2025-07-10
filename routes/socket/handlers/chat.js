@@ -1,4 +1,4 @@
-// routes/socket/handlers/chat.js - 수정된 버전 (사망 카운터 포함)
+// routes/socket/handlers/chat.js - 수정된 버전
 
 const gameService = require('../services/game');
 const chatService = require('../services/chat');
@@ -17,25 +17,20 @@ const chatHandler = (io, socket) => {
                 safeMessage = String(safeMessage);
             }
 
-            // Socket 서비스에서 게임 로드
             const game = await gameService.loadGameForSocket(data.game_id, userId);
             
-            // AI 응답 받기
             const aiResponse = await chatService.sendMessage(
                 game.thread_id,
                 game.assistant_id,
                 safeMessage
             );
 
-            // 게임 상태 업데이트
             let updatedGameData = JSON.parse(JSON.stringify(game.game_data));
             
             const parsedState = chatService.parseGameResponse(aiResponse);
             
             if (parsedState) {
-                // 위치 정보 업데이트 (안전한 방식으로 수정)
                 if (parsedState.location && parsedState.location.current) {
-                    // location 객체가 없으면 초기화
                     if (!updatedGameData.location) {
                         updatedGameData.location = {};
                     }
@@ -46,23 +41,19 @@ const chatHandler = (io, socket) => {
                         updatedGameData.location.roomId = parsedState.location.roomId;
                     }
                     
-                    // discovered 배열이 없으면 초기화
                     if (!updatedGameData.location.discovered) {
                         updatedGameData.location.discovered = [];
                     }
                     
-                    // 새 위치가 발견 목록에 없으면 추가
                     if (!updatedGameData.location.discovered.includes(parsedState.location.current)) {
                         updatedGameData.location.discovered.push(parsedState.location.current);
                     }
                 }
                 
-                // 턴 수 업데이트
                 if (parsedState.turn_count) {
                     updatedGameData.turn_count = parsedState.turn_count;
                 }
                 
-                // 발견 정보 업데이트
                 if (parsedState.discoveries && Array.isArray(parsedState.discoveries)) {
                     if (!updatedGameData.discoveries) {
                         updatedGameData.discoveries = [];
@@ -75,12 +66,9 @@ const chatHandler = (io, socket) => {
                     });
                 }
                 
-                // 사망 처리 (수정된 부분)
                 if (parsedState.is_death) {
-                    // 사망 카운트 증가
                     updatedGameData.death_count = (updatedGameData.death_count || 0) + 1;
                     
-                    // 사망 원인 기록
                     if (parsedState.death_cause) {
                         updatedGameData.last_death_cause = parsedState.death_cause;
                     }
@@ -89,11 +77,9 @@ const chatHandler = (io, socket) => {
                     console.log(`[${LOG_HEADER}] Death cause: ${parsedState.death_cause || 'Unknown'}`);
                 }
                 
-                // 시간 업데이트 (게임 내 시간)
                 if (!updatedGameData.time_elapsed) {
                     updatedGameData.time_elapsed = 0;
                 }
-                // 턴마다 약 2-3분씩 증가한다고 가정
                 updatedGameData.time_elapsed += Math.floor(Math.random() * 2) + 2;
             }
 

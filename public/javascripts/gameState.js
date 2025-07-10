@@ -1,4 +1,4 @@
-// public/javascripts/gameState.js - 로그라이크 버전 (수정됨 - 발견 정보 제거)
+// public/javascripts/gameState.js - 수정된 버전
 
 const GameState = (function() {
     let currentGameId = null;
@@ -50,7 +50,6 @@ const GameState = (function() {
         isNewGame = false;
     }
     
-    // 턴 증가
     function incrementTurn() {
         if (gameData) {
             gameData.turn_count = (gameData.turn_count || 1) + 1;
@@ -58,7 +57,6 @@ const GameState = (function() {
         }
     }
     
-    // 사망 카운트 증가
     function incrementDeathCount() {
         if (gameData) {
             gameData.death_count = (gameData.death_count || 0) + 1;
@@ -66,7 +64,6 @@ const GameState = (function() {
         }
     }
     
-    // 위치 업데이트
     function updateLocation(newLocation) {
         if (gameData && newLocation) {
             gameData.location = gameData.location || {};
@@ -75,7 +72,6 @@ const GameState = (function() {
         }
     }
     
-    // 로그라이크 응답에서 상태 파싱 (수정됨 - 발견 정보 제거)
     function parseStatsFromResponse(response) {
         if (!response) return null;
         
@@ -86,11 +82,9 @@ const GameState = (function() {
         };
         
         try {
-            // 사망 체크
             if (response.includes("당신은 죽었습니다") || response.includes("죽었습니다")) {
                 gameState.is_death = true;
                 
-                // 사망 원인 추출
                 const deathMatch = response.match(/원인[:\s]*([^.\n]+)/i) || 
                                 response.match(/([^.\n]+)로 인해 죽었습니다/i);
                 if (deathMatch) {
@@ -98,21 +92,18 @@ const GameState = (function() {
                 }
             }
             
-            // STATS 섹션 파싱
             const statsPattern = /STATS[^=]*={3,}([\s\S]*?)={3,}/;
             const statsMatch = response.match(statsPattern);
             
             if (statsMatch) {
                 const statsContent = statsMatch[1];
                 
-                // 턴 정보
                 const turnPattern = /Turn:\s*(\d+)/;
                 const turnMatch = statsContent.match(turnPattern);
                 if (turnMatch) {
                     gameState.turn_count = parseInt(turnMatch[1]);
                 }
                 
-                // 위치 정보
                 const locationPattern = /Location:\s*([^\n]+)/;
                 const locationMatch = statsContent.match(locationPattern);
                 if (locationMatch) {
@@ -129,20 +120,17 @@ const GameState = (function() {
         }
     }
     
-    // 게임 상태 업데이트 (수정됨 - 발견 정보 제거)
     function updateGameStateFromParsing(parsedState) {
         if (!gameData || !parsedState) return false;
         
         let updated = false;
         
-        // 턴 업데이트
         if (parsedState.turn_count && parsedState.turn_count !== gameData.turn_count) {
             gameData.turn_count = parsedState.turn_count;
             updated = true;
             console.log(`Turn updated to: ${parsedState.turn_count}`);
         }
         
-        // 위치 업데이트
         if (parsedState.location && parsedState.location.current) {
             const oldLocation = gameData.location?.current;
             if (!gameData.location) gameData.location = {};
@@ -157,11 +145,9 @@ const GameState = (function() {
         return updated;
     }
     
-    // 엔딩 조건 체크 (수정됨 - 발견 정보 제거)
     function checkEndingConditions(response) {
         if (!response || !gameData) return null;
         
-        // 사망 체크
         if (response.includes("당신은 죽었습니다") || response.includes("죽었습니다")) {
             let deathCause = "알 수 없는 원인";
             const deathMatch = response.match(/원인[:\s]*([^.\n]+)/i) || 
@@ -175,12 +161,11 @@ const GameState = (function() {
                 cause: deathCause,
                 final_turn: gameData.turn_count || 1,
                 total_deaths: (gameData.death_count || 0) + 1,
-                discoveries: [], // 발견 정보 제거
-                discoveries_count: 0 // 발견 정보 제거
+                discoveries: [],
+                discoveries_count: 0
             };
         }
         
-        // 탈출 체크 (11턴 이후)
         if (gameData.turn_count >= 11) {
             const escapeKeywords = ['탈출', '출구', '자유', '밖으로', '빛이 보인다', '성공적으로'];
             const hasEscapeKeyword = escapeKeywords.some(keyword => 
@@ -193,8 +178,8 @@ const GameState = (function() {
                     cause: null,
                     final_turn: gameData.turn_count || 1,
                     total_deaths: gameData.death_count || 0,
-                    discoveries: [], // 발견 정보 제거
-                    discoveries_count: 0 // 발견 정보 제거
+                    discoveries: [],
+                    discoveries_count: 0
                 };
             }
         }
@@ -202,7 +187,6 @@ const GameState = (function() {
         return null;
     }
     
-    // 이벤트 핸들러 설정
     function setupEventHandlers() {
         $(document).on('game:new', function(event, data) {
             if (data.success) {
@@ -213,13 +197,6 @@ const GameState = (function() {
         $(document).on('game:load', function(event, data) {
             if (data.success) {
                 setGameState(data.game.game_id, data.game.game_data, false);
-            }
-        });
-        
-        $(document).on('game:save', function(event, data) {
-            if (data.success && data.gameData) {
-                gameData = data.gameData;
-                isNewGame = false;
             }
         });
         
@@ -238,12 +215,10 @@ const GameState = (function() {
             }
         });
         
-        // 엔딩 이벤트
         $(document).on('game:ending', function(event, data) {
             if (data.success) {
                 console.log('Game ended:', data.ending_data);
-                // 엔딩 화면으로 전환
-                window.location.href = `/ending/${currentGameId}`;
+                // 엔딩 처리 후 게임 상태는 UI에서 자동 삭제됨
             }
         });
     }

@@ -1,5 +1,4 @@
-// routes/api/index.js
-// API 라우터 통합 관리
+// routes/api/index.js - 수정된 버전
 
 const express = require('express');
 const router = express.Router();
@@ -7,11 +6,8 @@ const router = express.Router();
 // 게임 관련 API
 const gameCreateRouter = require('./game/create');
 const gameLoadRouter = require('./game/load');
-const gameSaveRouter = require('./game/save');
 const gameDeleteRouter = require('./game/delete');
 const gameListRouter = require('./game/list');
-
-// ✅ 신규 추가: 엔딩 관련 API
 const gameEndingRouter = require('./game/ending');
 
 // 채팅 관련 API
@@ -20,12 +16,9 @@ const chatHistoryRouter = require('./chat/history');
 
 // 게임 라우터 등록
 router.use('/game/create', gameCreateRouter);
-router.use('/game/load', gameLoadRouter);
-router.use('/game/save', gameSaveRouter);
+router.use('/game/current', gameLoadRouter);
 router.use('/game/delete', gameDeleteRouter);
 router.use('/game/list', gameListRouter);
-
-// ✅ 신규 추가: 엔딩 라우터 등록
 router.use('/game/ending', gameEndingRouter);
 
 // 채팅 라우터 등록

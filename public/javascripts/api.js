@@ -1,5 +1,4 @@
-// public/javascripts/api.js - 엔딩 API 포함
-// Axios 기반 API 통신 모듈
+// public/javascripts/api.js - 수정된 버전
 
 const GameAPI = (function() {
     const baseURL = '';
@@ -26,18 +25,12 @@ const GameAPI = (function() {
     return {
         // 게임 관련 API
         game: {
-            list: () => request('GET', '/api/game/list'),
             create: (assistant_id, game_mode = 'roguelike') => request('POST', '/api/game/create', { 
                 assistant_id, 
                 game_mode 
             }),
-            load: (game_id) => request('POST', '/api/game/load', { game_id }),
-            save: (game_id, game_data, ending_trigger = null) => request('POST', '/api/game/save', { 
-                game_id, 
-                game_data, 
-                ending_trigger 
-            }),
-            delete: (game_id) => request('POST', '/api/game/delete', { game_id }),
+            loadCurrent: () => request('GET', '/api/game/current'),
+            deleteCurrent: () => request('DELETE', '/api/game/current'),
             
             // 엔딩 관련 API
             ending: {

@@ -6,182 +6,283 @@ const pool = require('../../../config/database');
 const openai = require('../../../config/openai');
 
 //========================================================================
-router.post('/', async(req, res) => 
+// GET /api/game/current - 현재 진행 중인 게임 조회
 //========================================================================
-{
-  const LOG_FAIL_HEADER = "[FAIL]";
-  const LOG_SUCC_HEADER = "[SUCC]";
-  const EXT_data = my_reqinfo.get_req_url(req);
-  
-  const fail_status = 500;
-  let ret_status = 200;
-  let ret_data;
-
-  const catch_body = -1;
-  const catch_sqlconn = -2;
-  const catch_query = -3;
-  const catch_openai = -4;
-
-  //----------------------------------------------------------------------
-  // getBODY
-  //----------------------------------------------------------------------
-  let req_user_id, req_game_id;
-  try {
-    if (!req.session.userId) throw "user not authenticated";
-    if (typeof req.body.game_id === 'undefined') throw "game_id undefined";
+router.get('/', async(req, res) => {
+    const LOG_FAIL_HEADER = "[FAIL]";
+    const LOG_SUCC_HEADER = "[SUCC]";
+    const EXT_data = my_reqinfo.get_req_url(req);
     
-    req_user_id = req.session.userId;
-    req_game_id = req.body.game_id;
-  } catch (e) {
-    ret_status = fail_status + -1 * catch_body;
-    ret_data = {
-      code: "getBODY()",
-      value: catch_body,
-      value_ext1: ret_status,
-      value_ext2: e,
-      EXT_data,
-    };
-    console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
-  }
-  if (ret_status != 200)
-    return res.status(ret_status).json(ret_data);
+    const fail_status = 500;
+    let ret_status = 200;
+    let ret_data;
 
-  //----------------------------------------------------------------------
-  // getConnection 
-  //----------------------------------------------------------------------
-  let connection;
-  try {
-    connection = await pool.getConnection();
-  } catch (e) {
-    ret_status = fail_status + -1 * catch_sqlconn;
-    ret_data = {
-      code: "getConnection()",
-      value: catch_sqlconn,
-      value_ext1: ret_status,
-      value_ext2: e,
-      EXT_data,
-    };
-    console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
-  }
+    const catch_auth = -1;
+    const catch_sqlconn = -2;
+    const catch_query = -3;
 
-  if (ret_status != 200)
-    return res.status(ret_status).json(ret_data);
-
-  //----------------------------------------------------------------------
-  // Query execution - 게임 로드
-  //----------------------------------------------------------------------
-  let game_data;
-  try {
-    const [games] = await connection.query(
-      'SELECT * FROM game_state WHERE game_id = ? AND user_id = ?',
-      [req_game_id, req_user_id]
-    );
-
-    if (games.length === 0) {
-      throw "Game not found or unauthorized";
-    }
-
-    game_data = games[0];
-    
-    if (!game_data.thread_id) {
-      throw "Invalid thread ID";
-    }
-
-    // 게임 데이터 파싱
-    let parsedGameData;
+    let req_user_id;
     try {
-      parsedGameData = typeof game_data.game_data === 'string' 
-        ? JSON.parse(game_data.game_data) 
-        : game_data.game_data;
-    } catch (parseError) {
-      parsedGameData = {
-        player: { health: 100, maxHealth: 100, status: '양호' },
-        location: { current: "알 수 없음" },
-        inventory: { keyItems: '없음' },
-        progress: { playTime: "방금 시작", deathCount: 0 }
-      };
+        if (!req.session || !req.session.userId) throw "user not authenticated";
+        req_user_id = req.session.userId;
+    } catch (e) {
+        ret_status = 401;
+        ret_data = {
+            code: "auth_check",
+            value: catch_auth,
+            value_ext1: ret_status,
+            value_ext2: e,
+            EXT_data,
+        };
+        console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+        return res.status(ret_status).json(ret_data);
     }
 
-    // 플레이 시간 업데이트
-    const now = new Date();
-    const created = new Date(game_data.created_at);
-    const playTimeMinutes = Math.floor((now - created) / (1000 * 60));
-    parsedGameData.progress.playTime = formatPlayTime(playTimeMinutes);
+    let connection;
+    try {
+        connection = await pool.getConnection();
+    } catch (e) {
+        ret_status = fail_status + -1 * catch_sqlconn;
+        ret_data = {
+            code: "getConnection()",
+            value: catch_sqlconn,
+            value_ext1: ret_status,
+            value_ext2: e,
+            EXT_data,
+        };
+        console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+        return res.status(ret_status).json(ret_data);
+    }
 
-    game_data.game_data = parsedGameData;
+    let game_data;
+    try {
+        // 완료되지 않은 게임만 조회
+        const [games] = await connection.query(
+            'SELECT * FROM game_state WHERE user_id = ? AND is_completed = 0 ORDER BY last_updated DESC LIMIT 1',
+            [req_user_id]
+        );
 
-  } catch (e) {
-    ret_status = fail_status + -1 * catch_query;
-    ret_data = {
-      code: "query(load_game)",
-      value: catch_query,
-      value_ext1: ret_status,
-      value_ext2: e,
-      EXT_data,
-    };
-    console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
-  }
-
-  if (ret_status != 200) {
-    connection.release();
-    return res.status(ret_status).json(ret_data);
-  }
-
-  //----------------------------------------------------------------------
-  // OpenAI 메시지 히스토리 가져오기
-  //----------------------------------------------------------------------
-  let chat_history = [];
-  try {
-    const messages = await openai.beta.threads.messages.list(game_data.thread_id);
-    chat_history = messages.data.map(msg => {
-      let content = "메시지 내용을 불러올 수 없습니다.";
-      try {
-        if (msg.content && msg.content.length > 0 && msg.content[0].text) {
-          content = msg.content[0].text.value;
+        if (games.length === 0) {
+            throw "No incomplete game found";
         }
-      } catch (contentError) {
-        console.error("Message content error:", contentError);
-      }
-      
-      return {
-        role: msg.role,
-        content: content,
-        created_at: new Date(msg.created_at * 1000)
-      };
-    });
-  } catch (e) {
-    console.error("Error fetching chat history:", e);
-    // 히스토리 가져오기 실패는 치명적이지 않음
-  }
 
-  //----------------------------------------------------------------------
-  // result
-  //----------------------------------------------------------------------
-  connection.release();
-  ret_data = {
-    code: "result",
-    value: 1,
-    value_ext1: ret_status,
-    value_ext2: {
-      game: {
-        ...game_data,
-        chatHistory: chat_history
-      }
-    },
-    EXT_data,
-  };
-  console.log(LOG_SUCC_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+        game_data = games[0];
+        
+        if (!game_data.thread_id) {
+            throw "Invalid thread ID";
+        }
 
-  return res.status(ret_status).json(ret_data);
+        // 게임 데이터 파싱
+        let parsedGameData;
+        try {
+            parsedGameData = typeof game_data.game_data === 'string' 
+                ? JSON.parse(game_data.game_data) 
+                : game_data.game_data;
+        } catch (parseError) {
+            parsedGameData = {
+                turn_count: 1,
+                death_count: 0,
+                game_mode: "roguelike",
+                location: {
+                    roomId: "001",
+                    current: "던전 최하층 감옥"
+                },
+                discoveries: [],
+                progress: {
+                    phase: "시작",
+                    last_action: "게임 시작"
+                }
+            };
+        }
+
+        // 플레이 시간 업데이트
+        const now = new Date();
+        const created = new Date(game_data.created_at);
+        const playTimeMinutes = Math.floor((now - created) / (1000 * 60));
+        
+        if (parsedGameData.progress) {
+            parsedGameData.progress.playTime = formatPlayTime(playTimeMinutes);
+        }
+
+        game_data.game_data = parsedGameData;
+
+        // 메시지 히스토리 가져오기
+        let chat_history = [];
+        try {
+            const messages = await openai.beta.threads.messages.list(game_data.thread_id);
+            chat_history = messages.data
+                .filter(msg => {
+                    const content = msg.content[0]?.text?.value || '';
+                    return !content.includes('[로그라이크 게임 마스터 지침]') &&
+                           !content.includes('[시스템 내부') &&
+                           !content.includes('선택:') &&
+                           msg.role === 'assistant';
+                })
+                .map(msg => ({
+                    role: msg.role,
+                    content: msg.content[0].text.value,
+                    created_at: new Date(msg.created_at * 1000)
+                }))
+                .sort((a, b) => a.created_at - b.created_at);
+        } catch (messageError) {
+            console.error("Message history error:", messageError);
+        }
+
+        game_data.chatHistory = chat_history;
+
+    } catch (e) {
+        ret_status = fail_status + -1 * catch_query;
+        ret_data = {
+            code: "query(load_current_game)",
+            value: catch_query,
+            value_ext1: ret_status,
+            value_ext2: e,
+            EXT_data,
+        };
+        console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+    } finally {
+        connection.release();
+    }
+
+    if (ret_status != 200) {
+        return res.status(ret_status).json(ret_data);
+    }
+
+    ret_data = {
+        code: "result",
+        value: 1,
+        value_ext1: ret_status,
+        value_ext2: {
+            game: game_data
+        },
+        EXT_data,
+    };
+    console.log(LOG_SUCC_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+
+    return res.status(ret_status).json(ret_data);
 });
 
-// 플레이 시간 포맷팅 유틸리티
+//========================================================================
+// DELETE /api/game/current - 현재 진행 중인 게임 삭제
+//========================================================================
+router.delete('/', async(req, res) => {
+    const LOG_FAIL_HEADER = "[FAIL]";
+    const LOG_SUCC_HEADER = "[SUCC]";
+    const EXT_data = my_reqinfo.get_req_url(req);
+    
+    const fail_status = 500;
+    let ret_status = 200;
+    let ret_data;
+
+    const catch_auth = -1;
+    const catch_sqlconn = -2;
+    const catch_query = -3;
+
+    let req_user_id;
+    try {
+        if (!req.session || !req.session.userId) throw "user not authenticated";
+        req_user_id = req.session.userId;
+    } catch (e) {
+        ret_status = 401;
+        ret_data = {
+            code: "auth_check",
+            value: catch_auth,
+            value_ext1: ret_status,
+            value_ext2: e,
+            EXT_data,
+        };
+        console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+        return res.status(ret_status).json(ret_data);
+    }
+
+    let connection;
+    try {
+        connection = await pool.getConnection();
+    } catch (e) {
+        ret_status = fail_status + -1 * catch_sqlconn;
+        ret_data = {
+            code: "getConnection()",
+            value: catch_sqlconn,
+            value_ext1: ret_status,
+            value_ext2: e,
+            EXT_data,
+        };
+        console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+        return res.status(ret_status).json(ret_data);
+    }
+
+    let deleted_games = [];
+    try {
+        // 완료되지 않은 게임들 조회
+        const [games] = await connection.query(
+            'SELECT game_id, thread_id FROM game_state WHERE user_id = ? AND is_completed = 0',
+            [req_user_id]
+        );
+
+        if (games.length > 0) {
+            // 게임 삭제
+            const [deleteResult] = await connection.query(
+                'DELETE FROM game_state WHERE user_id = ? AND is_completed = 0',
+                [req_user_id]
+            );
+
+            deleted_games = games;
+            console.log(`[DELETE_CURRENT] Deleted ${deleteResult.affectedRows} incomplete games`);
+
+            // OpenAI 스레드 삭제 (비동기)
+            games.forEach(game => {
+                if (game.thread_id) {
+                    setTimeout(async () => {
+                        try {
+                            await openai.beta.threads.del(game.thread_id);
+                            console.log(`[DELETE_CURRENT] OpenAI thread deleted: ${game.thread_id}`);
+                        } catch (openaiError) {
+                            console.error(`[DELETE_CURRENT] Failed to delete OpenAI thread: ${game.thread_id}`, openaiError);
+                        }
+                    }, 100);
+                }
+            });
+        }
+
+    } catch (e) {
+        ret_status = fail_status + -1 * catch_query;
+        ret_data = {
+            code: "query(delete_current_games)",
+            value: catch_query,
+            value_ext1: ret_status,
+            value_ext2: e,
+            EXT_data,
+        };
+        console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+    } finally {
+        connection.release();
+    }
+
+    if (ret_status != 200) {
+        return res.status(ret_status).json(ret_data);
+    }
+
+    ret_data = {
+        code: "result",
+        value: deleted_games.length,
+        value_ext1: ret_status,
+        value_ext2: {
+            deleted_games: deleted_games,
+            message: `${deleted_games.length}개의 미완료 게임이 삭제되었습니다.`
+        },
+        EXT_data,
+    };
+    console.log(LOG_SUCC_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+
+    return res.status(ret_status).json(ret_data);
+});
+
 function formatPlayTime(minutes) {
-  if (minutes < 1) return "방금 시작";
-  if (minutes < 60) return `${minutes}분`;
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  return remainingMinutes > 0 ? `${hours}시간 ${remainingMinutes}분` : `${hours}시간`;
+    if (minutes < 1) return "방금 시작";
+    if (minutes < 60) return `${minutes}분`;
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return remainingMinutes > 0 ? `${hours}시간 ${remainingMinutes}분` : `${hours}시간`;
 }
 
 module.exports = router;

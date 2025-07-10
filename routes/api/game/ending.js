@@ -3,9 +3,10 @@ const express = require('express');
 const router = express.Router();
 const my_reqinfo = require('../../../utils/apiReqinfo');
 const pool = require('../../../config/database');
+const openai = require('../../../config/openai');
 
 //========================================================================
-// POST /api/game/ending - 엔딩 생성 및 기록
+// POST /api/game/ending - 엔딩 생성 및 기록 (게임 상태 자동 삭제)
 //========================================================================
 router.post('/', async(req, res) => {
     const LOG_FAIL_HEADER = "[FAIL]";
@@ -61,6 +62,7 @@ router.post('/', async(req, res) => {
     if (ret_status != 200)
         return res.status(ret_status).json(ret_data);
 
+    let thread_id_to_delete = null;
     try {
         // 현재 사용자의 총 사망 횟수 계산
         const [deathCount] = await connection.query(
@@ -69,24 +71,24 @@ router.post('/', async(req, res) => {
         );
         
         const currentDeathCount = deathCount[0].count;
-        
-        // 현재 게임이 사망이면 +1
         const totalDeaths = req_ending_data.ending_type === 'death' ? currentDeathCount + 1 : currentDeathCount;
         
-        // 엔딩 데이터에 누적 사망 횟수 반영
         req_ending_data.total_deaths = totalDeaths;
 
-        // game_state 테이블 업데이트 (완료 상태로 변경)
-        await connection.query(
-            `UPDATE game_state 
-            SET is_completed = TRUE, 
-                ending_data = ?,
-                last_updated = NOW()
-            WHERE game_id = ? AND user_id = ?`,
-            [JSON.stringify(req_ending_data), req_game_id, req_user_id]
+        // 게임 상태에서 thread_id 가져오기
+        const [gameState] = await connection.query(
+            'SELECT thread_id FROM game_state WHERE game_id = ? AND user_id = ?',
+            [req_game_id, req_user_id]
         );
 
-        // game_endings 테이블에 완전한 정보 기록
+        if (gameState.length > 0) {
+            thread_id_to_delete = gameState[0].thread_id;
+        }
+
+        // 트랜잭션 시작
+        await connection.beginTransaction();
+
+        // game_endings 테이블에 엔딩 기록
         const gameSummary = generateGameSummary(req_ending_data);
         const locationInfo = req_ending_data.game_data?.location?.current || "알 수 없음";
         const playDuration = Math.floor((new Date() - new Date(req_ending_data.game_started || Date.now())) / (1000 * 60));
@@ -102,7 +104,7 @@ router.post('/', async(req, res) => {
                 req_ending_data.ending_type,
                 req_ending_data.final_turn || 1,
                 totalDeaths,
-                0, // 발견 정보 제거
+                0,
                 req_ending_data.ending_story || "게임이 종료되었습니다.",
                 req_ending_data.cause_of_death || null,
                 gameSummary,
@@ -111,7 +113,19 @@ router.post('/', async(req, res) => {
             ]
         );
 
+        // 게임 상태 삭제 (엔딩 처리 후 자동 삭제)
+        await connection.query(
+            'DELETE FROM game_state WHERE game_id = ? AND user_id = ?',
+            [req_game_id, req_user_id]
+        );
+
+        await connection.commit();
+        console.log(`[ENDING_CREATE] Game ${req_game_id} ended and deleted`);
+
     } catch (e) {
+        if (connection) {
+            await connection.rollback();
+        }
         ret_status = fail_status + -1 * catch_query;
         ret_data = {
             code: "query(create_ending)",
@@ -121,14 +135,26 @@ router.post('/', async(req, res) => {
             EXT_data,
         };
         console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+    } finally {
+        connection.release();
     }
 
     if (ret_status != 200) {
-        connection.release();
         return res.status(ret_status).json(ret_data);
     }
+
+    // OpenAI 스레드 삭제 (비동기)
+    if (thread_id_to_delete) {
+        setTimeout(async () => {
+            try {
+                await openai.beta.threads.del(thread_id_to_delete);
+                console.log(`[ENDING_CREATE] OpenAI thread deleted: ${thread_id_to_delete}`);
+            } catch (openaiError) {
+                console.error(`[ENDING_CREATE] Failed to delete OpenAI thread: ${thread_id_to_delete}`, openaiError);
+            }
+        }, 100);
+    }
     
-    connection.release();
     ret_data = {
         code: "result",
         value: 1,
@@ -146,7 +172,7 @@ router.post('/', async(req, res) => {
 });
 
 //========================================================================
-// GET /api/game/ending/:game_id - 엔딩 데이터 조회 (수정됨)
+// GET /api/game/ending/:game_id - 엔딩 데이터 조회
 //========================================================================
 router.get('/:game_id', async(req, res) => {
     const LOG_FAIL_HEADER = "[FAIL]";
@@ -168,8 +194,6 @@ router.get('/:game_id', async(req, res) => {
         
         req_user_id = req.session.userId;
         req_game_id = req.params.game_id;
-        
-        console.log(`[ENDING_GET] Requested game_id: ${req_game_id}`);
     } catch (e) {
         ret_status = 401;
         ret_data = {
@@ -201,22 +225,13 @@ router.get('/:game_id', async(req, res) => {
 
     let ending_data = null;
     try {
-        // 삭제된 게임 ID 처리 (deleted_ 접두사)
         const isDeletedGame = req_game_id.startsWith('deleted_');
-        let queryGameId = req_game_id;
         
         if (isDeletedGame) {
-            // deleted_16 -> 16번 엔딩 레코드 조회
             const endingId = req_game_id.replace('deleted_', '');
-            console.log(`[ENDING_GET] Deleted game - searching by ending ID: ${endingId}`);
             
             const [endings] = await connection.query(
-                `SELECT ge.*, 
-                        NULL as ending_data, 
-                        NULL as game_data, 
-                        NULL as created_at, 
-                        NULL as last_updated,
-                        ge.created_at as ending_created_at
+                `SELECT ge.*, ge.created_at as ending_created_at
                 FROM game_endings ge
                 WHERE ge.id = ? AND ge.user_id = ?`,
                 [endingId, req_user_id]
@@ -232,7 +247,7 @@ router.get('/:game_id', async(req, res) => {
                 ending_type: endingRecord.ending_type,
                 final_turn: endingRecord.final_turn,
                 total_deaths: endingRecord.total_deaths,
-                discoveries_count: 0, // 발견 정보 제거
+                discoveries_count: 0,
                 ending_story: endingRecord.ending_story,
                 cause_of_death: endingRecord.cause_of_death,
                 game_summary: endingRecord.game_summary,
@@ -242,63 +257,30 @@ router.get('/:game_id', async(req, res) => {
                 is_deleted_game: true
             };
         } else {
-            // 일반 게임 - 기존 로직
-            console.log(`[ENDING_GET] Active game - searching by game_id: ${req_game_id}`);
-            
-            const [games] = await connection.query(
-                `SELECT gs.ending_data, gs.game_data, gs.created_at, gs.last_updated,
-                        ge.ending_type, ge.final_turn, ge.total_deaths, 
-                        ge.discoveries_count, ge.ending_story, ge.cause_of_death,
-                        ge.game_summary, ge.location_info, ge.play_duration,
-                        ge.created_at as ending_created_at
-                FROM game_state gs
-                LEFT JOIN game_endings ge ON gs.game_id = ge.game_id
-                WHERE gs.game_id = ? AND gs.user_id = ? AND gs.is_completed = 1`,
+            const [endings] = await connection.query(
+                `SELECT ge.*, ge.created_at as ending_created_at
+                FROM game_endings ge
+                WHERE ge.game_id = ? AND ge.user_id = ?`,
                 [req_game_id, req_user_id]
             );
 
-            if (games.length === 0) {
+            if (endings.length === 0) {
                 throw "Ending data not found";
             }
 
-            const gameData = games[0];
-            
-            let parsedEndingData = {};
-            if (gameData.ending_data) {
-                if (typeof gameData.ending_data === 'string') {
-                    try {
-                        parsedEndingData = JSON.parse(gameData.ending_data);
-                    } catch (parseError) {
-                        console.error("Error parsing ending_data string:", parseError);
-                        parsedEndingData = {};
-                    }
-                } else if (typeof gameData.ending_data === 'object') {
-                    parsedEndingData = gameData.ending_data;
-                }
-            }
-
-            let parsedGameData = null;
-            if (gameData.game_data) {
-                if (typeof gameData.game_data === 'string') {
-                    try {
-                        parsedGameData = JSON.parse(gameData.game_data);
-                    } catch (parseError) {
-                        console.error("Error parsing game_data string:", parseError);
-                        parsedGameData = null;
-                    }
-                } else if (typeof gameData.game_data === 'object') {
-                    parsedGameData = gameData.game_data;
-                }
-            }
-
+            const endingRecord = endings[0];
             ending_data = {
                 game_id: req_game_id,
-                ...parsedEndingData,
-                game_data: parsedGameData,
-                total_deaths: gameData.total_deaths, // DB에서 가져온 누적 사망 횟수
-                discoveries_count: 0, // 발견 정보 제거
-                created_at: gameData.created_at,
-                completed_at: gameData.ending_created_at || gameData.last_updated,
+                ending_type: endingRecord.ending_type,
+                final_turn: endingRecord.final_turn,
+                total_deaths: endingRecord.total_deaths,
+                discoveries_count: 0,
+                ending_story: endingRecord.ending_story,
+                cause_of_death: endingRecord.cause_of_death,
+                game_summary: endingRecord.game_summary,
+                location_info: endingRecord.location_info,
+                play_duration: endingRecord.play_duration,
+                completed_at: endingRecord.ending_created_at,
                 is_deleted_game: false
             };
         }
@@ -334,7 +316,7 @@ router.get('/:game_id', async(req, res) => {
 });
 
 //========================================================================
-// GET /api/game/ending - 사용자의 모든 엔딩 목록 조회 (페이지네이션 추가)
+// GET /api/game/ending - 사용자의 모든 엔딩 목록 조회
 //========================================================================
 router.get('/', async(req, res) => {
     const LOG_FAIL_HEADER = "[FAIL]";
@@ -354,7 +336,6 @@ router.get('/', async(req, res) => {
         if (!req.session || !req.session.userId) throw "user not authenticated";
         req_user_id = req.session.userId;
         
-        // 페이지네이션 파라미터
         page = parseInt(req.query.page) || 1;
         limit = parseInt(req.query.limit) || 5;
         
@@ -393,14 +374,12 @@ router.get('/', async(req, res) => {
     let endings_list = [];
     let total_count = 0;
     try {
-        // 총 개수 조회
         const [countResult] = await connection.query(
             `SELECT COUNT(*) as total FROM game_endings WHERE user_id = ?`,
             [req_user_id]
         );
         total_count = countResult[0].total;
         
-        // 페이지네이션된 엔딩 목록 조회 (최신 순서로 정렬)
         const offset = (page - 1) * limit;
         const [endings] = await connection.query(
             `SELECT ge.*, COALESCE(ge.game_id, CONCAT('deleted_', ge.id)) as display_id
@@ -417,14 +396,14 @@ router.get('/', async(req, res) => {
             ending_type: ending.ending_type,
             final_turn: ending.final_turn,
             total_deaths: ending.total_deaths,
-            discoveries_count: 0, // 발견 정보 제거
+            discoveries_count: 0,
             ending_story: ending.ending_story,
             game_summary: ending.game_summary,
             location_info: ending.location_info,
             play_duration: ending.play_duration,
             completed_at: ending.created_at,
             is_deleted: !ending.game_id,
-            game_number: total_count - offset - index // 역순 번호 계산
+            game_number: total_count - offset - index
         }));
 
     } catch (e) {
@@ -445,7 +424,6 @@ router.get('/', async(req, res) => {
         return res.status(ret_status).json(ret_data);
     }
     
-    // 페이지네이션 정보 계산
     const total_pages = Math.ceil(total_count / limit);
     const has_prev = page > 1;
     const has_next = page < total_pages;
@@ -472,7 +450,6 @@ router.get('/', async(req, res) => {
     return res.status(ret_status).json(ret_data);
 });
 
-// 게임 요약 생성 함수 (발견 정보 제거)
 function generateGameSummary(endingData) {
     const turn = endingData.final_turn || 0;
     const deaths = endingData.total_deaths || 0;

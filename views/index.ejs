@@ -7,7 +7,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GPT Chat</title>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
-    <!-- ✅ 신규 추가: Axios CDN -->
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <style>
@@ -18,13 +17,15 @@
             background-color: #f0f0f0;
             color: #333;
         }
-        /* 컨테이너를 중앙 정렬하고 최대 너비 설정 */
+        
         .page-container {
-            max-width: 1000px;
+            max-width: 800px;
             margin: 0 auto;
             box-shadow: 0 0 15px rgba(0,0,0,0.1);
+            background-color: white;
+            min-height: 100vh;
         }
-        /* 사용자 컨트롤 영역 수정 - 헤더와 통합 */
+        
         .user-controls {
             display: flex;
             justify-content: space-between;
@@ -33,16 +34,18 @@
             background-color: #007bff;
             color: white;
             height: 60px;
-            border-radius: 0;
         }
+        
         .title-area {
             font-size: 1.5rem;
             font-weight: bold;
         }
+        
         .user-info {
             display: flex;
             align-items: center;
         }
+        
         .btn {
             padding: 6px 12px;
             color: white;
@@ -56,48 +59,71 @@
             align-items: center;
             justify-content: center;
         }
+        
         .btn-logout {
             background-color: rgba(255, 255, 255, 0.2);
             margin-left: 10px;
         }
+        
         .btn-logout:hover {
             background-color: rgba(255, 255, 255, 0.3);
         }
-        .chat-container {
-            background-color: white;
+        
+        .main-content {
             display: flex;
-            justify-content: space-between;
-            border-radius: 0;
-            overflow: hidden;
+            flex-direction: column;
+            height: calc(100vh - 60px);
         }
+        
         .controls {
             display: flex;
             justify-content: space-between;
+            align-items: center;
             padding: 10px 20px;
             background-color: #f8f9fa;
             border-bottom: 1px solid #eee;
+            gap: 10px;
         }
+        
         #assistant-select {
             flex-grow: 1;
-            margin-right: 10px;
             padding: 8px;
             border: 1px solid #ddd;
             border-radius: 4px;
         }
+        
         .btn-success {
             background-color: #28a745;
         }
+        
         .btn-success:hover {
             background-color: #218838;
         }
+        
+        .btn-primary {
+            background-color: #007bff;
+        }
+        
+        .btn-primary:hover {
+            background-color: #0056b3;
+        }
+        
+        .btn-secondary {
+            background-color: #6c757d;
+        }
+        
+        .btn-secondary:hover {
+            background-color: #5a6268;
+        }
+        
         #chatbox {
-            height: 450px; /* 높이 늘림 */
-            overflow-y: scroll;
+            flex-grow: 1;
+            overflow-y: auto;
             padding: 20px;
             background-color: #f9f9f9;
-            flex-grow: 1;
-            position: relative; /* 로딩 오버레이를 위한 포지션 설정 */
+            position: relative;
         }
+        
         .message {
             margin-bottom: 10px;
             padding: 10px 15px;
@@ -106,62 +132,42 @@
             word-break: break-word;
             max-width: 80%;
         }
+        
         .user-message {
             background-color: #007bff;
             color: white;
             text-align: right;
             margin-left: auto;
         }
+        
         .assistant-message {
             background-color: #e9ecef;
             text-align: left;
         }
-        .error {
-            color: #dc3545;
-            font-weight: bold;
-        }
-        #game-load-list {
-            width: 250px;
+        
+        .system-message {
             background-color: #f8f9fa;
-            padding: 20px;
-            border-left: 1px solid #eee;
-        }
-        #game-load-list h3 {
-            text-align: center;
-            margin-top: 0;
-            color: #343a40;
-            font-size: 1.2rem;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #eee;
-        }
-        .game-entry {
-            margin-bottom: 15px;
-            padding: 12px;
-            background-color: white;
-            border-radius: 6px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-            transition: all 0.3s ease;
-            border-left: 3px solid transparent;
-        }
-        .game-entry:hover {
-            box-shadow: 0 3px 8px rgba(0,0,0,0.2);
-            transform: translateY(-2px);
-        }
-        .game-entry span {
-            display: block;
-            margin-bottom: 5px;
+            border-left: 4px solid #6c757d;
+            padding: 10px 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            text-align: left;
             font-size: 0.9rem;
         }
-        .game-entry button {
-            margin-right: 5px;
-            margin-top: 5px;
+        
+        .system-message.error {
+            background-color: #fff8f8;
+            border-left: 4px solid #dc3545;
+            color: #dc3545;
         }
+        
         .choice-buttons {
             display: flex;
             flex-direction: column;
             gap: 8px;
             margin: 15px 0;
         }
+        
         .choice-button {
             padding: 10px 15px;
             background-color: #007bff;
@@ -173,74 +179,34 @@
             transition: background-color 0.2s;
             width: 100%;
         }
+        
         .choice-button:hover {
             background-color: #0056b3;
         }
+        
         .choice-button:disabled {
             background-color: #cccccc;
             cursor: not-allowed;
         }
-        /* 처리 중인 선택지 스타일 */
+        
         .choice-button.processing {
             background-color: #6c757d;
             cursor: not-allowed;
             opacity: 0.7;
         }
-        .game-actions {
-            display: flex;
+        
+        .direction-icon {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            line-height: 20px;
+            text-align: center;
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            margin-right: 8px;
+            font-weight: bold;
         }
-        .game-actions button {
-            flex: 1;
-        }
-        .btn-primary {
-            background-color: #007bff;
-        }
-        .btn-primary:hover {
-            background-color: #0056b3;
-        }
-        .btn-danger {
-            background-color: #dc3545;
-        }
-        .btn-danger:hover {
-            background-color: #c82333;
-        }
-        .system-message {
-            background-color: #f8f9fa;
-            border-left: 4px solid #6c757d;
-            padding: 10px 15px;
-            margin: 10px 0;
-            border-radius: 4px;
-            text-align: left;
-            font-size: 0.9rem;
-        }
-        .system-message.error {
-            background-color: #fff8f8;
-            border-left: 4px solid #dc3545;
-            color: #dc3545;
-        }
-        #connection-error {
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            margin: 0;
-            width: 100%;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        #manual-reconnect, #restart-button {
-            display: block;
-            margin: 8px auto 0 auto;
-        }
-        .btn-warning {
-            background-color: #ffc107;
-            color: #212529;
-        }
-        .btn-warning:hover {
-            background-color: #e0a800;
-        }
-        .mt-2 {
-            margin-top: 0.5rem !important;
-        }
-        /* 로딩 오버레이 스타일 */
+        
         .loading-overlay {
             position: absolute;
             top: 0;
@@ -255,6 +221,7 @@
             z-index: 1000;
             display: none;
         }
+        
         .spinner {
             width: 50px;
             height: 50px;
@@ -263,21 +230,24 @@
             border-radius: 50%;
             animation: spin 1s linear infinite;
         }
+        
         .loading-text {
             margin-top: 15px;
             font-weight: bold;
             color: #007bff;
         }
+        
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        /* 버튼 로딩 상태 */
+        
         .btn-loading {
             position: relative;
             cursor: not-allowed;
             color: transparent !important;
         }
+        
         .btn-loading::after {
             content: "";
             position: absolute;
@@ -290,58 +260,42 @@
             border-top: 2px solid white;
             animation: spin 1s linear infinite;
         }
-        /* 현재 선택된 게임 하이라이트 */
-        .game-entry.current-game {
-            border-left-color: #007bff;
-            background-color: rgba(0, 123, 255, 0.05);
+        
+        #connection-error {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            margin: 0;
+            width: 100%;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         
-        /* 위치 정보 강조 스타일 */
-        .location-info {
+        #manual-reconnect, #restart-button {
             display: block;
-            margin: 8px 0;
-            padding: 6px 8px;
-            background-color: #f8f9fa;
-            border-radius: 4px;
-            font-size: 0.95rem;
-            border-left: 3px solid #28a745;
+            margin: 8px auto 0 auto;
         }
         
-        .location-info strong {
-            color: #28a745;
+        .btn-warning {
+            background-color: #ffc107;
+            color: #212529;
         }
         
-        /* 애니메이션 효과로 업데이트 강조 */
-        @keyframes highlight-update {
-            0% { background-color: rgba(40, 167, 69, 0.2); }
-            100% { background-color: transparent; }
+        .btn-warning:hover {
+            background-color: #e0a800;
         }
         
-        .location-info.updated {
-            animation: highlight-update 2s ease-out;
+        .btn-danger {
+            background-color: #dc3545;
         }
         
-        /* 방향키 아이콘 스타일 */
-        .direction-icon {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            line-height: 20px;
-            text-align: center;
-            background-color: rgba(255, 255, 255, 0.2);
-            border-radius: 50%;
-            margin-right: 8px;
-            font-weight: bold;
+        .btn-danger:hover {
+            background-color: #c82333;
         }
         
-        /* 버튼 하이라이트 효과 */
-        .highlight-button {
-            transform: scale(1.05);
-            box-shadow: 0 0 15px rgba(255, 255, 255, 0.7);
-            transition: all 0.2s ease;
+        .mt-2 {
+            margin-top: 0.5rem !important;
         }
         
-        /* 대기 메시지 스타일 */
         #waiting-response {
             background-color: rgba(0, 123, 255, 0.1);
             border-left: 4px solid #007bff;
@@ -350,11 +304,29 @@
             font-style: italic;
             font-size: 0.9rem;
         }
+        
+        @media (max-width: 768px) {
+            .page-container {
+                max-width: 100%;
+            }
+            
+            .controls {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            #assistant-select {
+                width: 100%;
+            }
+            
+            .controls .btn {
+                flex: 1;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="page-container">
-        <!-- 헤더와 사용자 컨트롤 통합 -->
         <div class="user-controls">
             <div class="title-area">Mud Game</div>
             <div class="user-info">
@@ -363,41 +335,36 @@
             </div>
         </div>
         
-        <div class="chat-container">
-            <div style="flex: 1; display: flex; flex-direction: column;">
-                <div class="controls">
-                    <select id="assistant-select">
-                        <% assistants.forEach(function(assistant) { %>
-                            <option value="<%= assistant.id %>"><%= assistant.name %></option>
-                        <% }); %>
-                    </select>
-                    <button id="new-game" class="btn btn-success">새 게임</button>
-                    <button id="save-game" class="btn btn-success" style="margin-left: 5px;">게임 저장</button>
-                </div>
-                <div id="chatbox">
-                    <!-- 로딩 오버레이 -->
-                    <div id="loading-overlay" class="loading-overlay">
-                        <div class="spinner"></div>
-                        <div class="loading-text">처리 중입니다...</div>
-                    </div>
-                </div>
+        <div class="main-content">
+            <div class="controls">
+                <select id="assistant-select">
+                    <% assistants.forEach(function(assistant) { %>
+                        <option value="<%= assistant.id %>"><%= assistant.name %></option>
+                    <% }); %>
+                </select>
+                <button id="new-game" class="btn btn-success">새 게임</button>
+                <button id="load-game" class="btn btn-primary">불러오기</button>
+                <button id="view-endings" class="btn btn-secondary">엔딩 기록</button>
             </div>
-
-            <div id="game-load-list">
-                <h3>저장된 게임 목록</h3>
-                <div id="saved_games_list">
-                    <!-- 저장된 게임 리스트가 여기에 표시됩니다 -->
+            
+            <div id="chatbox">
+                <div id="loading-overlay" class="loading-overlay">
+                    <div class="spinner"></div>
+                    <div class="loading-text">처리 중입니다...</div>
+                </div>
+                
+                <div class="system-message">
+                    새 게임을 시작하거나 이전 게임을 불러오세요.
                 </div>
             </div>
         </div>
     </div>
 
-<!-- ✅ 신규 추가: API 모듈 로드 -->
-<script src="/javascripts/api.js"></script>
-<script src="/javascripts/socket.js"></script>
-<script src="/javascripts/gameState.js"></script>
-<script src="/javascripts/ui.js"></script>
-<script src="/javascripts/chat.js"></script>
-<script src="/javascripts/main.js"></script>
+    <script src="/javascripts/api.js"></script>
+    <script src="/javascripts/socket.js"></script>
+    <script src="/javascripts/gameState.js"></script>
+    <script src="/javascripts/ui.js"></script>
+    <script src="/javascripts/chat.js"></script>
+    <script src="/javascripts/main.js"></script>
 </body>
 </html>
