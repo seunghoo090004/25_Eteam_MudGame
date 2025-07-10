@@ -27,7 +27,11 @@ const GameUI = (function() {
             // 에러 발생 시 버튼 비활성화
             gameExists = false;
             updateLoadButtonState(false);
-            console.log('게임 상태 확인:', error.response?.status === 404 ? '불러올 게임 없음' : '에러 발생');
+            
+            // 404는 정상적인 상황이므로 조용히 처리
+            if (error.response?.status !== 404) {
+                console.error('게임 상태 확인 오류:', error);
+            }
         }
     }
     
@@ -363,14 +367,7 @@ const GameUI = (function() {
             </div>
         `);
         
-        $('#new-game-ending').click(async function() {
-            // 게임 삭제 시도 (이미 삭제되었을 수 있음)
-            try {
-                await GameAPI.game.deleteCurrent();
-            } catch (error) {
-                console.log('게임 삭제:', error.response?.status === 404 ? '이미 삭제됨' : '완료');
-            }
-            
+        $('#new-game-ending').click(function() {
             GameState.clearGameState();
             $('#chatbox').empty();
             $('#assistant-select').prop('disabled', false);
@@ -379,26 +376,14 @@ const GameUI = (function() {
             handleNewGame();
         });
         
-        $('#view-endings-ending').click(async function() {
-            try {
-                await GameAPI.game.deleteCurrent();
-            } catch (error) {
-                console.log('게임 삭제:', error.response?.status === 404 ? '이미 삭제됨' : '완료');
-            }
-            
+        $('#view-endings-ending').click(function() {
             GameState.clearGameState();
             gameExists = false;
             updateLoadButtonState(false);
             window.open('/endings', '_blank');
         });
         
-        $('#back-to-main').click(async function() {
-            try {
-                await GameAPI.game.deleteCurrent();
-            } catch (error) {
-                console.log('게임 삭제:', error.response?.status === 404 ? '이미 삭제됨' : '완료');
-            }
-            
+        $('#back-to-main').click(function() {
             GameState.clearGameState();
             gameExists = false;
             updateLoadButtonState(false);
