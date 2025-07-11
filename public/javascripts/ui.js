@@ -40,11 +40,15 @@ const GameUI = (function() {
         const loadButton = $('#load-game');
         
         if (hasGame) {
+            // 게임이 있을 때: 파란색, 클릭 가능
             loadButton.prop('disabled', false);
             loadButton.text('불러오기');
+            loadButton.removeClass('btn-disabled').addClass('btn-primary');
         } else {
+            // 게임이 없을 때: 회색, 클릭 불가
             loadButton.prop('disabled', true);
-            loadButton.text('불러올 게임 없음');
+            loadButton.text('불러오기');
+            loadButton.removeClass('btn-primary').addClass('btn-disabled');
         }
     }
     

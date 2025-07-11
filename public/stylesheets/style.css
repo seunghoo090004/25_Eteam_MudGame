@@ -104,6 +104,20 @@ body {
     background-color: #5a6268;
 }
 
+.btn-disabled {
+    background-color: #6c757d !important;
+    border-color: #6c757d !important;
+    cursor: not-allowed !important;
+    opacity: 0.65;
+}
+
+.btn-disabled:hover {
+    background-color: #6c757d !important;
+    border-color: #6c757d !important;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
 #chatbox {
     flex-grow: 1;
     overflow-y: auto;
