@@ -20,28 +20,21 @@ const GameUI = (function() {
             return null;
         }
         
-        // 통계 섹션이 있는지 확인 (새 게임 상황 판단)
+        // 통계 섹션이 있는지 확인 (게임 상황 판단)
         const hasStats = response.match(/통계\s*={3,}/);
         if (!hasStats) {
             return null;
         }
         
-        // 선택지 생성 (항상 4개)
-        const choices = [
-            { number: 1, text: '1번 선택지' },
-            { number: 2, text: '2번 선택지' },
-            { number: 3, text: '3번 선택지' },
-            { number: 4, text: '4번 선택지' }
-        ];
-        
+        // 항상 4개 버튼 생성 (GPT 응답과 관계없이)
         let buttonsHtml = '<div class="choice-buttons">';
-        choices.forEach(choice => {
+        for (let i = 1; i <= 4; i++) {
             buttonsHtml += `
-                <button class="choice-button btn btn-primary" data-choice="${choice.number}">
-                    ${choice.text}
+                <button class="choice-button btn btn-primary" data-choice="${i}">
+                    ${i}번 선택지
                 </button>
             `;
-        });
+        }
         buttonsHtml += '</div>';
         
         return buttonsHtml;
@@ -133,8 +126,6 @@ const GameUI = (function() {
     }
     
     // 새 게임 시작
-// UI.js의 handleNewGame 함수 수정
-
     async function handleNewGame() {
         const assistantId = $('#assistant-select').val();
         if (!assistantId) {
@@ -142,56 +133,28 @@ const GameUI = (function() {
             return;
         }
         
-        console.log('Selected Assistant ID:', assistantId); // 디버깅용
-        
         showLoading();
         setButtonLoading($('#new-game'), true);
         disableAllButtons();
         
         try {
             const response = await GameAPI.game.create(assistantId, 'roguelike');
-            console.log('API Create Response:', response); // 디버깅용
             
-            // API 응답 구조 확인 후 적절한 필드 사용
-            let gameData;
             if (response.code === "result" && response.value === 1) {
-                // value_ext2에 데이터가 있는 경우
-                gameData = response.value_ext2;
-            } else if (response.data) {
-                // data 필드에 있는 경우
-                gameData = response.data;
-            } else {
-                // 직접 response에 있는 경우
-                gameData = response;
-            }
-            
-            console.log('Extracted Game Data:', gameData); // 디버깅용
-            
-            // 실제 응답 구조에 맞는 필드명 사용
-            const socketData = {
-                game_id: gameData.game_id || gameData.id,
-                thread_id: gameData.thread_id,
-                assistant_id: gameData.assistant_id || assistantId, // 원본 assistantId 사용
-                game_data: gameData.game_data || gameData
-            };
-            
-            console.log('Socket Data:', socketData); // 디버깅용
-            
-            // 필수 필드 확인
-            if (!socketData.game_id || !socketData.thread_id || !socketData.assistant_id) {
-                console.error('Missing fields:', {
-                    game_id: !!socketData.game_id,
-                    thread_id: !!socketData.thread_id, 
-                    assistant_id: !!socketData.assistant_id
+                const gameData = response.value_ext2;
+                
+                GameSocket.emit('new game', {
+                    game_id: gameData.game_id,
+                    thread_id: gameData.thread_id,
+                    assistant_id: gameData.assistant_id,
+                    game_data: gameData.game_data
                 });
-                throw new Error('게임 생성 응답에 필수 정보가 누락되었습니다.');
+                
+                gameExists = true;
+                updateLoadButtonState(true);
+            } else {
+                throw new Error(response.message || '게임 생성 실패');
             }
-            
-            GameSocket.emit('new game', socketData);
-            
-            gameExists = true;
-            updateLoadButtonState(true);
-            
         } catch (error) {
             console.error('새 게임 생성 오류:', error);
             hideLoading();
@@ -214,13 +177,24 @@ const GameUI = (function() {
         
         try {
             const response = await GameAPI.game.loadCurrent();
+            console.log('Load Game API Response:', response); // 디버깅용
             
             if (response.code === "result" && response.value === 1) {
                 const gameData = response.value_ext2;
+                console.log('Load Game Data:', gameData); // 디버깅용
                 
-                GameSocket.emit('load game', {
-                    game_id: gameData.game_id
-                });
+                // API 응답 구조에 따라 game_id 추출
+                const socketData = {
+                    game_id: gameData.game_id || gameData.id
+                };
+                
+                console.log('Load Socket Data:', socketData); // 디버깅용
+                
+                if (!socketData.game_id) {
+                    throw new Error('게임 ID를 찾을 수 없습니다.');
+                }
+                
+                GameSocket.emit('load game', socketData);
             } else {
                 throw new Error('게임 로드 실패');
             }
