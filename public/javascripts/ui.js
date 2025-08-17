@@ -140,28 +140,46 @@ const GameUI = (function() {
             return;
         }
         
+        console.log('Selected Assistant ID:', assistantId); // 디버깅용
+        
         showLoading();
         setButtonLoading($('#new-game'), true);
         disableAllButtons();
         
         try {
             const response = await GameAPI.game.create(assistantId, 'roguelike');
+            console.log('API Create Response:', response); // 디버깅용
             
+            // API 응답 구조 확인 후 적절한 필드 사용
+            let gameData;
             if (response.code === "result" && response.value === 1) {
-                const gameData = response.value_ext2;
-                
-                GameSocket.emit('new game', {
-                    game_id: gameData.game_id,
-                    thread_id: gameData.thread_id,
-                    assistant_id: gameData.assistant_id,
-                    game_data: gameData.game_data
-                });
-                
-                gameExists = true;
-                updateLoadButtonState(true);
+                // value_ext2에 데이터가 있는 경우
+                gameData = response.value_ext2;
+            } else if (response.data) {
+                // data 필드에 있는 경우
+                gameData = response.data;
             } else {
-                throw new Error(response.message || '게임 생성 실패');
+                // 직접 response에 있는 경우
+                gameData = response;
             }
+            
+            console.log('Extracted Game Data:', gameData); // 디버깅용
+            
+            // 필수 필드 확인
+            if (!gameData.game_id || !gameData.thread_id || !gameData.assistant_id) {
+                throw new Error('게임 생성 응답에 필수 정보가 누락되었습니다.');
+            }
+            
+            GameSocket.emit('new game', {
+                game_id: gameData.game_id,
+                thread_id: gameData.thread_id,
+                assistant_id: gameData.assistant_id,
+                game_data: gameData.game_data || {}
+            });
+            
+            gameExists = true;
+            updateLoadButtonState(true);
+            
         } catch (error) {
             console.error('새 게임 생성 오류:', error);
             hideLoading();
