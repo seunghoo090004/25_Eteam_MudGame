@@ -1,513 +1,338 @@
-// routes/socket/services/chat.js - 로그라이크 시스템 버전 (생존 보장 로직 추가)
+// routes/socket/services/chat.js - 업데이트된 버전
 
-const pool = require('../../../config/database');
 const openai = require('../../../config/openai');
+const gameService = require('./game');
 
 class ChatService {
     constructor() {
-        // 생존 선택지 보장을 위한 메모리
-        this.survivalChoices = new Map(); // threadId -> survivalChoice
+        // 생존 보장을 위한 선택지 저장
+        this.survivalChoices = new Map();
     }
 
+    // 메시지 전송
     async sendMessage(threadId, assistantId, message) {
-        const LOG_HEADER = "CHAT_SERVICE/SEND";
+        const LOG_HEADER = "CHAT_SERVICE/SEND_MESSAGE";
+        
         try {
-            // 현재 실행 중인 run 완료 대기
-            const runs = await openai.beta.threads.runs.list(threadId);
-            const activeRun = runs.data.find(run => ['in_progress', 'queued'].includes(run.status));
-            
-            if (activeRun) {
-                console.log(`[${LOG_HEADER}] Waiting for previous run to complete: ${activeRun.id}`);
-                let runStatus;
-                do {
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    runStatus = await openai.beta.threads.runs.retrieve(threadId, activeRun.id);
-                } while (['in_progress', 'queued'].includes(runStatus.status));
-            }
-
-            const safeMessage = typeof message === 'string' ? message : String(message);
-            
-            // 생존 보장 로직 확인
-            const guaranteedSurvival = this.checkSurvivalGuarantee(threadId, safeMessage);
-            
-            // 로그라이크 선택지 처리
-            try {
-                await openai.beta.threads.messages.create(threadId, {
-                    role: "user",
-                    content: `선택: ${safeMessage}번`
-                });
-            } catch (msgError) {
-                console.error(`[${LOG_HEADER}] Failed to add message: ${msgError.message}`);
-                await new Promise(resolve => setTimeout(resolve, 10000));
-                await openai.beta.threads.messages.create(threadId, {
-                    role: "user",
-                    content: `선택: ${safeMessage}번`
-                });
-            }
-
-            // 로그라이크 게임 지침 (생존 보장 추가)
+            // 사용자 메시지 추가
             await openai.beta.threads.messages.create(threadId, {
                 role: "user",
-                content: this.generateGameInstructions(safeMessage, guaranteedSurvival)
+                content: message
             });
 
-            // 새로운 run 시작
-            let run;
-            try {
-                run = await openai.beta.threads.runs.create(threadId, {
-                    assistant_id: assistantId
-                });
-            } catch (runError) {
-                if (runError.message.includes('while a run is active')) {
-                    console.log(`[${LOG_HEADER}] Run already active, waiting 15 seconds and retrying`);
-                    await new Promise(resolve => setTimeout(resolve, 15000));
-                    run = await openai.beta.threads.runs.create(threadId, {
-                        assistant_id: assistantId
-                    });
-                } else {
-                    throw runError;
-                }
+            // 선택지 번호 파싱 (1, 2, 3, 4)
+            const selectedChoice = this.parseChoiceNumber(message);
+            
+            if (selectedChoice) {
+                // 턴별 난이도에 따른 생존 보장 설정
+                const gameState = await this.getGameStateFromThread(threadId);
+                const turn = gameState?.turn_count || 1;
+                const difficulty = gameService.getTurnDifficulty(turn + 1); // 다음 턴
+                
+                this.setSurvivalChoiceForNextTurn(threadId, selectedChoice, difficulty);
             }
 
-            // 실행 완료 대기
+            // 실행
+            const run = await openai.beta.threads.runs.create(threadId, {
+                assistant_id: assistantId,
+                instructions: this.generateGameInstructions(selectedChoice, turn)
+            });
+
+            // 완료 대기
             let runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
-            const startTime = Date.now();
-            const timeout = 120000;
             
-            while (['queued', 'in_progress'].includes(runStatus.status)) {
-                if (Date.now() - startTime > timeout) {
-                    throw new Error("Response timeout");
-                }
+            while (runStatus.status !== 'completed' && runStatus.status !== 'failed') {
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
-                console.log(`[${LOG_HEADER}] Run status: ${runStatus.status}`);
             }
 
             if (runStatus.status === 'failed') {
-                throw new Error(runStatus.last_error?.message || 'Assistant run failed');
+                throw new Error('Assistant run failed');
             }
 
-            if (runStatus.status === 'completed') {
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                
-                const messages = await openai.beta.threads.messages.list(threadId);
-                
-                if (!messages.data || messages.data.length === 0) {
-                    throw new Error("No messages received after completion");
-                }
-                
-                const firstMessage = messages.data[0];
-                if (!firstMessage.content || !firstMessage.content[0] || !firstMessage.content[0].text) {
-                    throw new Error("Invalid message format received");
-                }
-                
-                let response = firstMessage.content[0].text.value;
-                
-                // 응답 정리
-                response = this.cleanResponse(response);
-                
-                // 다음 턴을 위한 생존 선택지 설정
-                this.setSurvivalChoiceForNextTurn(threadId);
-                
-                console.log(`[${LOG_HEADER}] Message processed and cleaned`);
-                return response;
+            // 응답 메시지 가져오기
+            const messages = await openai.beta.threads.messages.list(threadId);
+            const assistantMessage = messages.data.find(msg => 
+                msg.role === 'assistant' && 
+                msg.run_id === run.id
+            );
+
+            if (!assistantMessage) {
+                throw new Error('No assistant response found');
             }
 
-            throw new Error(`Unexpected run status: ${runStatus.status}`);
+            const responseContent = assistantMessage.content[0].text.value;
+            
+            console.log(`[${LOG_HEADER}] Message sent successfully`);
+            return responseContent;
 
         } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
+            console.error(`[${LOG_HEADER}] Error: ${e.message}`);
             throw e;
         }
     }
 
-    // 생존 보장 확인
-    checkSurvivalGuarantee(threadId, selectedChoice) {
-        const survivalChoice = this.survivalChoices.get(threadId);
+    // 선택지 번호 파싱
+    parseChoiceNumber(message) {
+        const choice = parseInt(message.trim());
+        return (choice >= 1 && choice <= 4) ? choice : null;
+    }
+
+    // 난이도별 생존 선택지 설정
+    setSurvivalChoiceForNextTurn(threadId, selectedChoice, difficulty) {
+        const survivingChoices = [];
         
-        if (survivalChoice && selectedChoice === survivalChoice.toString()) {
-            console.log(`[SURVIVAL_GUARANTEE] Choice ${selectedChoice} is guaranteed survival for thread ${threadId}`);
-            // 사용된 생존 선택지 제거
-            this.survivalChoices.delete(threadId);
-            return true;
+        // 난이도에 따른 생존 선택지 개수만큼 랜덤 생성
+        for (let i = 0; i < difficulty.survivingChoices; i++) {
+            let choice;
+            do {
+                choice = Math.floor(Math.random() * 4) + 1; // 1-4
+            } while (survivingChoices.includes(choice));
+            survivingChoices.push(choice);
         }
         
-        return false;
+        this.survivalChoices.set(threadId, survivingChoices);
+        console.log(`[SURVIVAL_GUARANTEE] Stage: ${difficulty.stage}, Surviving choices: ${survivingChoices.join(',')}`);
     }
 
-    // 다음 턴을 위한 생존 선택지 설정 (1-4 중 랜덤)
-    setSurvivalChoiceForNextTurn(threadId) {
-        const survivalChoice = Math.floor(Math.random() * 4) + 1; // 1, 2, 3, 4 중 랜덤
-        this.survivalChoices.set(threadId, survivalChoice);
-        console.log(`[SURVIVAL_GUARANTEE] Next survival choice for thread ${threadId}: ${survivalChoice}`);
-    }
+    // 게임 지침 생성 (새 지침 적용)
+    generateGameInstructions(selectedChoice, turn) {
+        const difficulty = gameService.getTurnDifficulty(turn);
+        const guaranteedSurvival = this.survivalChoices.has(threadId) && 
+                                  this.survivalChoices.get(threadId).includes(selectedChoice);
 
-    // 게임 지침 생성 (생존 보장 포함)
-    generateGameInstructions(selectedChoice, guaranteedSurvival) {
-        const baseInstructions = `[로그라이크 게임 마스터 지침]
+        const baseInstructions = `[차원의 감옥 탈출 게임 마스터 지침]
 
 **선택 ${selectedChoice}번 처리:**
 1. 선택한 행동을 실행합니다
 2. 턴을 1 증가시킵니다
-3. 턴별 위험도를 적용합니다:
-   - 1-3턴: 60% 즉사율
-   - 4-6턴: 70% 즉사율  
-   - 7-10턴: 80% 즉사율
-   - 11턴+: 50% 즉사율 (탈출 기회)
+3. 난이도별 생존율을 적용합니다:
+   - 1-3턴: 50% 생존율 (초급)
+   - 4-7턴: 25% 생존율 (중급)
+   - 8-12턴: 25% 생존율 (고급)
+   - 13-16턴: 75% 생존율 (최종/탈출가능)
 
 **응답 형식 (필수):**
-[던전 상황 설명 - 위험 요소 포함]
+[차원의 감옥 상황 묘사 - 위험 요소 포함]
 
-STATS
+통계
 ===============================================
-Turn: [현재 턴]
-Location: [위치 정보]
-Time: [경과 시간]
-Discoveries: [발견한 정보]
+턴: [현재 턴]
+위치: [현재 위치명]
+발견: [중요 발견 정보]
 ===============================================
-
-↑ [행동]
-↓ [행동]  
-← [행동]
-→ [행동]
 
 **핵심 규칙:**
 - 체력 없음: 즉사 OR 생존
 - 잘못된 선택 시 즉시 사망
 - 아이템 발견 시 즉시 사용 후 소멸
-- 11턴 후 탈출 기회 제공
-- 위험도에 따른 즉사 확률 적용`;
+- 16턴 후 탈출 기회 제공
+- 난이도에 따른 생존율 적용
+
+**몬스터 조우 (확률적):**
+- 1-3턴: 30% (고블린, 스켈레톤)
+- 4-6턴: 50% (오크, 트롤)
+- 7-10턴: 70% (리치, 데몬)
+- 11턴+: 탈출 시도 시 드래곤`;
 
         // 생존 보장이 있는 경우 특별 지침 추가
         if (guaranteedSurvival) {
             return baseInstructions + `
 
 **🛡️ 특별 지침: 이번 선택은 반드시 생존해야 합니다.**
-- 선택한 행동이 성공적으로 실행됩니다
-- 위험한 상황이 있어도 운 좋게 피하거나 극복합니다
-- 사망하지 않고 다음 상황으로 진행합니다
-- 하지만 여전히 긴장감 있는 상황을 만들어주세요
-
-즉사 조건이 있어도 이번에는 생존시키고, 다음 턴의 선택지를 제시하세요.`;
+**선택지는 응답에 포함하지 않습니다. 시스템에서 별도 처리됩니다.**`;
         }
 
         return baseInstructions + `
 
-즉사 조건 충족 시 "당신은 죽었습니다"로 시작하여 사망 원인을 설명하세요.`;
+**선택지는 응답에 포함하지 않습니다. 시스템에서 별도 처리됩니다.**`;
     }
 
-    // 응답 정리 함수
-    cleanResponse(response) {
-        const LOG_HEADER = "CHAT_SERVICE/CLEAN_RESPONSE";
-        
-        let cleanedResponse = response;
-        
-        // 1. 불필요한 메타 정보 제거
-        cleanedResponse = cleanedResponse.replace(/\[게임 마스터[^\]]*\]/g, '');
-        cleanedResponse = cleanedResponse.replace(/\[시스템[^\]]*\]/g, '');
-        cleanedResponse = cleanedResponse.replace(/\[🛡️[^\]]*\]/g, ''); // 생존 보장 메시지 제거
-        
-        // 2. 구분선 정리
-        cleanedResponse = cleanedResponse.replace(/={10,}/g, '===============================================');
-        
-        // 3. 빈 줄 정리
-        cleanedResponse = cleanedResponse.replace(/\n{3,}/g, '\n\n');
-        
-        console.log(`[${LOG_HEADER}] Response cleaned successfully`);
-        return cleanedResponse;
-    }
-
-    // 로그라이크 게임 응답에서 상태 정보 파싱
+    // 게임 상태 파싱 (응답에서 게임 정보 추출)
     parseGameResponse(response) {
-        const LOG_HEADER = "CHAT_SERVICE/PARSE_RESPONSE";
-        
-        try {
-            const gameState = {
-                location: { current: "알 수 없음" },
-                discoveries: [],
-                turn_count: 1,
-                is_death: false
-            };
-
-            // 사망 체크
-            if (response.includes("당신은 죽었습니다") || response.includes("죽었습니다")) {
-                gameState.is_death = true;
-                
-                // 사망 원인 추출
-                const deathMatch = response.match(/원인[:\s]*([^.\n]+)/i) || 
-                                response.match(/당신은 ([^.]+)로 인해 죽었습니다/i);
-                if (deathMatch) {
-                    gameState.death_cause = deathMatch[1].trim();
-                }
-            }
-
-            // STATS 섹션 파싱
-            const statsPattern = /STATS[^=]*={3,}([\s\S]*?)={3,}/;
-            const statsMatch = response.match(statsPattern);
-            
-            if (statsMatch) {
-                const statsContent = statsMatch[1];
-                
-                // 턴 정보
-                const turnPattern = /Turn:\s*(\d+)/;
-                const turnMatch = statsContent.match(turnPattern);
-                if (turnMatch) {
-                    gameState.turn_count = parseInt(turnMatch[1]);
-                }
-                
-                // 위치 정보
-                const locationPattern = /Location:\s*([^\n]+)/;
-                const locationMatch = statsContent.match(locationPattern);
-                if (locationMatch) {
-                    gameState.location.current = locationMatch[1].trim();
-                }
-                
-                // 발견 정보
-                const discoveryPattern = /Discoveries:\s*([^\n]+)/;
-                const discoveryMatch = statsContent.match(discoveryPattern);
-                if (discoveryMatch) {
-                    const discoveryText = discoveryMatch[1].trim();
-                    if (discoveryText !== '없음' && discoveryText !== 'None' && discoveryText !== '') {
-                        gameState.discoveries = discoveryText.split(',').map(d => d.trim()).filter(d => d);
-                    }
-                }
-            }
-
-            console.log(`[${LOG_HEADER}] Parsed game state:`, gameState);
-            return gameState;
-
-        } catch (e) {
-            console.error(`[${LOG_HEADER}] Parse error:`, e);
+        if (!response || typeof response !== 'string') {
             return null;
         }
-    }
 
-    async initializeChat(threadId, assistantId) {
-        const LOG_HEADER = "CHAT_SERVICE/INIT";
-        try {
-            // 로그라이크 게임 초기화
-            await openai.beta.threads.messages.create(threadId, {
-                role: "user",
-                content: `***10턴 로그라이크 던전 탈출 게임 - 시스템 초기화***
+        const parsed = {};
 
-당신은 극도로 위험한 로그라이크 던전 게임의 게임 마스터입니다.
-
-**핵심 설정:**
-- 체력 없음: 즉사 OR 생존
-- 턴 기반: 각 선택마다 턴 증가
-- 위험도: 1-10턴 극도 위험, 11턴+ 탈출 기회
-- 즉시 사용 아이템: 발견 시 자동 사용 후 소멸
-- **생존 보장**: 매 턴마다 4개 선택지 중 1개는 반드시 생존 가능
-
-**위험도 시스템:**
-- 1-3턴: 60% 즉사율 (함정, 추락)
-- 4-6턴: 70% 즉사율 (독, 몬스터)  
-- 7-10턴: 80% 즉사율 (복합 위험)
-- 11턴+: 50% 즉사율 (탈출 기회)
-
-**응답 형식 (필수):**
-[던전 상황 설명]
-
-STATS
-===============================================
-Turn: [턴 번호]
-Location: [위치]
-Time: [시간]
-Discoveries: [발견 정보]
-===============================================
-
-↑ [행동]
-↓ [행동]
-← [행동] 
-→ [행동]
-
-**중요 규칙:**
-1. 잘못된 선택 시 즉시 사망
-2. 아이템 발견 시 즉시 사용
-3. 11턴 후 탈출 루트 제공
-4. 사망 시 "당신은 죽었습니다" 명시
-5. **매 턴 4개 선택지 중 1개는 반드시 생존 가능하게 설계**
-
-게임을 시작하세요.`
-            });
-
-            console.log(`[${LOG_HEADER}] System initialized`);
+        // 통계 섹션 파싱
+        const statsMatch = response.match(/통계\s*={3,}([\s\S]*?)={3,}/);
+        if (statsMatch) {
+            const statsContent = statsMatch[1];
             
-            // 첫 턴을 위한 생존 선택지 설정
-            this.setSurvivalChoiceForNextTurn(threadId);
-            
-            try {
-                return await this.sendMessage(threadId, assistantId, "게임을 시작합니다.");
-            } catch (initError) {
-                console.error(`[${LOG_HEADER}] Initial message error: ${initError.message}`);
-                await new Promise(resolve => setTimeout(resolve, 10000));
-                return await this.sendMessage(threadId, assistantId, "게임을 시작합니다.");
+            // 턴 파싱
+            const turnMatch = statsContent.match(/턴:\s*(\d+)/);
+            if (turnMatch) {
+                parsed.turn_count = parseInt(turnMatch[1]);
             }
-
-        } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
-            throw e;
+            
+            // 위치 파싱
+            const locationMatch = statsContent.match(/위치:\s*([^\n]+)/);
+            if (locationMatch) {
+                parsed.location = {
+                    current: locationMatch[1].trim()
+                };
+            }
+            
+            // 발견 파싱
+            const discoveryMatch = statsContent.match(/발견:\s*([^\n]+)/);
+            if (discoveryMatch) {
+                const discovery = discoveryMatch[1].trim();
+                if (discovery !== '없음' && discovery !== '') {
+                    parsed.discoveries = [discovery];
+                }
+            }
         }
+
+        // 사망 체크
+        if (response.includes('당신은 죽었습니다') || response.includes('죽었습니다')) {
+            parsed.ending = {
+                type: 'death',
+                cause: this.extractDeathCause(response)
+            };
+        }
+
+        // 탈출 체크
+        const escapeKeywords = ['탈출', '출구', '자유', '밖으로', '빛이 보인다'];
+        if (escapeKeywords.some(keyword => response.includes(keyword))) {
+            parsed.ending = {
+                type: 'escape'
+            };
+        }
+
+        return Object.keys(parsed).length > 0 ? parsed : null;
     }
 
+    // 사망 원인 추출
+    extractDeathCause(response) {
+        const patterns = [
+            /사망 원인[:\s]*([^.\n]+)/i,
+            /원인[:\s]*([^.\n]+)/i,
+            /([^.\n]+)(?:로|으로|에)\s*인해\s*죽었습니다/i,
+            /([^.\n]+)(?:로|으로|에)\s*인해\s*사망/i
+        ];
+
+        for (const pattern of patterns) {
+            const match = response.match(pattern);
+            if (match) {
+                return match[1].trim();
+            }
+        }
+
+        return '알 수 없는 원인';
+    }
+
+    // 메시지 히스토리 가져오기
     async getMessageHistory(threadId) {
-        const LOG_HEADER = "CHAT_SERVICE/HISTORY";
+        const LOG_HEADER = "CHAT_SERVICE/GET_HISTORY";
+        
         try {
             const messages = await openai.beta.threads.messages.list(threadId);
+            
             const history = messages.data
                 .filter(msg => {
-                    // 시스템 메시지 필터링
                     const content = msg.content[0]?.text?.value || '';
-                    return !content.includes('[로그라이크 게임 마스터 지침]') &&
+                    // 시스템 메시지 제외
+                    return !content.includes('[차원의 감옥 탈출 게임 마스터 지침]') &&
                            !content.includes('[시스템 내부') &&
-                           !content.includes('선택:') &&
-                           msg.role === 'assistant';
+                           !content.includes('선택:');
                 })
                 .map(msg => ({
                     role: msg.role,
                     content: msg.content[0].text.value,
                     created_at: new Date(msg.created_at * 1000)
                 }))
-                .sort((a, b) => a.created_at - b.created_at);
+                .reverse(); // 시간순 정렬
 
             console.log(`[${LOG_HEADER}] Retrieved ${history.length} messages`);
             return history;
 
         } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
+            console.error(`[${LOG_HEADER}] Error: ${e.message}`);
             throw e;
         }
     }
 
-    // 로그라이크 게임 요약 생성
-    async createGameSummary(threadId, assistantId) {
-        const LOG_HEADER = "CHAT_SERVICE/CREATE_SUMMARY";
+    // 게임 초기화 (새 게임 시작)
+    async initializeChat(threadId, assistantId) {
+        const LOG_HEADER = "CHAT_SERVICE/INITIALIZE";
+        
         try {
-            await openai.beta.threads.messages.create(threadId, {
-                role: "user",
-                content: `### 로그라이크 게임 세션 요약 생성
+            // 초기 지침 전송
+            const initialInstructions = `[차원의 감옥 탈출 게임 시작]
 
-이 로그라이크 게임 세션을 새 스레드에 이어갈 수 있도록 요약해주세요:
+매 게임마다 다른 상황에서 시작하되, 다음 조건을 만족해야 함:
+- 플레이어는 기억 상실 상태로 깨어남
+- 차원의 감옥 내 어딘가에 위치
+- 위험하고 불안한 분위기 조성
+- 초급 단계 규칙 적용 (생존 선택지 2개, 즉사 선택지 2개)
 
-**요약 형식:**
-현재 턴: [턴 번호]
-위치: [현재 위치]  
-사망 횟수: [사망 횟수]
-발견 정보: [중요한 발견들]
-진행 상황: [주요 경험과 상황]
+응답 형식:
+[상황 묘사]
 
-100단어 이내로 간결하게 작성하세요.`
-            });
+통계
+===============================================
+턴: 1
+위치: [위치명]
+발견: 없음
+===============================================
 
-            const runs = await openai.beta.threads.runs.list(threadId);
-            const activeRun = runs.data.find(run => ['in_progress', 'queued'].includes(run.status));
-            
-            if (activeRun) {
-                let runStatus;
-                do {
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                    runStatus = await openai.beta.threads.runs.retrieve(threadId, activeRun.id);
-                } while (['in_progress', 'queued'].includes(runStatus.status));
-            }
-            
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            
+선택지는 응답에 포함하지 않습니다.`;
+
             const run = await openai.beta.threads.runs.create(threadId, {
-                assistant_id: assistantId
+                assistant_id: assistantId,
+                instructions: initialInstructions
             });
+
+            // 완료 대기
+            let runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
             
-            let runStatus;
-            do {
+            while (runStatus.status !== 'completed' && runStatus.status !== 'failed') {
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
-            } while (['queued', 'in_progress'].includes(runStatus.status));
-            
-            if (runStatus.status !== 'completed') {
-                throw new Error(`Summary generation failed with status: ${runStatus.status}`);
             }
+
+            if (runStatus.status === 'failed') {
+                throw new Error('Assistant initialization failed');
+            }
+
+            // 응답 가져오기
+            const messages = await openai.beta.threads.messages.list(threadId);
+            const initialMessage = messages.data.find(msg => 
+                msg.role === 'assistant' && 
+                msg.run_id === run.id
+            );
+
+            if (!initialMessage) {
+                throw new Error('No initialization response found');
+            }
+
+            const response = initialMessage.content[0].text.value;
             
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            const updatedMessages = await openai.beta.threads.messages.list(threadId);
-            const summary = updatedMessages.data[0].content[0].text.value;
-            
-            console.log(`[${LOG_HEADER}] Summary created successfully`);
-            return summary;
-            
+            console.log(`[${LOG_HEADER}] Chat initialized successfully`);
+            return response;
+
         } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
+            console.error(`[${LOG_HEADER}] Error: ${e.message}`);
             throw e;
         }
     }
 
-    // 로그라이크 게임 재개 초기화
-    async initializeChatFromSummary(threadId, assistantId, summary) {
-        const LOG_HEADER = "CHAT_SERVICE/INIT_FROM_SUMMARY";
+    // 스레드에서 게임 상태 가져오기 (헬퍼 함수)
+    async getGameStateFromThread(threadId) {
         try {
-            await openai.beta.threads.messages.create(threadId, {
-                role: "user",
-                content: `[시스템 내부 - 로그라이크 게임 재개]
-
-게임 요약: ${summary}
-
-위 정보를 바탕으로 로그라이크 게임을 이어서 진행하되, 요약 내용을 사용자에게 표시하지 마세요.`
-            });
-
-            await openai.beta.threads.messages.create(threadId, {
-                role: "user",
-                content: `***로그라이크 게임 재개***
-
-**응답 형식 필수 준수:**
-
-[던전 상황 설명]
-
-STATS
-===============================================
-Turn: [현재 턴]
-Location: [위치]
-Time: [시간]  
-Discoveries: [발견 정보]
-===============================================
-
-↑ [행동]
-↓ [행동]
-← [행동]
-→ [행동]
-
-**핵심 규칙:**
-- 체력 없음 (즉사/생존)
-- 턴별 위험도 적용
-- 아이템 즉시 사용
-- 11턴+ 탈출 기회
-- **매 턴 4개 선택지 중 1개는 반드시 생존 가능**
-
-게임을 이어서 진행하세요.`
-            });
-
-            // 재개된 게임을 위한 생존 선택지 설정
-            this.setSurvivalChoiceForNextTurn(threadId);
-
-            const run = await openai.beta.threads.runs.create(threadId, {
-                assistant_id: assistantId
-            });
-
-            let runStatus;
-            do {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
-            } while (['queued', 'in_progress'].includes(runStatus.status));
-
-            if (runStatus.status === 'completed') {
-                const messages = await openai.beta.threads.messages.list(threadId);
-                const response = messages.data[0].content[0].text.value;
-                return this.cleanResponse(response);
+            const messages = await openai.beta.threads.messages.list(threadId, { limit: 10 });
+            const lastMessage = messages.data.find(msg => msg.role === 'assistant');
+            
+            if (lastMessage) {
+                return this.parseGameResponse(lastMessage.content[0].text.value);
             }
-
-            throw new Error('Game resume failed');
-
+            
+            return null;
         } catch (e) {
-            console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
-            throw e;
+            console.error('Error getting game state from thread:', e);
+            return null;
         }
     }
 }
