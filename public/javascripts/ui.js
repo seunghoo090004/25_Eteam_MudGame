@@ -133,6 +133,8 @@ const GameUI = (function() {
     }
     
     // 새 게임 시작
+// UI.js의 handleNewGame 함수 수정
+
     async function handleNewGame() {
         const assistantId = $('#assistant-select').val();
         if (!assistantId) {
@@ -165,17 +167,27 @@ const GameUI = (function() {
             
             console.log('Extracted Game Data:', gameData); // 디버깅용
             
+            // 실제 응답 구조에 맞는 필드명 사용
+            const socketData = {
+                game_id: gameData.game_id || gameData.id,
+                thread_id: gameData.thread_id,
+                assistant_id: gameData.assistant_id || assistantId, // 원본 assistantId 사용
+                game_data: gameData.game_data || gameData
+            };
+            
+            console.log('Socket Data:', socketData); // 디버깅용
+            
             // 필수 필드 확인
-            if (!gameData.game_id || !gameData.thread_id || !gameData.assistant_id) {
+            if (!socketData.game_id || !socketData.thread_id || !socketData.assistant_id) {
+                console.error('Missing fields:', {
+                    game_id: !!socketData.game_id,
+                    thread_id: !!socketData.thread_id, 
+                    assistant_id: !!socketData.assistant_id
+                });
                 throw new Error('게임 생성 응답에 필수 정보가 누락되었습니다.');
             }
             
-            GameSocket.emit('new game', {
-                game_id: gameData.game_id,
-                thread_id: gameData.thread_id,
-                assistant_id: gameData.assistant_id,
-                game_data: gameData.game_data || {}
-            });
+            GameSocket.emit('new game', socketData);
             
             gameExists = true;
             updateLoadButtonState(true);
