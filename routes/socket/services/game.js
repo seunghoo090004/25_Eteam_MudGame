@@ -1,67 +1,11 @@
-// routes/socket/services/game.js - 업데이트된 버전
+// routes/socket/services/game.js - 로그라이크 버전
 
 const pool = require('../../../config/database');
 const openai = require('../../../config/openai');
 
 class GameService {
     
-    // 난이도 시스템 - 점진적 구조
-    getTurnDifficulty(turn) {
-        if (turn <= 3) {
-            return { 
-                survivalRate: 0.5, 
-                survivingChoices: 2,
-                stage: 'beginner',
-                description: '초급 단계'
-            };
-        }
-        if (turn <= 7) {
-            return { 
-                survivalRate: 0.25, 
-                survivingChoices: 1,
-                stage: 'intermediate', 
-                description: '중급 단계'
-            };
-        }
-        if (turn <= 12) {
-            return { 
-                survivalRate: 0.25, 
-                survivingChoices: 1,
-                stage: 'advanced',
-                description: '고급 단계'
-            };
-        }
-        return { 
-            survivalRate: 0.75, 
-            survivingChoices: 3,
-            stage: 'final',
-            description: '최종 단계 (탈출 가능)'
-        };
-    }
-
-    // 몬스터 조우 확률
-    getMonsterEncounterRate(turn) {
-        if (turn <= 3) return 0.3;  // 30%
-        if (turn <= 6) return 0.5;  // 50%
-        if (turn <= 10) return 0.7; // 70%
-        return 0.5; // 탈출 시도 시
-    }
-
-    // 몬스터 타입 결정
-    getMonsterType(turn) {
-        const monsters = {
-            beginner: ['고블린', '스켈레톤', '슬라임'],
-            intermediate: ['오크', '트롤', '미노타우로스'], 
-            advanced: ['리치', '데몬', '뱀파이어'],
-            final: ['드래곤']
-        };
-
-        const difficulty = this.getTurnDifficulty(turn);
-        const stageMonsters = monsters[difficulty.stage] || monsters.beginner;
-        return stageMonsters[Math.floor(Math.random() * stageMonsters.length)];
-    }
-
-    // Socket용 게임 로드 (기존 함수 유지)
+    // Socket용 게임 로드
     async loadGameForSocket(gameId, userId) {
         const LOG_HEADER = "SOCKET_GAME_SERVICE/LOAD";
         
@@ -105,7 +49,7 @@ class GameService {
                     chatHistory = [];
                 }
 
-                // 게임 데이터 정규화
+                // 로그라이크 게임 데이터 파싱
                 let parsedGameData = this.normalizeGameData(gameData.game_data);
                 
                 console.log(`[${LOG_HEADER}] Game loaded for socket: ${gameId}`);
@@ -125,7 +69,7 @@ class GameService {
         }
     }
 
-    // 게임 데이터 정규화 (기존 호환성 유지)
+    // 로그라이크 게임 데이터 정규화
     normalizeGameData(gameData) {
         let gameDataObj;
         
@@ -133,77 +77,114 @@ class GameService {
             gameDataObj = typeof gameData === 'string' 
                 ? JSON.parse(gameData) 
                 : gameData;
-        } catch (e) {
-            console.error('Error parsing game data:', e);
-            return this.getDefaultGameData();
+        } catch (err) {
+            console.error("Game data parsing error:", err);
+            gameDataObj = this.getDefaultGameData();
         }
-
-        // 새 구조로 정규화하되 기존 데이터 보존
-        const normalized = {
-            // 기존 필드들 유지
-            ...gameDataObj,
-            
-            // 새 필드들 추가 (기존 값이 없을 때만)
-            turn_count: gameDataObj.turn_count || 1,
-            death_count: gameDataObj.death_count || 0,
-            discoveries: gameDataObj.discoveries || [],
-            game_mode: gameDataObj.game_mode || 'roguelike',
-            
-            // 위치 정보 정규화
-            location: {
-                current: gameDataObj.location?.current || '차원의 감옥 최하층',
-                roomId: gameDataObj.location?.roomId || '001',
-                discovered: gameDataObj.location?.discovered || [],
-                ...gameDataObj.location
-            },
-            
-            // 진행 상황 정규화
-            progress: {
-                phase: gameDataObj.progress?.phase || '시작',
-                last_action: gameDataObj.progress?.last_action || '게임 시작',
-                ...gameDataObj.progress
-            }
-        };
-
-        return normalized;
+        
+        // 로그라이크 필수 구조 보장
+        gameDataObj.turn_count = gameDataObj.turn_count || 1;
+        gameDataObj.death_count = gameDataObj.death_count || 0;
+        gameDataObj.game_mode = gameDataObj.game_mode || 'roguelike';
+        
+        gameDataObj.location = gameDataObj.location || {};
+        gameDataObj.location.current = gameDataObj.location.current || "던전 입구";
+        gameDataObj.location.roomId = gameDataObj.location.roomId || "001";
+        
+        gameDataObj.discoveries = gameDataObj.discoveries || [];
+        
+        gameDataObj.progress = gameDataObj.progress || {};
+        gameDataObj.progress.phase = gameDataObj.progress.phase || "시작";
+        gameDataObj.progress.last_action = gameDataObj.progress.last_action || "게임 시작";
+        
+        return gameDataObj;
     }
-
-    // 기본 게임 데이터
+    
+    // 로그라이크 기본 데이터
     getDefaultGameData() {
         return {
             turn_count: 1,
             death_count: 0,
-            discoveries: [],
-            game_mode: 'roguelike',
+            game_mode: "roguelike",
             location: {
-                current: '차원의 감옥 최하층',
-                roomId: '001',
-                discovered: []
+                roomId: "001",
+                current: "던전 입구"
             },
+            discoveries: [],
             progress: {
-                phase: '시작',
-                last_action: '게임 시작'
+                phase: "시작",
+                last_action: "게임 시작"
             }
         };
     }
 
+    // 엔딩 조건 체크
+    checkEndingConditions(gameData, aiResponse) {
+        const LOG_HEADER = "GAME_SERVICE/CHECK_ENDING";
+        
+        try {
+            // 사망 체크
+            if (aiResponse.includes("당신은 죽었습니다") || aiResponse.includes("죽었습니다")) {
+                console.log(`[${LOG_HEADER}] Death detected`);
+                
+                // 사망 원인 추출
+                let deathCause = "알 수 없는 원인";
+                const deathMatch = aiResponse.match(/원인[:\s]*([^.\n]+)/i) || 
+                                aiResponse.match(/당신은 ([^.]+)로 인해 죽었습니다/i) ||
+                                aiResponse.match(/([^.\n]+)로 인해 죽었습니다/i);
+                if (deathMatch) {
+                    deathCause = deathMatch[1].trim();
+                }
+                
+                return {
+                    type: 'death',
+                    cause: deathCause,
+                    story: this.generateDeathStory(gameData, deathCause)
+                };
+            }
+            
+            // 탈출 체크 (11턴 이후)
+            if (gameData.turn_count >= 11) {
+                const escapeKeywords = ['탈출', '출구', '자유', '밖으로', '빛이 보인다', '성공'];
+                const hasEscapeKeyword = escapeKeywords.some(keyword => 
+                    aiResponse.includes(keyword)
+                );
+                
+                if (hasEscapeKeyword) {
+                    console.log(`[${LOG_HEADER}] Escape detected`);
+                    return {
+                        type: 'escape',
+                        cause: null,
+                        story: this.generateEscapeStory(gameData)
+                    };
+                }
+            }
+            
+            return null;
+            
+        } catch (e) {
+            console.error(`[${LOG_HEADER}] Error: ${e.message}`);
+            return null;
+        }
+    }
+
     // 사망 스토리 생성
-    generateDeathStory(gameData) {
+    generateDeathStory(gameData, deathCause) {
         const turn = gameData.turn_count || 1;
         const deaths = gameData.death_count || 0;
         const discoveries = (gameData.discoveries || []).length;
         
-        let story = `차원의 감옥 어둠 속에서 ${turn}턴 만에 생을 마감했습니다.\n\n`;
-        story += `사망 원인: ${gameData.cause_of_death || '알 수 없는 원인'}\n`;
-        story += `이 사망 횟수: ${deaths + 1}회\n`;
+        let story = `던전의 어둠 속에서 ${turn}턴 만에 생을 마감했습니다.\n\n`;
+        story += `사망 원인: ${deathCause}\n`;
+        story += `총 사망 횟수: ${deaths + 1}회\n`;
         story += `발견한 정보: ${discoveries}개\n\n`;
         
         if (turn <= 3) {
-            story += "초반 함정에 걸려 빠른 죽음을 맞이했습니다.";
-        } else if (turn <= 7) {
-            story += "중반까지 진행했지만 위험을 극복하지 못했습니다.";
-        } else if (turn <= 12) {
-            story += "고급 단계까지 도달한 놀라운 생존력을 보였습니다.";
+            story += "초반 함정에 걸려 빠른 죽음을 맞이했습니다. 더 신중한 접근이 필요했을 것입니다.";
+        } else if (turn <= 6) {
+            story += "중반까지 진행했지만 위험을 극복하지 못했습니다. 경험을 살려 다시 도전해보세요.";
+        } else if (turn <= 10) {
+            story += "후반까지 생존했지만 최고 난이도를 넘지 못했습니다. 놀라운 생존력을 보였습니다.";
         } else {
             story += "탈출 구간에서 사망했습니다. 거의 성공에 가까웠던 안타까운 결과입니다.";
         }
@@ -217,9 +198,9 @@ class GameService {
         const deaths = gameData.death_count || 0;
         const discoveries = (gameData.discoveries || []).length;
         
-        let story = `축하합니다! ${turn}턴 만에 불가능한 차원의 감옥 탈출에 성공했습니다!\n\n`;
+        let story = `축하합니다! ${turn}턴 만에 불가능한 던전 탈출에 성공했습니다!\n\n`;
         story += `최종 턴: ${turn}턴\n`;
-        story += `이 사망 횟수: ${deaths}회\n`;
+        story += `총 사망 횟수: ${deaths}회\n`;
         story += `발견한 정보: ${discoveries}개\n\n`;
         
         if (deaths === 0) {
@@ -241,56 +222,16 @@ class GameService {
         
         // 턴별 위험도 로그
         const turn = gameData.turn_count;
-        const difficulty = this.getTurnDifficulty(turn);
+        let riskLevel = "낮음";
         
-        console.log(`Turn ${turn} - Stage: ${difficulty.description}, Survival Rate: ${difficulty.survivalRate * 100}%`);
+        if (turn <= 3) riskLevel = "60% 즉사율";
+        else if (turn <= 6) riskLevel = "70% 즉사율";
+        else if (turn <= 10) riskLevel = "80% 즉사율";
+        else riskLevel = "50% 즉사율 (탈출 기회)";
+        
+        console.log(`Turn ${turn} - Risk Level: ${riskLevel}`);
         
         return gameData;
-    }
-
-    // 엔딩 조건 체크 (16턴으로 확장)
-    checkEndingConditions(gameData, response) {
-        if (!response || !gameData) return null;
-        
-        // 사망 체크
-        if (response.includes("당신은 죽었습니다") || response.includes("죽었습니다")) {
-            let deathCause = "알 수 없는 원인";
-            const deathMatch = response.match(/원인[:\s]*([^.\n]+)/i) || 
-                            response.match(/([^.\n]+)로 인해 죽었습니다/i);
-            if (deathMatch) {
-                deathCause = deathMatch[1].trim();
-            }
-            
-            return {
-                type: 'death',
-                cause: deathCause,
-                final_turn: gameData.turn_count || 1,
-                total_deaths: (gameData.death_count || 0) + 1,
-                discoveries: gameData.discoveries || [],
-                discoveries_count: (gameData.discoveries || []).length
-            };
-        }
-        
-        // 탈출 체크 (16턴 이후)
-        if (gameData.turn_count >= 16) {
-            const escapeKeywords = ['탈출', '출구', '자유', '밖으로', '빛이 보인다', '성공적으로'];
-            const hasEscapeKeyword = escapeKeywords.some(keyword => 
-                response.includes(keyword)
-            );
-            
-            if (hasEscapeKeyword) {
-                return {
-                    type: 'escape',
-                    cause: null,
-                    final_turn: gameData.turn_count || 1,
-                    total_deaths: gameData.death_count || 0,
-                    discoveries: gameData.discoveries || [],
-                    discoveries_count: (gameData.discoveries || []).length
-                };
-            }
-        }
-        
-        return null;
     }
 }
 
