@@ -1,4 +1,4 @@
-// routes/socket/services/chat.js - 로그라이크 시스템 버전 (생존 보장 로직 추가)
+// routes/socket/services/chat.js - 수정된 버전 (기존 기능 보존)
 
 const pool = require('../../../config/database');
 const openai = require('../../../config/openai');
@@ -142,7 +142,7 @@ class ChatService {
         console.log(`[SURVIVAL_GUARANTEE] Next survival choice for thread ${threadId}: ${survivalChoice}`);
     }
 
-    // 게임 지침 생성 (생존 보장 포함)
+    // 게임 지침 생성 (생존 보장 포함) - 수정된 출력 형식 적용
     generateGameInstructions(selectedChoice, guaranteedSurvival) {
         const baseInstructions = `[로그라이크 게임 마스터 지침]
 
@@ -158,12 +158,11 @@ class ChatService {
 **응답 형식 (필수):**
 [던전 상황 설명 - 위험 요소 포함]
 
-STATS
+통계
 ===============================================
-Turn: [현재 턴]
-Location: [위치 정보]
-Time: [경과 시간]
-Discoveries: [발견한 정보]
+턴: [현재 턴]
+위치: [위치 정보]
+발견: [발견한 정보]
 ===============================================
 
 ↑ [행동]
@@ -217,7 +216,7 @@ Discoveries: [발견한 정보]
         return cleanedResponse;
     }
 
-    // 로그라이크 게임 응답에서 상태 정보 파싱
+    // 로그라이크 게임 응답에서 상태 정보 파싱 - 수정된 형식 지원
     parseGameResponse(response) {
         const LOG_HEADER = "CHAT_SERVICE/PARSE_RESPONSE";
         
@@ -241,32 +240,32 @@ Discoveries: [발견한 정보]
                 }
             }
 
-            // STATS 섹션 파싱
-            const statsPattern = /STATS[^=]*={3,}([\s\S]*?)={3,}/;
+            // 통계 섹션 파싱 (한글 + 영문 지원)
+            const statsPattern = /(통계|STATS)[^=]*={3,}([\s\S]*?)={3,}/;
             const statsMatch = response.match(statsPattern);
             
             if (statsMatch) {
-                const statsContent = statsMatch[1];
+                const statsContent = statsMatch[2];
                 
                 // 턴 정보
-                const turnPattern = /Turn:\s*(\d+)/;
+                const turnPattern = /(턴|Turn):\s*(\d+)/;
                 const turnMatch = statsContent.match(turnPattern);
                 if (turnMatch) {
-                    gameState.turn_count = parseInt(turnMatch[1]);
+                    gameState.turn_count = parseInt(turnMatch[2]);
                 }
                 
                 // 위치 정보
-                const locationPattern = /Location:\s*([^\n]+)/;
+                const locationPattern = /(위치|Location):\s*([^\n]+)/;
                 const locationMatch = statsContent.match(locationPattern);
                 if (locationMatch) {
-                    gameState.location.current = locationMatch[1].trim();
+                    gameState.location.current = locationMatch[2].trim();
                 }
                 
                 // 발견 정보
-                const discoveryPattern = /Discoveries:\s*([^\n]+)/;
+                const discoveryPattern = /(발견|Discoveries):\s*([^\n]+)/;
                 const discoveryMatch = statsContent.match(discoveryPattern);
                 if (discoveryMatch) {
-                    const discoveryText = discoveryMatch[1].trim();
+                    const discoveryText = discoveryMatch[2].trim();
                     if (discoveryText !== '없음' && discoveryText !== 'None' && discoveryText !== '') {
                         gameState.discoveries = discoveryText.split(',').map(d => d.trim()).filter(d => d);
                     }
@@ -285,10 +284,10 @@ Discoveries: [발견한 정보]
     async initializeChat(threadId, assistantId) {
         const LOG_HEADER = "CHAT_SERVICE/INIT";
         try {
-            // 로그라이크 게임 초기화
+            // 수정된 로그라이크 게임 초기화
             await openai.beta.threads.messages.create(threadId, {
                 role: "user",
-                content: `***10턴 로그라이크 던전 탈출 게임 - 시스템 초기화***
+                content: `***차원의 감옥: 불가능한 탈출 - 시스템 초기화***
 
 당신은 극도로 위험한 로그라이크 던전 게임의 게임 마스터입니다.
 
@@ -308,12 +307,11 @@ Discoveries: [발견한 정보]
 **응답 형식 (필수):**
 [던전 상황 설명]
 
-STATS
+통계
 ===============================================
-Turn: [턴 번호]
-Location: [위치]
-Time: [시간]
-Discoveries: [발견 정보]
+턴: [턴 번호]
+위치: [위치]
+발견: [발견 정보]
 ===============================================
 
 ↑ [행동]
@@ -461,12 +459,11 @@ Discoveries: [발견 정보]
 
 [던전 상황 설명]
 
-STATS
+통계
 ===============================================
-Turn: [현재 턴]
-Location: [위치]
-Time: [시간]  
-Discoveries: [발견 정보]
+턴: [현재 턴]
+위치: [위치]
+발견: [발견 정보]
 ===============================================
 
 ↑ [행동]
