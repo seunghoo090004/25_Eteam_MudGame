@@ -609,6 +609,7 @@ const GameUI = (function() {
         }
     }
     
+    
     return {
         initialize: initialize,
         showLoading: showLoading,
