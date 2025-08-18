@@ -143,67 +143,39 @@ async function generateImageFromText(prompt, options = {}) {
 //============================================================================================
 function extractImageKeywords(assistantResponse) {
 //============================================================================================
-    const LOG_HEADER_TITLE = "EXTRACT_IMAGE_KEYWORDS";
+    const LOG_HEADER_TITLE = "EXTRACT_SCENE_DESCRIPTION";
     const LOG_HEADER = LOG_HEADER_TITLE;
     
     try {
-        // 게임 지침에 따른 이미지 키워드 추출
-        const keywordPatterns = {
-            // 게임 시작
-            gameStart: /던전\s*시작|차원\s*감옥\s*시작/i,
-            
-            // 몬스터 조우
-            monsterEncounter: /(고블린|스켈레톤|슬라임|오크|트롤|미노타우로스|리치|데몬|뱀파이어|드래곤)\s*조우/i,
-            
-            // 아이템 발견
-            itemDiscovery: /([가-힣\w\s]+)\s*발견/i,
-            
-            // 사망
-            death: /사망\s*([가-힣\w\s]+)/i,
-            
-            // 탈출
-            escape: /탈출\s*성공/i
-        };
+        // 통계 섹션 이전의 상황 묘사만 추출
+        let sceneDescription = assistantResponse;
         
-        const extractedKeywords = {};
-        
-        // 각 패턴별로 키워드 추출
-        for (const [type, pattern] of Object.entries(keywordPatterns)) {
-            const match = assistantResponse.match(pattern);
-            if (match) {
-                extractedKeywords[type] = {
-                    found: true,
-                    text: match[0],
-                    detail: match[1] || ''
-                };
-            }
+        // "통계" 또는 "====" 이전까지만 추출
+        const statsMatch = sceneDescription.match(/(.*?)(?=통계|={3,})/s);
+        if (statsMatch) {
+            sceneDescription = statsMatch[1].trim();
         }
         
-        // 이미지 생성이 필요한지 판단 (항상 생성하도록 변경)
-        const shouldGenerateImage = true; // ✅ 항상 이미지 생성
-        
-        console.log(`[${LOG_HEADER}] Keywords extracted:`, extractedKeywords);
+        console.log(`[${LOG_HEADER}] Extracted scene description: ${sceneDescription.substring(0, 100)}...`);
         
         return {
-            shouldGenerate: shouldGenerateImage,
-            keywords: extractedKeywords,
-            fullResponse: assistantResponse, // ✅ 전체 응답 추가
+            shouldGenerate: true, // 항상 이미지 생성
+            sceneDescription: sceneDescription,
             response: assistantResponse
         };
         
     } catch (e) {
-        console.error(`[${LOG_HEADER}] Error extracting keywords: ${e.message || e}`);
+        console.error(`[${LOG_HEADER}] Error extracting scene: ${e.message || e}`);
         return {
             shouldGenerate: false,
-            keywords: {},
-            fullResponse: assistantResponse, // ✅ 전체 응답 추가
+            sceneDescription: assistantResponse,
             response: assistantResponse
         };
     }
 }
 
 //============================================================================================
-function createImagePrompt(keywords, gameContext) {
+function createImagePrompt(sceneData, gameContext) {
 //============================================================================================
     const LOG_HEADER_TITLE = "CREATE_IMAGE_PROMPT";
     const LOG_HEADER = LOG_HEADER_TITLE;
@@ -211,44 +183,11 @@ function createImagePrompt(keywords, gameContext) {
     try {
         let basePrompt = "양피지에 그려진 연필 스케치, 흑백 드로잉, 종이 가장자리가 말린 고서 스타일, 중세 모험가 탐험 일기장 일러스트 느낌. ";
         
-        // ✅ 전체 게임 응답을 우선 사용
-        if (keywords.fullResponse) {
-            // 게임 응답에서 통계 섹션과 선택지 제거
-            let cleanResponse = keywords.fullResponse
-                .replace(/통계[\s\S]*?={3,}[\s\S]*?={3,}/g, '') // 통계 섹션 제거
-                .replace(/[↑↓←→]\s*[^\n]+/g, '') // 선택지 제거
-                .replace(/당신은 죽었습니다[\s\S]*$/g, '') // 사망 메시지 이후 제거
-                .replace(/\n\s*\n/g, ' ') // 빈 줄 제거
-                .trim();
-            
-            basePrompt += cleanResponse;
-            console.log(`[${LOG_HEADER}] Using full response prompt: ${basePrompt.substring(0, 100)}...`);
-        } 
-        // 키워드 기반 프롬프트 (전체 응답이 없을 때만)
-        else if (Object.keys(keywords).length > 0) {
-            if (keywords.gameStart) {
-                basePrompt += "어둠 속 차원의 감옥에서 깨어나는 모험가, 불규칙하게 뒤틀린 공간과 빛나는 기호들";
-            } 
-            else if (keywords.monsterEncounter) {
-                const monster = keywords.monsterEncounter.detail;
-                basePrompt += `던전에서 ${monster}와 조우하는 긴장감 넘치는 순간, 위험한 분위기`;
-            }
-            else if (keywords.itemDiscovery) {
-                const item = keywords.itemDiscovery.detail;
-                basePrompt += `던전에서 ${item}을 발견하는 순간, 희망적인 분위기`;
-            }
-            else if (keywords.death) {
-                const cause = keywords.death.detail;
-                basePrompt += `던전에서 ${cause}으로 인한 위험한 상황, 절망적인 분위기`;
-            }
-            else if (keywords.escape) {
-                basePrompt += "던전 탈출 성공, 빛이 보이는 출구, 승리의 순간";
-            }
-            console.log(`[${LOG_HEADER}] Using keyword-based prompt`);
-        } 
-        else {
+        // 추출된 상황 묘사를 그대로 사용
+        if (sceneData.sceneDescription) {
+            basePrompt += sceneData.sceneDescription;
+        } else {
             basePrompt += "어둡고 신비로운 던전 복도, 모험가의 탐험 장면";
-            console.log(`[${LOG_HEADER}] Using default prompt`);
         }
         
         console.log(`[${LOG_HEADER}] Generated prompt: ${basePrompt.substring(0, 100)}...`);

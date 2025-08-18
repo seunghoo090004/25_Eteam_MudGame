@@ -125,12 +125,10 @@ const GameChat = (function() {
                                 <p>${imageData.revised_prompt}</p>
                             </div>
                         ` : ''}
-                        ${imageData.keywords ? `
-                            <div class="prompt-section">
-                                <strong>감지된 키워드:</strong>
-                                <p>${Object.keys(imageData.keywords).join(', ')}</p>
-                            </div>
-                        ` : ''}
+                        <div class="prompt-section">
+                            <strong>추출된 상황 묘사:</strong>
+                            <p>${imageData.sceneDescription || '상황 묘사 없음'}</p>
+                        </div>
                     </div>
                 </div>
             `);

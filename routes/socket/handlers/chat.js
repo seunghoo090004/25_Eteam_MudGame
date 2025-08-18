@@ -112,14 +112,14 @@ const chatHandler = (io, socket) => {
                 status: 'started'
             });
 
-            // AI 응답에서 이미지 키워드 추출
-            const keywordResult = extractImageKeywords(aiResponse);
+            // AI 응답에서 상황 묘사 추출
+            const sceneResult = extractImageKeywords(aiResponse);
             
-            if (keywordResult.shouldGenerate) {
-                console.log(`[${LOG_HEADER}] Image keywords found:`, keywordResult.keywords);
+            if (sceneResult.shouldGenerate) {
+                console.log(`[${LOG_HEADER}] Scene description found:`, sceneResult.sceneDescription.substring(0, 100) + "...");
                 
                 // 이미지 프롬프트 생성
-                const imagePrompt = createImagePrompt(keywordResult.keywords, gameData);
+                const imagePrompt = createImagePrompt(sceneResult, gameData);
                 
                 // 이미지 생성 옵션
                 const imageOptions = {
@@ -145,7 +145,7 @@ const chatHandler = (io, socket) => {
                             format: imageResult.format,
                             prompt: imagePrompt,
                             revised_prompt: imageResult.revised_prompt,
-                            keywords: keywordResult.keywords
+                            sceneDescription: sceneResult.sceneDescription
                         }
                     });
                 } else {
