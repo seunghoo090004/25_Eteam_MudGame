@@ -93,7 +93,7 @@ async function generateImageFromText(prompt, options = {}) {
             model: "gpt-image-1",
             prompt: prompt,
             n: 1,
-            size: "1024x1024",
+            size: "256x256",
             quality: "medium"  // gpt-image-1 지원: low, medium, high, auto
             // response_format 파라미터 제거 (gpt-image-1에서 지원하지 않음)
         });

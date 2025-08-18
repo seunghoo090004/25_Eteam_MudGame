@@ -347,18 +347,36 @@
                 <button id="view-endings" class="btn btn-secondary">엔딩 기록</button>
             </div>
             
-            <div id="chatbox">
-                <div id="loading-overlay" class="loading-overlay">
-                    <div class="spinner"></div>
-                    <div class="loading-text">처리 중입니다...</div>
+            <!-- ✅ 좌우 분할 컨테이너 -->
+            <div class="game-container">
+                <!-- 왼쪽: 채팅 영역 -->
+                <div class="chat-area">
+                    <div id="chatbox">
+                        <div id="loading-overlay" class="loading-overlay">
+                            <div class="spinner"></div>
+                            <div class="loading-text">처리 중입니다...</div>
+                        </div>
+                        
+                        <div class="system-message">
+                            새 게임을 시작하거나 이전 게임을 불러오세요.
+                        </div>
+                    </div>
                 </div>
                 
-                <div class="system-message">
-                    새 게임을 시작하거나 이전 게임을 불러오세요.
+                <!-- 오른쪽: 이미지 영역 -->
+                <div class="image-area">
+                    <div class="image-placeholder">
+                        <div class="placeholder-content">
+                            <h3>생성된 이미지</h3>
+                            <p>게임 진행 시 상황에 맞는 이미지가 표시됩니다</p>
+                        </div>
+                    </div>
+                    <div id="game-image-container" style="display: none;">
+                        <!-- 이미지가 여기에 표시됩니다 -->
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
 
     <script src="/javascripts/api.js"></script>
     <script src="/javascripts/socket.js"></script>

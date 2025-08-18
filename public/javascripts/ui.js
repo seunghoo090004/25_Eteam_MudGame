@@ -75,20 +75,32 @@ const GameUI = (function() {
     }
     
     function showImageLoadingIndicator() {
-        if ($('#image-loading').length === 0) {
-            $('#chatbox').append(`
-                <div id="image-loading" class="system-message info">
-                    <div class="spinner-border spinner-border-sm" role="status">
-                        <span class="sr-only">Loading...</span>
-                    </div>
-                    이미지 생성 중... 잠시만 기다려주세요.
+        // 이미지 영역에 로딩 표시
+        const imageContainer = $('#game-image-container');
+        const placeholder = $('.image-placeholder');
+        
+        // placeholder 숨기고 로딩 표시
+        placeholder.hide();
+        imageContainer.show().html(`
+            <div class="generated-image-container">
+                <div class="image-header">
+                    <span class="image-title">이미지 생성 중</span>
+                    <span class="image-info">잠시만 기다려주세요</span>
                 </div>
-            `);
-        }
+                <div class="image-wrapper">
+                    <div class="image-loading">
+                        <div class="spinner"></div>
+                        <span>이미지 생성 중... 잠시만 기다려주세요.</span>
+                    </div>
+                </div>
+            </div>
+        `);
     }
     
     function hideImageLoadingIndicator() {
-        $('#image-loading').remove();
+        // 로딩 실패 시 placeholder 다시 표시
+        $('#game-image-container').hide();
+        $('.image-placeholder').show();
     }
 
     function bindUIEvents() {
