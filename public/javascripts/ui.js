@@ -414,16 +414,8 @@ const GameUI = (function() {
             const currentGameId = GameState.getCurrentGameId();
             const gameData = GameState.getGameData();
             
+            // 사망 횟수는 서버에서 자동 계산되므로 클라이언트에서는 0으로 설정
             let totalDeaths = 0;
-            if (endingCondition.type === 'death') {
-                const response = await GameAPI.game.ending.getDeathCount();
-                const deathGames = response.value_ext2?.death_count || 0;
-                totalDeaths = deathGames + 1;
-            } else {
-                const response = await GameAPI.game.ending.getDeathCount();
-                const deathGames = response.value_ext2?.death_count || 0;
-                totalDeaths = endingCondition.type === 'death' ? deathGames + 1 : deathGames;
-            }
             
             let endingStory = generateEndingStory(endingCondition, gameData, aiResponse, totalDeaths);
             

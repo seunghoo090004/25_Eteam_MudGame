@@ -39,7 +39,8 @@ const GameAPI = (function() {
                     ending_data 
                 }),
                 get: (game_id) => request('GET', `/api/game/ending/${game_id}`),
-                list: () => request('GET', '/api/game/ending')
+                list: () => request('GET', '/api/game/ending'),
+                getDeathCount: () => request('GET', '/api/game/ending/death-count')
             }
         },
         
