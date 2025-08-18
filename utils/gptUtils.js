@@ -88,35 +88,45 @@ async function generateImageFromText(prompt, options = {}) {
     try {
         console.log(LOG_SUCC_HEADER + LOG_HEADER + " Starting image generation");
         
-        // 기본 설정값
-        const defaultOptions = {
-            model: 'dall-e-3',
-            quality: 'standard',
-            size: '1024x1024',
-            format: 'png'
-        };
-        
-        const imageOptions = { ...defaultOptions, ...options };
-        
-        // Image API 사용 (DALL-E 3)
+        // gpt-image-1 사용 (response_format 제거)
         const response = await openai.images.generate({
-            model: imageOptions.model,
+            model: "gpt-image-1",
             prompt: prompt,
             n: 1,
-            size: imageOptions.size,
-            quality: imageOptions.quality,
-            response_format: 'b64_json'
+            size: "1024x1024",
+            quality: "standard"
+            // response_format 파라미터 제거 (gpt-image-1에서 지원하지 않음)
         });
         
         const imageData = response.data[0];
+        
+        let imageBase64 = null;
+        
+        // URL 응답인 경우 base64로 변환
+        if (imageData.url) {
+            try {
+                const axios = require('axios');
+                const imageResponse = await axios.get(imageData.url, {
+                    responseType: 'arraybuffer'
+                });
+                imageBase64 = Buffer.from(imageResponse.data, 'binary').toString('base64');
+            } catch (fetchError) {
+                console.error(LOG_ERR_HEADER + LOG_HEADER + " URL fetch error: " + fetchError.message);
+                throw new Error('Failed to fetch image from URL');
+            }
+        } else if (imageData.b64_json) {
+            imageBase64 = imageData.b64_json;
+        } else {
+            throw new Error('No image data received');
+        }
         
         console.log(LOG_SUCC_HEADER + LOG_HEADER + " Image generation completed successfully");
         
         return {
             success: true,
-            image_base64: imageData.b64_json,
+            image_base64: imageBase64,
             revised_prompt: imageData.revised_prompt || prompt,
-            format: imageOptions.format
+            format: 'png'
         };
         
     } catch (e) {
