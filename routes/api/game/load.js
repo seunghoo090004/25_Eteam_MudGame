@@ -105,6 +105,15 @@ router.get('/', async(req, res) => {
             };
         }
 
+        // 플레이 시간 업데이트
+        const now = new Date();
+        const created = new Date(game_data.created_at);
+        const playTimeMinutes = Math.floor((now - created) / (1000 * 60));
+        
+        if (parsedGameData.progress) {
+            parsedGameData.progress.playTime = formatPlayTime(playTimeMinutes);
+        }
+
         game_data.game_data = parsedGameData;
 
         // 메시지 히스토리 가져오기
@@ -117,34 +126,24 @@ router.get('/', async(req, res) => {
                     return !content.includes('[로그라이크 게임 마스터 지침]') &&
                            !content.includes('[시스템 내부') &&
                            !content.includes('선택:') &&
-                           !content.includes('***로그라이크 던전 탈출 게임');
+                           msg.role === 'assistant';
                 })
-                .reverse()
                 .map(msg => ({
                     role: msg.role,
-                    content: msg.content[0]?.text?.value || '',
-                    timestamp: msg.created_at
-                }));
-        } catch (openaiError) {
-            console.error('OpenAI 메시지 조회 실패:', openaiError);
-            chat_history = [];
+                    content: msg.content[0].text.value,
+                    created_at: new Date(msg.created_at * 1000)
+                }))
+                .sort((a, b) => a.created_at - b.created_at);
+        } catch (messageError) {
+            console.error("Message history error:", messageError);
         }
 
-        ret_data = {
-            code: "result",
-            value: 1,
-            value_ext1: ret_status,
-            value_ext2: {
-                game: game_data,
-                chat_history: chat_history
-            },
-            EXT_data,
-        };
+        game_data.chatHistory = chat_history;
 
     } catch (e) {
         ret_status = fail_status + -1 * catch_query;
         ret_data = {
-            code: "query(current_game)",
+            code: "query(load_current_game)",
             value: catch_query,
             value_ext1: ret_status,
             value_ext2: e,
@@ -159,186 +158,22 @@ router.get('/', async(req, res) => {
         return res.status(ret_status).json(ret_data);
     }
 
-    console.log(LOG_SUCC_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
-    return res.status(ret_status).json(ret_data);
-});
-
-//========================================================================
-router.post('/', async(req, res) => 
-//========================================================================
-{
-  const LOG_FAIL_HEADER = "[FAIL]";
-  const LOG_SUCC_HEADER = "[SUCC]";
-  const EXT_data = my_reqinfo.get_req_url(req);
-  
-  const fail_status = 500;
-  let ret_status = 200;
-  let ret_data;
-
-  const catch_auth = -1;
-  const catch_sqlconn = -2;
-  const catch_query = -3;
-  const catch_openai = -4;
-
-  //----------------------------------------------------------------------
-  // 인증 확인
-  //----------------------------------------------------------------------
-  let req_user_id;
-  try {
-    if (!req.session || !req.session.userId) throw "user not authenticated";
-    req_user_id = req.session.userId;
-  } catch (e) {
-    ret_status = 401;
-    ret_data = {
-      code: "auth_check",
-      value: catch_auth,
-      value_ext1: ret_status,
-      value_ext2: e,
-      EXT_data,
-    };
-    console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
-    return res.status(ret_status).json(ret_data);
-  }
-
-  //----------------------------------------------------------------------
-  // getConnection 
-  //----------------------------------------------------------------------
-  let connection;
-  try {
-    connection = await pool.getConnection();
-  } catch (e) {
-    ret_status = fail_status + -1 * catch_sqlconn;
-    ret_data = {
-      code: "getConnection()",
-      value: catch_sqlconn,
-      value_ext1: ret_status,
-      value_ext2: e,
-      EXT_data,
-    };
-    console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
-    return res.status(ret_status).json(ret_data);
-  }
-
-  //----------------------------------------------------------------------
-  // Query execution - 가장 최근 미완료 게임 조회
-  //----------------------------------------------------------------------
-  let game_data;
-  try {
-    const [games] = await connection.query(
-      `SELECT game_id, user_id, CAST(thread_id AS CHAR) as thread_id, 
-       assistant_id, game_data, created_at, last_updated, game_mode
-       FROM game_state 
-       WHERE user_id = ? AND is_completed = 0
-       ORDER BY last_updated DESC 
-       LIMIT 1`,
-      [req_user_id]
-    );
-
-    if (games.length === 0) {
-        ret_data = {
-            code: "no_current_game",
-            value: 0,
-            value_ext1: ret_status,
-            value_ext2: {
-                message: "진행 중인 게임이 없습니다."
-            },
-            EXT_data,
-        };
-        console.log(LOG_SUCC_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
-        return res.status(ret_status).json(ret_data);
-    }
-
-    game_data = games[0];
-    
-    if (!game_data.thread_id) {
-        throw "Invalid thread ID";
-    }
-
-    // 게임 데이터 파싱
-    let parsedGameData;
-    try {
-        parsedGameData = typeof game_data.game_data === 'string' 
-            ? JSON.parse(game_data.game_data) 
-            : game_data.game_data;
-    } catch (parseError) {
-        parsedGameData = {
-            turn_count: 1,
-            death_count: 0,
-            game_mode: "roguelike",
-            location: {
-                roomId: "001",
-                current: "던전 최하층 감옥"
-            },
-            discoveries: [],
-            progress: {
-                phase: "시작",
-                last_action: "게임 시작"
-            }
-        };
-    }
-
-    // 플레이 시간 관련 코드 제거 (기존의 formatPlayTime 로직 삭제)
-
-    game_data.game_data = parsedGameData;
-
-    // 메시지 히스토리 가져오기
-    let chat_history = [];
-    try {
-        const messages = await openai.beta.threads.messages.list(game_data.thread_id);
-        chat_history = messages.data
-            .filter(msg => {
-                const content = msg.content[0]?.text?.value || '';
-                return !content.includes('[로그라이크 게임 마스터 지침]') &&
-                       !content.includes('[시스템 내부') &&
-                       !content.includes('선택:') &&
-                       !content.includes('***로그라이크 던전 탈출 게임');
-            })
-            .reverse()
-            .map(msg => ({
-                role: msg.role,
-                content: msg.content[0]?.text?.value || '',
-                timestamp: msg.created_at
-            }));
-    } catch (openaiError) {
-        console.error('OpenAI 메시지 조회 실패:', openaiError);
-        chat_history = [];
-    }
-
     ret_data = {
         code: "result",
         value: 1,
         value_ext1: ret_status,
         value_ext2: {
-            game: game_data,
-            chat_history: chat_history
+            game: game_data
         },
         EXT_data,
     };
+    console.log(LOG_SUCC_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
 
-  } catch (e) {
-    ret_status = fail_status + -1 * catch_query;
-    ret_data = {
-      code: "query(current_game)",
-      value: catch_query,
-      value_ext1: ret_status,
-      value_ext2: e,
-      EXT_data,
-    };
-    console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
-  } finally {
-    connection.release();
-  }
-
-  if (ret_status != 200) {
     return res.status(ret_status).json(ret_data);
-  }
-
-  console.log(LOG_SUCC_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
-  return res.status(ret_status).json(ret_data);
 });
 
 //========================================================================
-// DELETE 현재 게임 삭제 (미완료 게임들)
+// DELETE /api/game/current - 현재 진행 중인 게임 삭제
 //========================================================================
 router.delete('/', async(req, res) => {
     const LOG_FAIL_HEADER = "[FAIL]";
@@ -353,9 +188,6 @@ router.delete('/', async(req, res) => {
     const catch_sqlconn = -2;
     const catch_query = -3;
 
-    //----------------------------------------------------------------------
-    // 인증 확인
-    //----------------------------------------------------------------------
     let req_user_id;
     try {
         if (!req.session || !req.session.userId) throw "user not authenticated";
@@ -373,9 +205,6 @@ router.delete('/', async(req, res) => {
         return res.status(ret_status).json(ret_data);
     }
 
-    //----------------------------------------------------------------------
-    // getConnection 
-    //----------------------------------------------------------------------
     let connection;
     try {
         connection = await pool.getConnection();
@@ -392,12 +221,9 @@ router.delete('/', async(req, res) => {
         return res.status(ret_status).json(ret_data);
     }
 
-    //----------------------------------------------------------------------
-    // Query execution - 미완료 게임들 삭제
-    //----------------------------------------------------------------------
     let deleted_games = [];
     try {
-        // 먼저 삭제할 게임들 조회
+        // 완료되지 않은 게임들 조회
         const [games] = await connection.query(
             'SELECT game_id, thread_id FROM game_state WHERE user_id = ? AND is_completed = 0',
             [req_user_id]
@@ -459,5 +285,13 @@ router.delete('/', async(req, res) => {
     console.log(LOG_SUCC_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
     return res.status(ret_status).json(ret_data);
 });
+
+function formatPlayTime(minutes) {
+    if (minutes < 1) return "방금 시작";
+    if (minutes < 60) return `${minutes}분`;
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return remainingMinutes > 0 ? `${hours}시간 ${remainingMinutes}분` : `${hours}시간`;
+}
 
 module.exports = router;
