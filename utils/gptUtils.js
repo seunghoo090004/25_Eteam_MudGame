@@ -90,46 +90,32 @@ async function generateImageFromText(prompt, options = {}) {
         
         // 기본 설정값
         const defaultOptions = {
-            model: 'gpt-4o', // gpt-image-1은 Responses API에서만 지원
-            quality: 'medium',
+            model: 'dall-e-3',
+            quality: 'standard',
             size: '1024x1024',
-            format: 'png',
-            background: 'opaque'
+            format: 'png'
         };
         
         const imageOptions = { ...defaultOptions, ...options };
         
-        // Responses API 사용 (gpt-image-1 지원)
-        const response = await openai.responses.create({
+        // Image API 사용 (DALL-E 3)
+        const response = await openai.images.generate({
             model: imageOptions.model,
-            input: prompt,
-            tools: [
-                {
-                    type: "image_generation",
-                    quality: imageOptions.quality,
-                    size: imageOptions.size,
-                    background: imageOptions.background
-                }
-            ]
+            prompt: prompt,
+            n: 1,
+            size: imageOptions.size,
+            quality: imageOptions.quality,
+            response_format: 'b64_json'
         });
         
-        // 이미지 결과 추출
-        const imageGenerationCalls = response.output.filter(
-            output => output.type === "image_generation_call"
-        );
-        
-        if (imageGenerationCalls.length === 0) {
-            throw new Error('No image was generated');
-        }
-        
-        const imageCall = imageGenerationCalls[0];
+        const imageData = response.data[0];
         
         console.log(LOG_SUCC_HEADER + LOG_HEADER + " Image generation completed successfully");
         
         return {
             success: true,
-            image_base64: imageCall.result,
-            revised_prompt: imageCall.revised_prompt || prompt,
+            image_base64: imageData.b64_json,
+            revised_prompt: imageData.revised_prompt || prompt,
             format: imageOptions.format
         };
         
