@@ -93,22 +93,11 @@ const GameChat = (function() {
         }
     }
     
-    // ✅ 생성된 이미지 표시 (오른쪽 이미지 영역에)
+    // ✅ 생성된 이미지 표시
     function displayGeneratedImage(imageData) {
         try {
-            // 기존 이미지 제거 및 새 이미지 컨테이너 준비
-            const imageContainer = $('#game-image-container');
-            const placeholder = $('.image-placeholder');
-            
-            // 기존 이미지 완전 제거
-            imageContainer.empty();
-            
-            // placeholder 숨기기, 이미지 컨테이너 표시
-            placeholder.hide();
-            imageContainer.show();
-            
             // 이미지 컨테이너 생성
-            const imageElement = $(`
+            const imageContainer = $(`
                 <div class="generated-image-container">
                     <div class="image-header">
                         <span class="image-title">생성된 이미지</span>
@@ -122,7 +111,7 @@ const GameChat = (function() {
                         </div>
                     </div>
                     <div class="image-footer">
-                        <button class="btn btn-sm btn-secondary download-btn">다운로드</button>
+                        <button class="btn btn-sm btn-secondary download-btn">이미지 다운로드</button>
                         <button class="btn btn-sm btn-outline-secondary toggle-prompt-btn">프롬프트 보기</button>
                     </div>
                     <div class="image-prompt" style="display: none;">
@@ -145,8 +134,8 @@ const GameChat = (function() {
             `);
             
             // 이미지 소스 설정
-            const img = imageElement.find('.generated-image');
-            const loadingDiv = imageElement.find('.image-loading');
+            const img = imageContainer.find('.generated-image');
+            const loadingDiv = imageContainer.find('.image-loading');
             
             img.on('load', function() {
                 loadingDiv.hide();
@@ -162,13 +151,13 @@ const GameChat = (function() {
             img.attr('src', imageUrl);
             
             // 다운로드 버튼 이벤트
-            imageElement.find('.download-btn').click(function() {
+            imageContainer.find('.download-btn').click(function() {
                 downloadImage(imageUrl, `dungeon-image-${Date.now()}.${imageData.format || 'png'}`);
             });
             
             // 프롬프트 토글 버튼 이벤트
-            imageElement.find('.toggle-prompt-btn').click(function() {
-                const promptDiv = imageElement.find('.image-prompt');
+            imageContainer.find('.toggle-prompt-btn').click(function() {
+                const promptDiv = imageContainer.find('.image-prompt');
                 const btn = $(this);
                 
                 if (promptDiv.is(':visible')) {
@@ -180,15 +169,17 @@ const GameChat = (function() {
                 }
             });
             
-            // 이미지 컨테이너에 추가
-            imageContainer.append(imageElement);
+            // 채팅박스에 추가
+            $('#chatbox').append(imageContainer);
+            $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
             
         } catch (e) {
             console.error('이미지 표시 중 오류:', e);
-            
-            // 오류 시 placeholder 다시 표시
-            $('.image-placeholder').show();
-            $('#game-image-container').hide();
+            $('#chatbox').append(`
+                <div class="system-message error">
+                    이미지를 표시하는 중 오류가 발생했습니다.
+                </div>
+            `);
         }
     }
     
