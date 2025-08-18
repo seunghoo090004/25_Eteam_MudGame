@@ -179,8 +179,8 @@ function extractImageKeywords(assistantResponse) {
             }
         }
         
-        // 이미지 생성이 필요한지 판단
-        const shouldGenerateImage = Object.keys(extractedKeywords).length > 0;
+        // 이미지 생성이 필요한지 판단 (항상 생성하도록 변경)
+        const shouldGenerateImage = true; // ✅ 항상 이미지 생성
         
         console.log(`[${LOG_HEADER}] Keywords extracted:`, extractedKeywords);
         
@@ -211,7 +211,7 @@ function createImagePrompt(keywords, gameContext) {
     try {
         let basePrompt = "양피지에 그려진 연필 스케치, 흑백 드로잉, 종이 가장자리가 말린 고서 스타일, 중세 모험가 탐험 일기장 일러스트 느낌. ";
         
-        // ✅ 전체 게임 응답을 사용
+        // ✅ 전체 게임 응답을 우선 사용
         if (keywords.fullResponse) {
             // 게임 응답에서 통계 섹션과 선택지 제거
             let cleanResponse = keywords.fullResponse
@@ -222,8 +222,10 @@ function createImagePrompt(keywords, gameContext) {
                 .trim();
             
             basePrompt += cleanResponse;
-        } else {
-            // 키워드 기반 프롬프트 (기존 로직 유지)
+            console.log(`[${LOG_HEADER}] Using full response prompt: ${basePrompt.substring(0, 100)}...`);
+        } 
+        // 키워드 기반 프롬프트 (전체 응답이 없을 때만)
+        else if (Object.keys(keywords).length > 0) {
             if (keywords.gameStart) {
                 basePrompt += "어둠 속 차원의 감옥에서 깨어나는 모험가, 불규칙하게 뒤틀린 공간과 빛나는 기호들";
             } 
@@ -242,9 +244,11 @@ function createImagePrompt(keywords, gameContext) {
             else if (keywords.escape) {
                 basePrompt += "던전 탈출 성공, 빛이 보이는 출구, 승리의 순간";
             }
-            else {
-                basePrompt += "어둡고 신비로운 던전 복도, 모험가의 탐험 장면";
-            }
+            console.log(`[${LOG_HEADER}] Using keyword-based prompt`);
+        } 
+        else {
+            basePrompt += "어둡고 신비로운 던전 복도, 모험가의 탐험 장면";
+            console.log(`[${LOG_HEADER}] Using default prompt`);
         }
         
         console.log(`[${LOG_HEADER}] Generated prompt: ${basePrompt.substring(0, 100)}...`);
