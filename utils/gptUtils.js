@@ -90,7 +90,7 @@ async function generateImageFromText(prompt, options = {}) {
         
         // 기본 설정값
         const defaultOptions = {
-            model: 'gpt-image-1',
+            model: 'gpt-4o', // gpt-image-1은 Responses API에서만 지원
             quality: 'medium',
             size: '1024x1024',
             format: 'png',
@@ -99,23 +99,37 @@ async function generateImageFromText(prompt, options = {}) {
         
         const imageOptions = { ...defaultOptions, ...options };
         
-        const response = await openai.images.generate({
+        // Responses API 사용 (gpt-image-1 지원)
+        const response = await openai.responses.create({
             model: imageOptions.model,
-            prompt: prompt,
-            n: 1,
-            size: imageOptions.size,
-            quality: imageOptions.quality,
-            response_format: 'b64_json'
+            input: prompt,
+            tools: [
+                {
+                    type: "image_generation",
+                    quality: imageOptions.quality,
+                    size: imageOptions.size,
+                    background: imageOptions.background
+                }
+            ]
         });
         
-        const imageData = response.data[0];
+        // 이미지 결과 추출
+        const imageGenerationCalls = response.output.filter(
+            output => output.type === "image_generation_call"
+        );
+        
+        if (imageGenerationCalls.length === 0) {
+            throw new Error('No image was generated');
+        }
+        
+        const imageCall = imageGenerationCalls[0];
         
         console.log(LOG_SUCC_HEADER + LOG_HEADER + " Image generation completed successfully");
         
         return {
             success: true,
-            image_base64: imageData.b64_json,
-            revised_prompt: imageData.revised_prompt || prompt,
+            image_base64: imageCall.result,
+            revised_prompt: imageCall.revised_prompt || prompt,
             format: imageOptions.format
         };
         
