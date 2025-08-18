@@ -105,6 +105,15 @@ router.get('/', async(req, res) => {
             };
         }
 
+        // 플레이 시간 업데이트
+        const now = new Date();
+        const created = new Date(game_data.created_at);
+        const playTimeMinutes = Math.floor((now - created) / (1000 * 60));
+        
+        if (parsedGameData.progress) {
+            parsedGameData.progress.playTime = formatPlayTime(playTimeMinutes);
+        }
+
         game_data.game_data = parsedGameData;
 
         // 메시지 히스토리 가져오기
@@ -276,5 +285,13 @@ router.delete('/', async(req, res) => {
     console.log(LOG_SUCC_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
     return res.status(ret_status).json(ret_data);
 });
+
+function formatPlayTime(minutes) {
+    if (minutes < 1) return "방금 시작";
+    if (minutes < 60) return `${minutes}분`;
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return remainingMinutes > 0 ? `${hours}시간 ${remainingMinutes}분` : `${hours}시간`;
+}
 
 module.exports = router;
