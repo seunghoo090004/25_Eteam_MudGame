@@ -1,4 +1,4 @@
-// routes/socket/handlers/chat.js - 수정된 버전
+// routes/socket/handlers/chat.js - 기존 구조 유지하며 시간 관련 코드만 제거
 
 const gameService = require('../services/game');
 const chatService = require('../services/chat');
@@ -41,20 +41,15 @@ const chatHandler = (io, socket) => {
                         updatedGameData.location.roomId = parsedState.location.roomId;
                     }
                     
-                    if (!updatedGameData.location.discovered) {
-                        updatedGameData.location.discovered = [];
-                    }
-                    
-                    if (!updatedGameData.location.discovered.includes(parsedState.location.current)) {
-                        updatedGameData.location.discovered.push(parsedState.location.current);
-                    }
+                    console.log(`[${LOG_HEADER}] Location updated:`, updatedGameData.location);
                 }
                 
-                if (parsedState.turn_count) {
+                if (parsedState.turn_count && parsedState.turn_count !== updatedGameData.turn_count) {
                     updatedGameData.turn_count = parsedState.turn_count;
+                    console.log(`[${LOG_HEADER}] Turn updated to: ${parsedState.turn_count}`);
                 }
                 
-                if (parsedState.discoveries && Array.isArray(parsedState.discoveries)) {
+                if (parsedState.discoveries && parsedState.discoveries.length > 0) {
                     if (!updatedGameData.discoveries) {
                         updatedGameData.discoveries = [];
                     }
@@ -64,23 +59,27 @@ const chatHandler = (io, socket) => {
                             updatedGameData.discoveries.push(discovery);
                         }
                     });
+                    
+                    console.log(`[${LOG_HEADER}] Discoveries updated:`, updatedGameData.discoveries);
                 }
                 
                 if (parsedState.is_death) {
                     updatedGameData.death_count = (updatedGameData.death_count || 0) + 1;
-                    
                     if (parsedState.death_cause) {
                         updatedGameData.last_death_cause = parsedState.death_cause;
                     }
                     
-                    console.log(`[${LOG_HEADER}] Death detected - Count increased to: ${updatedGameData.death_count}`);
-                    console.log(`[${LOG_HEADER}] Death cause: ${parsedState.death_cause || 'Unknown'}`);
+                    console.log(`[${LOG_HEADER}] Player death detected:`, {
+                        cause: parsedState.death_cause,
+                        total_deaths: updatedGameData.death_count
+                    });
                 }
                 
-                if (!updatedGameData.time_elapsed) {
-                    updatedGameData.time_elapsed = 0;
-                }
-                updatedGameData.time_elapsed += Math.floor(Math.random() * 2) + 2;
+                // 플레이 시간 관련 코드 제거 (기존의 time_elapsed 로직 삭제)
+                
+                updatedGameData.last_updated = new Date().toISOString();
+                
+                console.log(`[${LOG_HEADER}] Game data updated successfully`);
             }
 
             socket.emit('chat response', {
