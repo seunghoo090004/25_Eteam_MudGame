@@ -187,6 +187,7 @@ function extractImageKeywords(assistantResponse) {
         return {
             shouldGenerate: shouldGenerateImage,
             keywords: extractedKeywords,
+            fullResponse: assistantResponse, // ✅ 전체 응답 추가
             response: assistantResponse
         };
         
@@ -195,6 +196,7 @@ function extractImageKeywords(assistantResponse) {
         return {
             shouldGenerate: false,
             keywords: {},
+            fullResponse: assistantResponse, // ✅ 전체 응답 추가
             response: assistantResponse
         };
     }
@@ -209,31 +211,43 @@ function createImagePrompt(keywords, gameContext) {
     try {
         let basePrompt = "양피지에 그려진 연필 스케치, 흑백 드로잉, 종이 가장자리가 말린 고서 스타일, 중세 모험가 탐험 일기장 일러스트 느낌. ";
         
-        // 키워드 유형에 따른 프롬프트 생성
-        if (keywords.gameStart) {
-            basePrompt += "어둠 속 차원의 감옥에서 깨어나는 모험가, 불규칙하게 뒤틀린 공간과 빛나는 기호들";
-        } 
-        else if (keywords.monsterEncounter) {
-            const monster = keywords.monsterEncounter.detail;
-            basePrompt += `던전에서 ${monster}와 조우하는 긴장감 넘치는 순간, 위험한 분위기`;
-        }
-        else if (keywords.itemDiscovery) {
-            const item = keywords.itemDiscovery.detail;
-            basePrompt += `던전에서 ${item}을 발견하는 순간, 희망적인 분위기`;
-        }
-        else if (keywords.death) {
-            const cause = keywords.death.detail;
-            basePrompt += `던전에서 ${cause}으로 인한 위험한 상황, 절망적인 분위기`;
-        }
-        else if (keywords.escape) {
-            basePrompt += "던전 탈출 성공, 빛이 보이는 출구, 승리의 순간";
-        }
-        else {
-            // 기본 던전 탐험 장면
-            basePrompt += "어둡고 신비로운 던전 복도, 모험가의 탐험 장면";
+        // ✅ 전체 게임 응답을 사용
+        if (keywords.fullResponse) {
+            // 게임 응답에서 통계 섹션과 선택지 제거
+            let cleanResponse = keywords.fullResponse
+                .replace(/통계[\s\S]*?={3,}[\s\S]*?={3,}/g, '') // 통계 섹션 제거
+                .replace(/[↑↓←→]\s*[^\n]+/g, '') // 선택지 제거
+                .replace(/당신은 죽었습니다[\s\S]*$/g, '') // 사망 메시지 이후 제거
+                .replace(/\n\s*\n/g, ' ') // 빈 줄 제거
+                .trim();
+            
+            basePrompt += cleanResponse;
+        } else {
+            // 키워드 기반 프롬프트 (기존 로직 유지)
+            if (keywords.gameStart) {
+                basePrompt += "어둠 속 차원의 감옥에서 깨어나는 모험가, 불규칙하게 뒤틀린 공간과 빛나는 기호들";
+            } 
+            else if (keywords.monsterEncounter) {
+                const monster = keywords.monsterEncounter.detail;
+                basePrompt += `던전에서 ${monster}와 조우하는 긴장감 넘치는 순간, 위험한 분위기`;
+            }
+            else if (keywords.itemDiscovery) {
+                const item = keywords.itemDiscovery.detail;
+                basePrompt += `던전에서 ${item}을 발견하는 순간, 희망적인 분위기`;
+            }
+            else if (keywords.death) {
+                const cause = keywords.death.detail;
+                basePrompt += `던전에서 ${cause}으로 인한 위험한 상황, 절망적인 분위기`;
+            }
+            else if (keywords.escape) {
+                basePrompt += "던전 탈출 성공, 빛이 보이는 출구, 승리의 순간";
+            }
+            else {
+                basePrompt += "어둡고 신비로운 던전 복도, 모험가의 탐험 장면";
+            }
         }
         
-        console.log(`[${LOG_HEADER}] Generated prompt: ${basePrompt}`);
+        console.log(`[${LOG_HEADER}] Generated prompt: ${basePrompt.substring(0, 100)}...`);
         
         return basePrompt;
         
