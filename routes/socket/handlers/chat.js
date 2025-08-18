@@ -2,7 +2,7 @@
 
 const gameService = require('../services/game');
 const chatService = require('../services/chat');
-const { generateImageFromText, extractImageKeywords, createImagePrompt } = require('../../utils/gptUtils');
+const { generateImageFromText, extractImageKeywords, createImagePrompt } = require('../../../utils/gptUtils');
 
 const chatHandler = (io, socket) => {
     socket.on('chat message', async (data) => {
