@@ -181,9 +181,9 @@ class GameService {
         
         if (turn <= 3) {
             story += "초반 함정에 걸려 빠른 죽음을 맞이했습니다. 더 신중한 접근이 필요했을 것입니다.";
-        } else if (turn <= 6) {
+        } else if (turn <= 8) {
             story += "중반까지 진행했지만 위험을 극복하지 못했습니다. 경험을 살려 다시 도전해보세요.";
-        } else if (turn <= 10) {
+        } else if (turn <= 13) {
             story += "후반까지 생존했지만 최고 난이도를 넘지 못했습니다. 놀라운 생존력을 보였습니다.";
         } else {
             story += "탈출 구간에서 사망했습니다. 거의 성공에 가까웠던 안타까운 결과입니다.";
@@ -220,16 +220,25 @@ class GameService {
     incrementTurn(gameData) {
         gameData.turn_count = (gameData.turn_count || 1) + 1;
         
-        // 턴별 위험도 로그
+        // 16턴 시스템 단계별 위험도 로그
         const turn = gameData.turn_count;
-        let riskLevel = "낮음";
+        let stageInfo = "";
         
-        if (turn <= 3) riskLevel = "60% 즉사율";
-        else if (turn <= 6) riskLevel = "70% 즉사율";
-        else if (turn <= 10) riskLevel = "80% 즉사율";
-        else riskLevel = "50% 즉사율 (탈출 기회)";
+        if (turn >= 1 && turn <= 3) {
+            stageInfo = "초급 단계 - 50% 생존율 (생존 선택지 2개)";
+        } else if (turn >= 4 && turn <= 7) {
+            stageInfo = "중급 단계 - 25% 생존율 (생존 선택지 1개)";
+        } else if (turn >= 8 && turn <= 12) {
+            stageInfo = "고급 단계 - 25% 생존율 (생존 선택지 1개)";
+        } else if (turn >= 13 && turn <= 16) {
+            stageInfo = "최종 단계 - 75% 생존율 (생존 선택지 3개)";
+        } else if (turn > 16) {
+            stageInfo = "탈출 기회 단계 - 탈출 루트 제공";
+        } else {
+            stageInfo = "알 수 없는 단계";
+        }
         
-        console.log(`Turn ${turn} - Risk Level: ${riskLevel}`);
+        console.log(`Turn ${turn} - ${stageInfo}`);
         
         return gameData;
     }

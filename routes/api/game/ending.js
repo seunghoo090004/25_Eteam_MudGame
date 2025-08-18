@@ -450,6 +450,7 @@ router.get('/', async(req, res) => {
     return res.status(ret_status).json(ret_data);
 });
 
+
 function generateGameSummary(endingData) {
     const turn = endingData.final_turn || 0;
     const deaths = endingData.total_deaths || 0;
@@ -468,11 +469,15 @@ function generateGameSummary(endingData) {
     
     if (endingData.ending_type === 'death') {
         if (turn <= 3) {
-            summary += ". 초반 함정의 위험성을 몸소 체험";
-        } else if (turn <= 6) {
-            summary += ". 중반까지의 생존력을 보였으나 던전의 위험을 극복하지 못함";
+            summary += ". 초급 단계에서 함정의 위험성을 몸소 체험";
+        } else if (turn <= 7) {
+            summary += ". 중급 단계까지의 생존력을 보였으나 던전의 위험을 극복하지 못함";
+        } else if (turn <= 12) {
+            summary += ". 고급 단계까지 생존한 놀라운 적응력을 보임";
+        } else if (turn <= 16) {
+            summary += ". 최종 단계에 도달한 뛰어난 생존 전략을 구사했으나 아쉽게 실패";
         } else {
-            summary += ". 후반까지 생존한 놀라운 적응력을 보임";
+            summary += ". 탈출 구간에서 사망했습니다. 거의 성공에 가까웠던 안타까운 결과";
         }
     } else if (endingData.ending_type === 'escape') {
         summary += ". 불가능에 가까운 던전 탈출에 성공한 전설적인 모험";

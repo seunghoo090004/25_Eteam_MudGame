@@ -1,4 +1,4 @@
-// routes/socket/services/chat.js - 수정된 버전 (기존 기능 보존)
+// routes/socket/services/chat.js - 16턴 시스템 적용 (기존 기능 보존)
 
 const pool = require('../../../config/database');
 const openai = require('../../../config/openai');
@@ -6,7 +6,7 @@ const openai = require('../../../config/openai');
 class ChatService {
     constructor() {
         // 생존 선택지 보장을 위한 메모리
-        this.survivalChoices = new Map(); // threadId -> survivalChoice
+        this.survivalChoices = new Map(); // threadId -> survivalChoices array
     }
 
     async sendMessage(threadId, assistantId, message) {
@@ -107,7 +107,7 @@ class ChatService {
                 response = this.cleanResponse(response);
                 
                 // 다음 턴을 위한 생존 선택지 설정
-                this.setSurvivalChoiceForNextTurn(threadId);
+                this.setSurvivalChoicesForNextTurn(threadId);
                 
                 console.log(`[${LOG_HEADER}] Message processed and cleaned`);
                 return response;
@@ -121,39 +121,58 @@ class ChatService {
         }
     }
 
-    // 생존 보장 확인
+    // 생존 보장 확인 (단계별 생존 선택지 개수 적용)
     checkSurvivalGuarantee(threadId, selectedChoice) {
-        const survivalChoice = this.survivalChoices.get(threadId);
+        const survivalChoices = this.survivalChoices.get(threadId) || [];
         
-        if (survivalChoice && selectedChoice === survivalChoice.toString()) {
+        if (survivalChoices.includes(parseInt(selectedChoice))) {
             console.log(`[SURVIVAL_GUARANTEE] Choice ${selectedChoice} is guaranteed survival for thread ${threadId}`);
-            // 사용된 생존 선택지 제거
-            this.survivalChoices.delete(threadId);
             return true;
         }
         
         return false;
     }
 
-    // 다음 턴을 위한 생존 선택지 설정 (1-4 중 랜덤)
-    setSurvivalChoiceForNextTurn(threadId) {
-        const survivalChoice = Math.floor(Math.random() * 4) + 1; // 1, 2, 3, 4 중 랜덤
-        this.survivalChoices.set(threadId, survivalChoice);
-        console.log(`[SURVIVAL_GUARANTEE] Next survival choice for thread ${threadId}: ${survivalChoice}`);
+    // 턴에 따른 생존 선택지 개수 계산
+    getSurvivalCountForTurn(turn) {
+        if (turn >= 1 && turn <= 3) return 2;      // 초급: 50% 생존율
+        if (turn >= 4 && turn <= 7) return 1;      // 중급: 25% 생존율
+        if (turn >= 8 && turn <= 12) return 1;     // 고급: 25% 생존율
+        if (turn >= 13 && turn <= 16) return 3;    // 최종: 75% 생존율
+        return 1; // 기본값
     }
 
-    // 게임 지침 생성 (생존 보장 포함) - 수정된 출력 형식 적용
+    // 다음 턴을 위한 생존 선택지 설정 (단계별 개수 적용)
+    setSurvivalChoicesForNextTurn(threadId, currentTurn = 1) {
+        const nextTurn = currentTurn + 1;
+        const survivalCount = this.getSurvivalCountForTurn(nextTurn);
+        
+        // 1-4 중에서 생존 선택지 랜덤 선택
+        const allChoices = [1, 2, 3, 4];
+        const survivalChoices = [];
+        
+        for (let i = 0; i < survivalCount; i++) {
+            const randomIndex = Math.floor(Math.random() * allChoices.length);
+            survivalChoices.push(allChoices.splice(randomIndex, 1)[0]);
+        }
+        
+        this.survivalChoices.set(threadId, survivalChoices);
+        console.log(`[SURVIVAL_GUARANTEE] Turn ${nextTurn} survival choices for thread ${threadId}: [${survivalChoices.join(', ')}]`);
+    }
+
+    // 게임 지침 생성 (16턴 시스템 + 단계별 생존 보장)
     generateGameInstructions(selectedChoice, guaranteedSurvival) {
         const baseInstructions = `[로그라이크 게임 마스터 지침]
 
 **선택 ${selectedChoice}번 처리:**
 1. 선택한 행동을 실행합니다
 2. 턴을 1 증가시킵니다
-3. 턴별 위험도를 적용합니다:
-   - 1-3턴: 60% 즉사율
-   - 4-6턴: 70% 즉사율  
-   - 7-10턴: 80% 즉사율
-   - 11턴+: 50% 즉사율 (탈출 기회)
+3. 단계별 생존율을 적용합니다:
+   - 초급 단계 (1-3턴): 50% 생존율 (생존 선택지 2개)
+   - 중급 단계 (4-7턴): 25% 생존율 (생존 선택지 1개)
+   - 고급 단계 (8-12턴): 25% 생존율 (생존 선택지 1개)
+   - 최종 단계 (13-16턴): 75% 생존율 (생존 선택지 3개)
+   - 16턴+ 탈출 기회 제공
 
 **응답 형식 (필수):**
 [던전 상황 설명 - 위험 요소 포함]
@@ -174,8 +193,12 @@ class ChatService {
 - 체력 없음: 즉사 OR 생존
 - 잘못된 선택 시 즉시 사망
 - 아이템 발견 시 즉시 사용 후 소멸
-- 11턴 후 탈출 기회 제공
-- 위험도에 따른 즉사 확률 적용`;
+- 16턴 후 탈출 기회 제공
+- 단계별 생존율 엄격 적용
+
+**선택지 특징:**
+- 생존 선택지: "조사한다", "관찰한다", "신중히 확인한다" 류
+- 즉사 선택지: 성급한 행동, 충동적 선택, 겉보기 안전한 함정`;
 
         // 생존 보장이 있는 경우 특별 지침 추가
         if (guaranteedSurvival) {
@@ -284,25 +307,25 @@ class ChatService {
     async initializeChat(threadId, assistantId) {
         const LOG_HEADER = "CHAT_SERVICE/INIT";
         try {
-            // 수정된 로그라이크 게임 초기화
+            // 16턴 로그라이크 게임 초기화
             await openai.beta.threads.messages.create(threadId, {
                 role: "user",
-                content: `***차원의 감옥: 불가능한 탈출 - 시스템 초기화***
+                content: `***차원의 감옥: 불가능한 탈출 - 16턴 시스템 초기화***
 
 당신은 극도로 위험한 로그라이크 던전 게임의 게임 마스터입니다.
 
 **핵심 설정:**
 - 체력 없음: 즉사 OR 생존
 - 턴 기반: 각 선택마다 턴 증가
-- 위험도: 1-10턴 극도 위험, 11턴+ 탈출 기회
+- 목표: 15턴 내 극한 생존 후 16턴부터 탈출 기회
 - 즉시 사용 아이템: 발견 시 자동 사용 후 소멸
-- **생존 보장**: 매 턴마다 4개 선택지 중 1개는 반드시 생존 가능
 
-**위험도 시스템:**
-- 1-3턴: 60% 즉사율 (함정, 추락)
-- 4-6턴: 70% 즉사율 (독, 몬스터)  
-- 7-10턴: 80% 즉사율 (복합 위험)
-- 11턴+: 50% 즉사율 (탈출 기회)
+**단계별 생존 시스템:**
+- 초급 단계 (1-3턴): 생존 선택지 2개, 즉사 선택지 2개 (50% 생존율)
+- 중급 단계 (4-7턴): 생존 선택지 1개, 즉사 선택지 3개 (25% 생존율)
+- 고급 단계 (8-12턴): 생존 선택지 1개, 즉사 선택지 3개 (25% 생존율)
+- 최종 단계 (13-16턴): 생존 선택지 3개, 즉사 선택지 1개 (75% 생존율)
+- 16턴+: 탈출 기회 제공
 
 **응답 형식 (필수):**
 [던전 상황 설명]
@@ -319,20 +342,30 @@ class ChatService {
 ← [행동] 
 → [행동]
 
+**선택지 설계 원칙:**
+생존 선택지 특징:
+- "조사한다", "관찰한다", "신중히 확인한다" 류의 행동
+- 겉보기에 위험해 보이지만 실제로는 안전
+
+즉사 선택지 특징:
+- 성급한 행동, 충동적 선택
+- 겉보기에 안전해 보이는 함정
+- 명백히 위험한 행동
+
 **중요 규칙:**
 1. 잘못된 선택 시 즉시 사망
 2. 아이템 발견 시 즉시 사용
-3. 11턴 후 탈출 루트 제공
+3. 16턴 후 탈출 루트 제공
 4. 사망 시 "당신은 죽었습니다" 명시
-5. **매 턴 4개 선택지 중 1개는 반드시 생존 가능하게 설계**
+5. 단계별 생존율 엄격 적용
 
 게임을 시작하세요.`
             });
 
             console.log(`[${LOG_HEADER}] System initialized`);
             
-            // 첫 턴을 위한 생존 선택지 설정
-            this.setSurvivalChoiceForNextTurn(threadId);
+            // 첫 턴을 위한 생존 선택지 설정 (1턴 = 초급 단계 = 2개 생존)
+            this.setSurvivalChoicesForNextTurn(threadId, 0);
             
             try {
                 return await this.sendMessage(threadId, assistantId, "게임을 시작합니다.");
@@ -473,16 +506,16 @@ class ChatService {
 
 **핵심 규칙:**
 - 체력 없음 (즉사/생존)
-- 턴별 위험도 적용
+- 단계별 생존율 적용
 - 아이템 즉시 사용
-- 11턴+ 탈출 기회
-- **매 턴 4개 선택지 중 1개는 반드시 생존 가능**
+- 16턴+ 탈출 기회
+- 단계별 생존 선택지 개수 엄격 적용
 
 게임을 이어서 진행하세요.`
             });
 
             // 재개된 게임을 위한 생존 선택지 설정
-            this.setSurvivalChoiceForNextTurn(threadId);
+            this.setSurvivalChoicesForNextTurn(threadId);
 
             const run = await openai.beta.threads.runs.create(threadId, {
                 assistant_id: assistantId

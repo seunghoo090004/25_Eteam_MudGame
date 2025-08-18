@@ -195,8 +195,8 @@ const GameState = (function() {
             };
         }
         
-        // 탈출 체크 (11턴 이후)
-        if (gameData.turn_count >= 11) {
+        // 탈출 체크 (16턴 이후)
+        if (gameData.turn_count >= 16) {
             const escapeKeywords = ['탈출', '출구', '자유', '밖으로', '빛이 보인다', '성공적으로'];
             const hasEscapeKeyword = escapeKeywords.some(keyword => 
                 response.includes(keyword)
