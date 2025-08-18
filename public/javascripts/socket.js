@@ -1,8 +1,8 @@
-// public/javascripts/socket.js - 이벤트 중복 방지 버전
+// public/javascripts/socket.js - 이미지 기능 추가 버전
 const GameSocket = (function() {
     let socket = null;
     let isConnected = false;
-    let eventsRegistered = false; // ✅ 추가: 이벤트 등록 상태 추적
+    let eventsRegistered = false;
     
     function initialize() {
         socket = io({
@@ -35,7 +35,8 @@ const GameSocket = (function() {
         if ($('#connection-error').length === 0) {
             $('#chatbox').append(`
                 <div id="connection-error" class="system-message error">
-                    서버 연결이 끊어졌습니다. 재연결 중...
+                    서버 연결이 끊어졌습니다.
+                    재연결 중...
                     <button id="manual-reconnect" class="btn btn-primary mt-2">수동 재연결</button>
                 </div>
             `);
@@ -66,13 +67,13 @@ const GameSocket = (function() {
     }
     
     function setupSocketEventHandlers() {
-        // ✅ 수정: 이벤트 중복 등록 방지
+        // 이벤트 중복 등록 방지
         if (eventsRegistered) {
             console.log('Socket events already registered, skipping...');
             return;
         }
         
-        // 채팅 응답 핸들러
+        // 기존 채팅 응답 핸들러
         socket.on('chat response', function(data) {
             console.log('Socket received chat response:', data);
             $(document).trigger('chat:response', [data]);
@@ -96,8 +97,34 @@ const GameSocket = (function() {
             $(document).trigger('chat:history', [data]);
         });
         
-        eventsRegistered = true; // ✅ 추가: 이벤트 등록 완료 표시
-        console.log('Socket event handlers registered');
+        // ✅ 새로운 이미지 관련 이벤트 핸들러들
+        
+        // 이미지 생성 시작 신호
+        socket.on('image generating', function(data) {
+            console.log('Socket received image generating:', data);
+            $(document).trigger('image:generating', [data]);
+        });
+        
+        // 이미지 완료 신호 + 데이터
+        socket.on('image ready', function(data) {
+            console.log('Socket received image ready:', data);
+            $(document).trigger('image:ready', [data]);
+        });
+        
+        // 이미지 생성 실패 신호
+        socket.on('image error', function(data) {
+            console.log('Socket received image error:', data);
+            $(document).trigger('image:error', [data]);
+        });
+        
+        // 이미지 생성 스킵 신호
+        socket.on('image skipped', function(data) {
+            console.log('Socket received image skipped:', data);
+            $(document).trigger('image:skipped', [data]);
+        });
+        
+        eventsRegistered = true;
+        console.log('Socket event handlers registered (including image events)');
     }
     
     function emit(event, data) {

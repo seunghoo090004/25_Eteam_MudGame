@@ -1,51 +1,44 @@
-// public/javascripts/ui.js - 수정된 버전
+// public/javascripts/ui.js - 기존 기능 완전 보존 + 이미지 기능 추가
 
 const GameUI = (function() {
-    let gameExists = false; // 게임 존재 여부 상태
+    let gameExists = false;
+    let isImageGenerating = false; // ✅ 이미지 생성 상태 추가
     
     function initialize() {
         bindUIEvents();
         setupEventHandlers();
-        checkGameState(); // 초기 게임 상태 확인
+        checkGameState();
     }
     
-    // 게임 존재 여부 확인
     async function checkGameState() {
         try {
             const response = await GameAPI.game.loadCurrent();
             
             if (response.code === "result" && response.value === 1) {
-                // 게임이 존재함
                 gameExists = true;
                 updateLoadButtonState(true);
             } else {
-                // 게임이 없음 (404 포함)
                 gameExists = false;
                 updateLoadButtonState(false);
             }
         } catch (error) {
-            // 에러 발생 시 버튼 비활성화
             gameExists = false;
             updateLoadButtonState(false);
             
-            // 404는 정상적인 상황이므로 조용히 처리
             if (error.response?.status !== 404) {
                 console.error('게임 상태 확인 오류:', error);
             }
         }
     }
     
-    // 불러오기 버튼 상태 업데이트
     function updateLoadButtonState(hasGame) {
         const loadButton = $('#load-game');
         
         if (hasGame) {
-            // 게임이 있을 때: 파란색, 클릭 가능
             loadButton.prop('disabled', false);
             loadButton.text('불러오기');
             loadButton.removeClass('btn-disabled').addClass('btn-primary');
         } else {
-            // 게임이 없을 때: 회색, 클릭 불가
             loadButton.prop('disabled', true);
             loadButton.text('불러오기');
             loadButton.removeClass('btn-primary').addClass('btn-disabled');
@@ -58,10 +51,44 @@ const GameUI = (function() {
     }
 
     function enableAllButtons() {
+        // ✅ 이미지 생성 중이면 버튼 활성화하지 않음
+        if (isImageGenerating) {
+            return;
+        }
+        
         $('#new-game, #view-endings').prop('disabled', false);
         $('.choice-button').prop('disabled', false);
-        // 불러오기 버튼은 게임 존재 여부에 따라 결정
         updateLoadButtonState(gameExists);
+    }
+    
+    // ✅ 이미지 생성 상태 관리 함수들
+    function setImageGenerating(generating) {
+        isImageGenerating = generating;
+        
+        if (generating) {
+            disableAllButtons();
+            showImageLoadingIndicator();
+        } else {
+            enableAllButtons();
+            hideImageLoadingIndicator();
+        }
+    }
+    
+    function showImageLoadingIndicator() {
+        if ($('#image-loading').length === 0) {
+            $('#chatbox').append(`
+                <div id="image-loading" class="system-message info">
+                    <div class="spinner-border spinner-border-sm" role="status">
+                        <span class="sr-only">Loading...</span>
+                    </div>
+                    이미지 생성 중... 잠시만 기다려주세요.
+                </div>
+            `);
+        }
+    }
+    
+    function hideImageLoadingIndicator() {
+        $('#image-loading').remove();
     }
 
     function bindUIEvents() {
@@ -78,6 +105,39 @@ const GameUI = (function() {
         $(document).on('chat:response', handleChatResponse);
         $(document).on('game:new', handleSocketNewGame);
         $(document).on('game:load', handleSocketGameLoad);
+        
+        // ✅ 이미지 관련 이벤트 핸들러 추가
+        $(document).on('image:generating', handleImageGenerating);
+        $(document).on('image:ready', handleImageReady);
+        $(document).on('image:error', handleImageError);
+        $(document).on('image:skipped', handleImageSkipped);
+    }
+    
+    // ✅ 이미지 이벤트 핸들러들
+    function handleImageGenerating(event, data) {
+        console.log('Image generation started:', data);
+        setImageGenerating(true);
+    }
+    
+    function handleImageReady(event, data) {
+        console.log('Image generation completed:', data);
+        setImageGenerating(false);
+    }
+    
+    function handleImageError(event, data) {
+        console.error('Image generation failed:', data);
+        setImageGenerating(false);
+        
+        $('#chatbox').append(`
+            <div class="system-message error">
+                이미지 생성 중 오류가 발생했습니다: ${data.error || '알 수 없는 오류'}
+            </div>
+        `);
+    }
+    
+    function handleImageSkipped(event, data) {
+        console.log('Image generation skipped:', data);
+        setImageGenerating(false);
     }
     
     function showLoading(message = '처리 중입니다...') {
@@ -136,67 +196,236 @@ const GameUI = (function() {
             return $(`
                 <div class="system-message error">
                     선택지를 찾을 수 없습니다. 게임을 다시 시작해주세요.
-                    <button id="restart-button" class="btn btn-primary mt-2">게임 다시 시작</button>
+                    <button id="restart-button" class="btn btn-primary mt-2">게임 재시작</button>
                 </div>
             `);
         }
         
         const buttonContainer = $('<div class="choice-buttons"></div>');
-        choices.forEach((choice) => {
+        
+        choices.forEach((choice, index) => {
             const button = $(`
-                <button class="choice-button" data-choice="${choice.number}">
-                    <span class="direction-icon">${choice.direction}</span> ${choice.text}
+                <button class="choice-button btn btn-choice" data-number="${choice.number}">
+                    ${choice.direction} ${choice.text}
                 </button>
             `);
+            
+            button.click(function() {
+                if (GameState.isProcessingChoice()) {
+                    alert('이미 선택지를 처리하고 있습니다. 잠시만 기다려주세요.');
+                    return;
+                }
+                
+                GameState.setProcessingChoice(true);
+                disableAllButtons();
+                
+                const userChoice = choice.text;
+                
+                $('#chatbox').append(`<div class="message user-message">${userChoice}</div>`);
+                $('#chatbox').append(`<div class="system-message info">AI 응답 대기 중...</div>`);
+                $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
+                
+                GameSocket.emit('chat message', {
+                    message: userChoice,
+                    game_id: GameState.getCurrentGameId()
+                });
+            });
+            
             buttonContainer.append(button);
         });
         
-        buttonContainer.on('click', '.choice-button', handleChoiceSelection);
         return buttonContainer;
     }
     
-    function handleChoiceSelection(e) {
-        e.preventDefault();
-        
-        const currentGameId = GameState.getCurrentGameId();
-        
-        if (!currentGameId || !GameSocket.isConnected()) {
-            alert('게임 상태가 유효하지 않거나 서버 연결이 끊어졌습니다.');
+    function handleKeyDown(event) {
+        if (!GameSocket.isConnected() || GameState.isProcessingChoice()) {
             return;
         }
         
-        if (GameState.isProcessingChoice()) {
-            return;
+        const keyChoiceMap = {
+            '1': '↑',
+            '2': '↓', 
+            '3': '←',
+            '4': '→'
+        };
+        
+        const pressedKey = event.key;
+        if (keyChoiceMap[pressedKey]) {
+            const direction = keyChoiceMap[pressedKey];
+            const button = $(`.choice-button:contains("${direction}")`).first();
+            if (button.length > 0) {
+                button.click();
+            }
         }
-
+    }
+    
+    async function handleNewGame() {
+        if (gameExists) {
+            try {
+                await GameAPI.game.deleteCurrent();
+                console.log('기존 게임 삭제 완료');
+            } catch (error) {
+                console.error('게임 삭제 오류:', error);
+            }
+        }
+        
+        if (GameState.getCurrentGameId() && !confirm('새 게임을 시작하시겠습니까?')) return;
+        
         disableAllButtons();
+        setButtonLoading($('#new-game'), true);
+        showLoading('새 로그라이크 게임을 시작하는 중...');
         
-        const selectedButton = $(this);
-        const choiceNumber = selectedButton.data('choice');
-        const choiceText = selectedButton.text().trim();
+        try {
+            const assistant_id = $('#assistant-select').val();
+            const response = await GameAPI.game.create(assistant_id, 'roguelike');
+            
+            if (response.code === "result" && response.value === 1) {
+                handleNewGameSuccess(response.value_ext2);
+                gameExists = true;
+                updateLoadButtonState(true);
+            } else {
+                throw new Error(response.value_ext2 || '게임 생성에 실패했습니다.');
+            }
+        } catch (error) {
+            console.error('새 게임 생성 오류:', error);
+            hideLoading();
+            setButtonLoading($('#new-game'), false);
+            enableAllButtons();
+            alert('새 게임 생성 중 오류: ' + (error.message || error));
+        }
+    }
+    
+    function handleNewGameSuccess(gameInfo) {
+        hideLoading();
+        setButtonLoading($('#new-game'), false);
         
-        selectedButton.addClass('processing');
-        GameState.setProcessingChoice(true);
+        GameState.setGameState(gameInfo.game_id, gameInfo.game_data, true);
         
-        $('.choice-buttons').remove();
-        $('.system-message').remove();
-        $('.message.user-message').remove();
+        $('#chatbox').empty();
+        $('#chatbox').append(`<div class="message system-message">새 로그라이크 게임이 시작되었습니다...</div>`);
         
-        $('#chatbox').append(`<div class="message user-message">${choiceText}</div>`);
+        $('#assistant-select').prop('disabled', true);
+        enableAllButtons();
         
-        GameState.incrementTurn();
-        
-        GameSocket.emit('chat message', {
-            message: choiceNumber,
-            game_id: currentGameId
+        GameSocket.emit('new game', {
+            assistant_id: $('#assistant-select').val(),
+            thread_id: gameInfo.thread_id,
+            game_id: gameInfo.game_id,
+            game_data: gameInfo.game_data
         });
+    }
+    
+    async function handleLoadGame() {
+        if (GameState.isProcessingChoice()) {
+            alert('현재 선택지를 처리하는 중입니다. 응답을 받은 후 다시 시도해주세요.');
+            return;
+        }
         
-        $('#chatbox').append(`<div id="waiting-response" class="system-message">턴 ${GameState.getGameData()?.turn_count || '?'} - 응답 대기 중...</div>`);
+        if (!gameExists) {
+            alert('불러올 수 있는 게임이 없습니다.');
+            return;
+        }
+        
+        disableAllButtons();
+        setButtonLoading($('#load-game'), true);
+        showLoading('게임을 불러오는 중...');
+        
+        try {
+            const response = await GameAPI.game.loadCurrent();
+            
+            if (response.code === "result" && response.value === 1) {
+                handleLoadGameSuccess(response.value_ext2.game);
+            } else {
+                throw new Error(response.value_ext2 || '불러올 게임이 없습니다.');
+            }
+        } catch (error) {
+            console.error('게임 로드 오류:', error);
+            hideLoading();
+            setButtonLoading($('#load-game'), false);
+            
+            if (error.response?.status === 404) {
+                gameExists = false;
+                updateLoadButtonState(false);
+                alert('불러올 수 있는 게임이 없습니다.');
+            } else {
+                alert('게임 로드 중 오류: ' + (error.message || error));
+            }
+            
+            enableAllButtons();
+        }
+    }
+    
+    function handleLoadGameSuccess(gameData) {
+        hideLoading();
+        setButtonLoading($('#load-game'), false);
+        enableAllButtons();
+        
+        GameState.setGameState(gameData.game_id, gameData.game_data);
+        
+        $('#chatbox').empty();
+        
+        if (gameData.chatHistory && gameData.chatHistory.length > 0) {
+            const chatHistory = [...gameData.chatHistory].sort((a, b) => {
+                return new Date(a.created_at) - new Date(b.created_at);
+            });
+            
+            const lastAIMessage = chatHistory.reverse().find(msg => msg.role === 'assistant');
+            
+            if (lastAIMessage) {
+                $('#chatbox').append(`<div class="message assistant-message">${lastAIMessage.content}</div>`);
+                
+                const buttons = createChoiceButtons(lastAIMessage.content);
+                if (buttons) {
+                    $('#chatbox').append(buttons);
+                }
+            } else {
+                $('#chatbox').append(`<div class="system-message">게임을 이어서 진행합니다...</div>`);
+            }
+        } else {
+            $('#chatbox').append(`<div class="system-message">게임을 이어서 진행합니다...</div>`);
+        }
+        
+        $('#assistant-select').prop('disabled', true);
         $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
+    }
+    
+    function handleViewEndings() {
+        window.open('/endings', '_blank');
+    }
+    
+    function handleLogout(e) {
+        e.preventDefault();
+        if (confirm('정말 로그아웃 하시겠습니까?')) {
+            window.location.href = '/auth/logout';
+        }
+    }
+    
+    function handleRestartGame() {
+        GameState.clearGameState();
+        $('#assistant-select').prop('disabled', false);
+        $('#chatbox').empty();
+        $('.choice-buttons').remove();
+        
+        $('#chatbox').append(`
+            <div class="system-message">
+                게임이 초기화되었습니다. '새 게임' 버튼을 눌러 로그라이크 게임을 시작하세요.
+            </div>
+        `);
+        
+        gameExists = false;
+        updateLoadButtonState(false);
+        enableAllButtons();
+    }
+    
+    function handleGameContinue() {
+        $('#chatbox').empty();
+        $('#chatbox').append(`<div class="system-message">게임을 계속 진행합니다...</div>`);
+        enableAllButtons();
     }
     
     function handleChatResponse(event, data) {
         $('#waiting-response').remove();
+        $('.system-message.info').remove();
         GameState.setProcessingChoice(false);
         enableAllButtons();
 
@@ -279,7 +508,6 @@ const GameUI = (function() {
             if (response.code === "result" && response.value === 1) {
                 hideLoading();
                 showEndingScreen(endingData, aiResponse);
-                // 엔딩 처리 완료 후 게임 상태 업데이트
                 gameExists = false;
                 updateLoadButtonState(false);
             } else {
@@ -305,7 +533,7 @@ const GameUI = (function() {
         if (endingCondition.type === 'death') {
             story = `던전의 어둠 속에서 ${turn}턴 만에 생을 마감했습니다.\n\n`;
             story += `사망 원인: ${endingCondition.cause}\n`;
-            story += `총 사망 횟수: ${totalDeaths}회\n\n`;
+            story += `이 사망 횟수: ${totalDeaths}회\n\n`;
             
             if (turn <= 3) {
                 story += "초반 함정에 걸려 빠른 죽음을 맞이했습니다.";
@@ -319,14 +547,14 @@ const GameUI = (function() {
         } else if (endingCondition.type === 'escape') {
             story = `축하합니다! ${turn}턴 만에 던전 탈출에 성공했습니다!\n\n`;
             story += `최종 턴: ${turn}턴\n`;
-            story += `총 사망 횟수: ${totalDeaths}회\n\n`;
+            story += `이 사망 횟수: ${totalDeaths}회\n\n`;
             
-            if (totalDeaths === 0) {
-                story += "완벽한 플레이! 전설적인 모험가입니다.";
-            } else if (totalDeaths <= 2) {
+            if (totalDeaths <= 1) {
                 story += "최소한의 희생으로 탈출에 성공했습니다.";
+            } else if (totalDeaths <= 5) {
+                story += "여러 시행착오를 거쳐 마침내 탈출했습니다.";
             } else {
-                story += "수많은 시행착오를 거쳐 마침내 탈출했습니다.";
+                story += "수많은 죽음을 딛고 마침내 탈출에 성공했습니다.";
             }
         }
         
@@ -336,25 +564,15 @@ const GameUI = (function() {
     function showEndingScreen(endingData, aiResponse) {
         $('#chatbox').empty();
         
-        const endingTypeText = endingData.ending_type === 'death' ? '사망' : 
-                              endingData.ending_type === 'escape' ? '탈출 성공' : '게임 종료';
-        
-        const endingColor = endingData.ending_type === 'death' ? '#dc3545' : 
-                           endingData.ending_type === 'escape' ? '#28a745' : '#6c757d';
+        const typeIcon = endingData.ending_type === 'death' ? '💀' : '🎉';
+        const typeText = endingData.ending_type === 'death' ? '사망' : '탈출 성공';
         
         $('#chatbox').append(`
-            <div class="ending-screen">
-                <div class="ending-header" style="background-color: ${endingColor}; color: white; padding: 20px; text-align: center; margin-bottom: 20px; border-radius: 10px;">
-                    <h2>게임 종료 - ${endingTypeText}</h2>
-                </div>
+            <div class="ending-screen" style="text-align: center; padding: 20px; border: 2px solid #007bff; border-radius: 10px; background: #f8f9fa; margin: 20px 0;">
+                <h2 style="color: #007bff; margin-bottom: 20px;">${typeIcon} ${typeText}</h2>
                 
-                <div class="message assistant-message ending-response">
-                    ${aiResponse}
-                </div>
-                
-                <div class="ending-stats" style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                    <h4>게임 통계</h4>
-                    <p><strong>최종 턴:</strong> ${endingData.final_turn}턴</p>
+                <div class="ending-details" style="text-align: left; background: white; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                    <p><strong>최종 턴:</strong> ${endingData.final_turn}</p>
                     <p><strong>총 사망 횟수:</strong> ${endingData.total_deaths}회</p>
                     ${endingData.cause_of_death ? `<p><strong>사망 원인:</strong> ${endingData.cause_of_death}</p>` : ''}
                 </div>
@@ -395,217 +613,6 @@ const GameUI = (function() {
         });
         
         $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
-    }
-    
-    async function handleNewGame() {
-        // 기존 게임이 존재할 때만 삭제 시도
-        if (gameExists) {
-            try {
-                await GameAPI.game.deleteCurrent();
-                console.log('기존 게임 삭제 완료');
-            } catch (error) {
-                console.error('게임 삭제 오류:', error);
-                // 삭제 실패해도 새 게임 생성은 진행
-            }
-        }
-        
-        if (GameState.getCurrentGameId() && !confirm('새 게임을 시작하시겠습니까?')) return;
-        
-        disableAllButtons();
-        setButtonLoading($('#new-game'), true);
-        showLoading('새 로그라이크 게임을 시작하는 중...');
-        
-        try {
-            const assistant_id = $('#assistant-select').val();
-            const response = await GameAPI.game.create(assistant_id, 'roguelike');
-            
-            if (response.code === "result" && response.value === 1) {
-                handleNewGameSuccess(response.value_ext2);
-                gameExists = true;
-                updateLoadButtonState(true);
-            } else {
-                throw new Error(response.value_ext2 || '게임 생성에 실패했습니다.');
-            }
-        } catch (error) {
-            console.error('새 게임 생성 오류:', error);
-            hideLoading();
-            setButtonLoading($('#new-game'), false);
-            enableAllButtons();
-            alert('새 게임 생성 중 오류: ' + (error.message || error));
-        }
-    }
-    
-    function handleNewGameSuccess(gameInfo) {
-        hideLoading();
-        setButtonLoading($('#new-game'), false);
-        
-        GameState.setGameState(gameInfo.game_id, gameInfo.game_data, true);
-        
-        $('#chatbox').empty();
-        $('#chatbox').append(`<div class="message system-message">새 로그라이크 게임이 시작되었습니다...</div>`);
-        
-        $('#assistant-select').prop('disabled', true);
-        enableAllButtons();
-        
-        GameSocket.emit('new game', {
-            assistant_id: $('#assistant-select').val(),
-            thread_id: gameInfo.thread_id,
-            game_id: gameInfo.game_id,
-            game_data: gameInfo.game_data
-        });
-    }
-    
-    async function handleLoadGame() {
-        if (GameState.isProcessingChoice()) {
-            alert('현재 선택지를 처리하는 중입니다. 응답을 받은 후 다시 시도해주세요.');
-            return;
-        }
-        
-        if (!gameExists) {
-            alert('불러올 수 있는 게임이 없습니다.');
-            return;
-        }
-        
-        disableAllButtons();
-        setButtonLoading($('#load-game'), true);
-        showLoading('게임을 불러오는 중...');
-        
-        try {
-            const response = await GameAPI.game.loadCurrent();
-            
-            if (response.code === "result" && response.value === 1) {
-                handleLoadGameSuccess(response.value_ext2.game);
-            } else {
-                throw new Error(response.value_ext2 || '불러올 게임이 없습니다.');
-            }
-        } catch (error) {
-            console.error('게임 로드 오류:', error);
-            hideLoading();
-            setButtonLoading($('#load-game'), false);
-            
-            if (error.response?.status === 404) {
-                // 게임이 없을 때
-                gameExists = false;
-                updateLoadButtonState(false);
-                alert('불러올 수 있는 게임이 없습니다.');
-            } else {
-                alert('게임 로드 중 오류: ' + (error.message || error));
-            }
-            
-            enableAllButtons();
-        }
-    }
-    
-    function handleLoadGameSuccess(gameData) {
-        hideLoading();
-        setButtonLoading($('#load-game'), false);
-        enableAllButtons();
-        
-        GameState.setGameState(gameData.game_id, gameData.game_data);
-        
-        $('#chatbox').empty();
-        
-        if (gameData.chatHistory && gameData.chatHistory.length > 0) {
-            const chatHistory = [...gameData.chatHistory].sort((a, b) => {
-                return new Date(a.created_at) - new Date(b.created_at);
-            });
-            
-            const lastAIMessage = chatHistory.reverse().find(msg => msg.role === 'assistant');
-            
-            if (lastAIMessage) {
-                $('#chatbox').append(`<div class="message assistant-message">${lastAIMessage.content}</div>`);
-                
-                const buttons = createChoiceButtons(lastAIMessage.content);
-                if (buttons) {
-                    $('#chatbox').append(buttons);
-                }
-            } else {
-                $('#chatbox').append(`<div class="system-message">게임을 이어서 진행합니다...</div>`);
-            }
-        } else {
-            $('#chatbox').append(`<div class="system-message">게임을 이어서 진행합니다...</div>`);
-        }
-        
-        $('#assistant-select').prop('disabled', true);
-        $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
-    }
-    
-    function handleViewEndings() {
-        window.open('/endings', '_blank');
-    }
-    
-    function handleLogout(e) {
-        e.preventDefault();
-        if (confirm('정말 로그아웃 하시겠습니까?')) {
-            window.location.href = '/auth/logout';
-        }
-    }
-    
-    function handleRestartGame() {
-        GameState.clearGameState();
-        $('#assistant-select').prop('disabled', false);
-        $('#chatbox').empty();
-        $('.choice-buttons').remove();
-        
-        $('#chatbox').append(`
-            <div class="system-message">
-                게임이 초기화되었습니다. '새 게임' 버튼을 눌러 로그라이크 게임을 시작하세요.
-            </div>
-        `);
-        
-        gameExists = false;
-        updateLoadButtonState(false);
-        enableAllButtons();
-        checkGameState(); // 게임 상태 재확인
-    }
-    
-    function handleGameContinue() {
-        const defaultChoices = [
-            { number: '1', text: '계속 진행하기' },
-            { number: '2', text: '다른 방향으로 탐색하기' },
-            { number: '3', text: '이전 행동 반복하기' },
-            { number: '4', text: '잠시 휴식하기' }
-        ];
-        
-        const buttonContainer = $('<div class="choice-buttons"></div>');
-        defaultChoices.forEach((choice, index) => {
-            const directionIcons = ['↑', '↓', '←', '→'];
-            const directionIcon = directionIcons[index];
-            
-            const button = $(`
-                <button class="choice-button" data-choice="${choice.number}">
-                    <span class="direction-icon">${directionIcon}</span> ${choice.text}
-                </button>
-            `);
-            buttonContainer.append(button);
-        });
-        
-        buttonContainer.on('click', '.choice-button', handleChoiceSelection);
-        $(this).closest('.system-message').replaceWith(buttonContainer);
-        
-        enableAllButtons();
-    }
-    
-    function handleKeyDown(e) {
-        if (GameState.isProcessingChoice() || $('.choice-button').length === 0) return;
-        
-        const enabledButtons = $('.choice-button:not(:disabled)');
-        if (enabledButtons.length === 0) return;
-        
-        switch(e.key) {
-            case 'ArrowUp':
-                enabledButtons.eq(0).trigger('click');
-                break;
-            case 'ArrowDown':
-                enabledButtons.eq(1).trigger('click');
-                break;
-            case 'ArrowLeft':
-                enabledButtons.eq(2).trigger('click');
-                break;
-            case 'ArrowRight':
-                enabledButtons.eq(3).trigger('click');
-                break;
-        }
     }
     
     function handleSocketNewGame(event, data) {
@@ -681,6 +688,7 @@ const GameUI = (function() {
         handleGameEnding: handleGameEnding,
         showEndingScreen: showEndingScreen,
         checkGameState: checkGameState,
-        updateLoadButtonState: updateLoadButtonState
+        updateLoadButtonState: updateLoadButtonState,
+        setImageGenerating: setImageGenerating // ✅ 외부에서 사용할 수 있도록 export
     };
 })();
