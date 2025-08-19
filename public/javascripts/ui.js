@@ -468,7 +468,7 @@ const GameUI = (function() {
                 showEndingScreen(endingData, aiResponse);
                 gameExists = false;
                 updateLoadButtonState(false);
-                GameChat.clearImageDisplay(); // 엔딩 시 이미지 영역 초기화
+                // GameChat.clearImageDisplay() 제거 - 로딩 유지를 위해
             } else {
                 throw new Error(response.value_ext2 || '엔딩 처리 실패');
             }
