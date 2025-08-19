@@ -100,6 +100,14 @@ const GameChat = (function() {
             const imageDisplay = $('#image-display');
             imageDisplay.empty();
             
+            // 로딩 스피너 표시
+            imageDisplay.html(`
+                <div class="image-loading-container" style="text-align: center; padding: 40px;">
+                    <div class="spinner"></div>
+                    <div style="margin-top: 20px; color: #6c757d;">이미지 로딩 중...</div>
+                </div>
+            `);
+            
             // 이미지 컨테이너 생성
             const imageContainer = $(`
                 <div class="generated-image-container">
@@ -136,12 +144,14 @@ const GameChat = (function() {
             
             img.on('load', function() {
                 console.log('Image loaded successfully');
-                imageContainer.find('.image-loading').remove();
+                // 로딩 스피너 제거하고 이미지 표시
+                imageDisplay.empty();
+                imageDisplay.append(imageContainer);
             });
             
             img.on('error', function() {
                 console.error('Failed to load image');
-                imageContainer.html(`
+                imageDisplay.html(`
                     <div class="error-message" style="text-align: center; padding: 20px; color: #dc3545;">
                         <p>이미지를 불러올 수 없습니다.</p>
                         <small>이미지 데이터가 손상되었거나 형식이 올바르지 않습니다.</small>
@@ -151,19 +161,18 @@ const GameChat = (function() {
             
             img.attr('src', imageUrl);
             
-            // 이미지 영역에 추가
-            imageDisplay.append(imageContainer);
-            
-            // 다운로드 버튼 이벤트
-            imageContainer.find('.download-btn').on('click', function() {
-                downloadImage(imageUrl, `dungeon_scene_${Date.now()}.png`);
-            });
-            
-            // 프롬프트 토글 버튼 이벤트
-            imageContainer.find('.toggle-prompt-btn').on('click', function() {
-                const promptDiv = imageContainer.find('.image-prompt');
-                promptDiv.slideToggle();
-                $(this).text(promptDiv.is(':visible') ? '프롬프트 숨기기' : '프롬프트 보기');
+            // 다운로드 버튼 이벤트 (이미지 로드 후 바인딩)
+            img.on('load', function() {
+                imageContainer.find('.download-btn').on('click', function() {
+                    downloadImage(imageUrl, `dungeon_scene_${Date.now()}.png`);
+                });
+                
+                // 프롬프트 토글 버튼 이벤트
+                imageContainer.find('.toggle-prompt-btn').on('click', function() {
+                    const promptDiv = imageContainer.find('.image-prompt');
+                    promptDiv.slideToggle();
+                    $(this).text(promptDiv.is(':visible') ? '프롬프트 숨기기' : '프롬프트 보기');
+                });
             });
             
             console.log('Image display completed');

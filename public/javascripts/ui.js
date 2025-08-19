@@ -222,8 +222,18 @@ const GameUI = (function() {
         GameState.setProcessingChoice(false);
         
         if (data.success) {
-            $('#chatbox').append(`<div class="message assistant-message">${data.response}</div>`);
+            // 선택지 부분 제거한 응답 텍스트
+            let displayResponse = data.response;
+            const choicePattern = /[↑↓←→]\s*[^\n]+/g;
+            displayResponse = displayResponse.replace(choicePattern, '').trim();
             
+            // 기존 메시지 모두 제거하고 마지막 응답만 표시
+            $('#chatbox .message').remove();
+            $('#chatbox .choice-buttons').remove();
+            
+            $('#chatbox').append(`<div class="message assistant-message">${displayResponse}</div>`);
+            
+            // 버튼은 원본 응답에서 파싱
             const buttons = createChoiceButtons(data.response);
             if (buttons) {
                 $('#chatbox').append(buttons);
@@ -559,8 +569,18 @@ const GameUI = (function() {
             $('.system-message').remove();
             
             if (data.initial_message) {
-                $('#chatbox').append(`<div class="message assistant-message">${data.initial_message}</div>`);
+                // 선택지 부분 제거한 응답 텍스트
+                let displayResponse = data.initial_message;
+                const choicePattern = /[↑↓←→]\s*[^\n]+/g;
+                displayResponse = displayResponse.replace(choicePattern, '').trim();
                 
+                // 기존 메시지 모두 제거하고 마지막 응답만 표시
+                $('#chatbox .message').remove();
+                $('#chatbox .choice-buttons').remove();
+                
+                $('#chatbox').append(`<div class="message assistant-message">${displayResponse}</div>`);
+                
+                // 버튼은 원본 응답에서 파싱
                 const buttons = createChoiceButtons(data.initial_message);
                 if (buttons) {
                     $('#chatbox').append(buttons);
@@ -592,8 +612,15 @@ const GameUI = (function() {
                 
                 if (filteredHistory.length > 0) {
                     const lastAIMessage = filteredHistory[filteredHistory.length - 1];
-                    $('#chatbox').append(`<div class="message assistant-message">${lastAIMessage.content}</div>`);
                     
+                    // 선택지 부분 제거한 응답 텍스트
+                    let displayResponse = lastAIMessage.content;
+                    const choicePattern = /[↑↓←→]\s*[^\n]+/g;
+                    displayResponse = displayResponse.replace(choicePattern, '').trim();
+                    
+                    $('#chatbox').append(`<div class="message assistant-message">${displayResponse}</div>`);
+                    
+                    // 버튼은 원본 응답에서 파싱
                     const buttons = createChoiceButtons(lastAIMessage.content);
                     if (buttons) {
                         $('#chatbox').append(buttons);
@@ -608,7 +635,6 @@ const GameUI = (function() {
             $('#chatbox').empty().append(`<div class="message error">게임을 불러오는 중 오류: ${data.error}</div>`);
         }
     }
-    
     
     return {
         initialize: initialize,
