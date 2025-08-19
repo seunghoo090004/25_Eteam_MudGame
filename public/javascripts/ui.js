@@ -632,7 +632,7 @@ const GameUI = (function() {
                 const filteredHistory = data.game.chatHistory.filter(msg => msg.role === 'assistant');
                 
                 if (filteredHistory.length > 0) {
-                    const lastAIMessage = filteredHistory[filteredHistory.length - 1];
+                    const lastAIMessage = filteredHistory[0];
                     
                     // 선택지 부분 제거한 응답 텍스트
                     let displayResponse = lastAIMessage.content;
