@@ -46,26 +46,31 @@ const GameUI = (function() {
         if (generating) {
             // 이미지 생성 중 - 모든 버튼 비활성화
             disableAllButtons();
-            showImageLoadingIndicator();
+            // 오른쪽 이미지 영역에 로딩 표시
+            $('#image-display').html(`
+                <div class="image-loading-container" style="text-align: center;">
+                    <div class="spinner"></div>
+                    <div style="margin-top: 20px; color: #6c757d;">이미지 생성 중...</div>
+                </div>
+            `);
         } else {
             // 이미지 생성 완료 - 버튼 활성화
             enableAllButtons();
-            hideImageLoadingIndicator();
         }
     }
     
     function showImageLoadingIndicator() {
-        if ($('#image-loading').length === 0) {
-            $('#chatbox').append(`
-                <div id="image-loading">
-                    이미지 생성 중... 🎨
-                </div>
-            `);
-        }
+        // 오른쪽 이미지 영역에 로딩 표시
+        $('#image-display').html(`
+            <div class="image-loading-container" style="text-align: center;">
+                <div class="spinner"></div>
+                <div style="margin-top: 20px; color: #6c757d;">이미지 생성 중...</div>
+            </div>
+        `);
     }
     
     function hideImageLoadingIndicator() {
-        $('#image-loading').remove();
+        // 로딩 표시 제거는 이미지가 표시될 때 자동으로 처리됨
     }
 
     function bindUIEvents() {
