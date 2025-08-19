@@ -187,13 +187,29 @@ const GameUI = (function() {
         }
         
         const choice = $(e.target).data('choice');
-        const fullText = $(e.target).text();
+        const clickedButton = $(e.target);
         
         GameState.setProcessingChoice(true);
-        disableAllButtons();
+        
+        // 클릭한 버튼만 활성 상태로 유지, 나머지는 비활성화
+        $('.choice-btn').each(function() {
+            if (this === clickedButton[0]) {
+                $(this).css('opacity', '1');
+                $(this).prop('disabled', true);
+            } else {
+                $(this).css('opacity', '0.3');
+                $(this).prop('disabled', true);
+            }
+        });
+        
+        // 다른 버튼들도 비활성화
+        $('#new-game').prop('disabled', true);
+        $('#load-game').prop('disabled', true);
+        $('#view-endings').prop('disabled', true);
+        
         showLoading('선택을 처리하는 중...');
         
-        $('#chatbox').append(`<div class="message user-message">${fullText}</div>`);
+        // 유저 메시지 표시 제거 (하늘색 박스 안 보이게)
         $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
         
         GameChat.sendMessage(choice);
