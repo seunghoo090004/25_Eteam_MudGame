@@ -85,13 +85,23 @@
             background: #f8f9fa;
             border-bottom: 1px solid #dee2e6;
             display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .controls-left {
+            display: flex;
+            align-items: center;
+        }
+        
+        .controls-right {
+            display: flex;
             gap: 10px;
             align-items: center;
         }
         
         #assistant-select {
-            flex: 1;
-            max-width: 300px;
+            width: 300px;
             padding: 8px 12px;
             border: 1px solid #ced4da;
             border-radius: 5px;
@@ -376,12 +386,20 @@
                 gap: 10px;
             }
             
-            #assistant-select {
+            .controls-left,
+            .controls-right {
                 width: 100%;
-                max-width: unset;
             }
             
-            .controls .btn {
+            #assistant-select {
+                width: 100%;
+            }
+            
+            .controls-right {
+                justify-content: stretch;
+            }
+            
+            .controls-right .btn {
                 flex: 1;
             }
             
@@ -403,14 +421,18 @@
         
         <div class="main-content">
             <div class="controls">
-                <select id="assistant-select">
-                    <% assistants.forEach(function(assistant) { %>
-                        <option value="<%= assistant.id %>"><%= assistant.name %></option>
-                    <% }); %>
-                </select>
-                <button id="new-game" class="btn btn-success">새 게임</button>
-                <button id="load-game" class="btn btn-primary">불러오기</button>
-                <button id="view-endings" class="btn btn-secondary">엔딩 기록</button>
+                <div class="controls-left">
+                    <select id="assistant-select">
+                        <% assistants.forEach(function(assistant) { %>
+                            <option value="<%= assistant.id %>"><%= assistant.name %></option>
+                        <% }); %>
+                    </select>
+                </div>
+                <div class="controls-right">
+                    <button id="new-game" class="btn btn-success">새 게임</button>
+                    <button id="load-game" class="btn btn-primary">불러오기</button>
+                    <button id="view-endings" class="btn btn-secondary">엔딩 기록</button>
+                </div>
             </div>
             
             <div class="game-content">
