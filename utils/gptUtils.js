@@ -1,14 +1,22 @@
-// utils/gptUtils.js
-// OpenAI API 통신 유틸리티 함수 모음
+// utils/gptUtils.js - 환경변수 적용 버전
 
 const openai = require('../config/openai');
-const reqinfo = require('./reqinfo');
+require('dotenv').config();
+
+// 환경변수에서 설정 읽기
+const IMAGE_ENABLED = process.env.IMAGE_GENERATION_ENABLED !== 'false';
+const MIN_INTERVAL_BETWEEN_IMAGES = parseInt(process.env.IMAGE_GENERATION_INTERVAL) || 5000;
+const MAX_RETRIES = parseInt(process.env.IMAGE_GENERATION_MAX_RETRIES) || 3;
+const IMAGE_QUALITY = process.env.IMAGE_GENERATION_QUALITY || 'medium';
+
+// Rate limiting 변수
+let lastImageGenerationTime = 0;
 
 //============================================================================================
-async function sendMessageToGPT(threadId, assistantId, message) {
+async function sendMessageToGPT(message, assistantId, threadId) {
 //============================================================================================
     const LOG_HEADER_TITLE = "GPT_SEND_MESSAGE";
-    const LOG_HEADER = "ThreadId[" + threadId + "] AssistantId[" + assistantId + "] --> " + LOG_HEADER_TITLE;
+    const LOG_HEADER = "Message[" + message.substring(0, 50) + "...] --> " + LOG_HEADER_TITLE;
     const LOG_ERR_HEADER = "[FAIL]";
     const LOG_SUCC_HEADER = "[SUCC]";
     
@@ -16,26 +24,14 @@ async function sendMessageToGPT(threadId, assistantId, message) {
     let ret_data;
     
     try {
-        // 메시지 추가
-        await openai.beta.threads.messages.create(threadId, {
-            role: "user",
-            content: message
-        });
-
-        // 실행
         const run = await openai.beta.threads.runs.create(threadId, {
             assistant_id: assistantId
         });
-
-        // 응답 대기
-        const runStatus = await waitForCompletion(threadId, run.id);
-        if (runStatus.status !== 'completed') {
-            throw new Error('응답 실패: ' + runStatus.status);
-        }
-
-        // 응답 가져오기
-        const messages = await openai.beta.threads.messages.list(threadId);
-        ret_data = messages.data[0].content[0].text.value;
+        
+        ret_data = {
+            threadId: threadId,
+            runId: run.id
+        };
 
     } catch (e) {
         ret_status = 501;
@@ -86,47 +82,101 @@ async function generateImageFromText(prompt, options = {}) {
     const LOG_SUCC_HEADER = "[SUCC]";
     
     try {
-        console.log(LOG_SUCC_HEADER + LOG_HEADER + " Starting image generation");
-        
-        // gpt-image-1 사용 (response_format 제거)
-        const response = await openai.images.generate({
-            model: "gpt-image-1",
-            prompt: prompt,
-            n: 1,
-            size: "1024x1024",
-            quality: "medium"  // gpt-image-1 지원: low, medium, high, auto
-            // response_format 파라미터 제거 (gpt-image-1에서 지원하지 않음)
-        });
-        
-        const imageData = response.data[0];
-        
-        let imageBase64 = null;
-        
-        // URL 응답인 경우 base64로 변환
-        if (imageData.url) {
-            try {
-                const axios = require('axios');
-                const imageResponse = await axios.get(imageData.url, {
-                    responseType: 'arraybuffer'
-                });
-                imageBase64 = Buffer.from(imageResponse.data, 'binary').toString('base64');
-            } catch (fetchError) {
-                console.error(LOG_ERR_HEADER + LOG_HEADER + " URL fetch error: " + fetchError.message);
-                throw new Error('Failed to fetch image from URL');
-            }
-        } else if (imageData.b64_json) {
-            imageBase64 = imageData.b64_json;
-        } else {
-            throw new Error('No image data received');
+        // 이미지 생성이 비활성화된 경우
+        if (!IMAGE_ENABLED) {
+            console.log(LOG_SUCC_HEADER + LOG_HEADER + " Image generation is disabled");
+            return {
+                success: false,
+                error: 'Image generation is disabled',
+                error_type: 'disabled'
+            };
         }
         
-        console.log(LOG_SUCC_HEADER + LOG_HEADER + " Image generation completed successfully");
+        // Rate limiting 체크
+        const now = Date.now();
+        const timeSinceLastGeneration = now - lastImageGenerationTime;
+        
+        if (timeSinceLastGeneration < MIN_INTERVAL_BETWEEN_IMAGES) {
+            const waitTime = MIN_INTERVAL_BETWEEN_IMAGES - timeSinceLastGeneration;
+            console.log(LOG_SUCC_HEADER + LOG_HEADER + ` Waiting ${waitTime}ms for rate limit...`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+        
+        console.log(LOG_SUCC_HEADER + LOG_HEADER + " Starting image generation with quality: " + IMAGE_QUALITY);
+        
+        // 재시도 로직
+        let retries = MAX_RETRIES;
+        let lastError;
+        
+        while (retries > 0) {
+            try {
+                // gpt-image-1 사용
+                const response = await openai.images.generate({
+                    model: "gpt-image-1",
+                    prompt: prompt,
+                    n: 1,
+                    size: "1024x1024",
+                    quality: IMAGE_QUALITY  // 환경변수 사용
+                });
+                
+                lastImageGenerationTime = Date.now();
+                
+                const imageData = response.data[0];
+                let imageBase64 = null;
+                
+                // URL 응답인 경우 base64로 변환
+                if (imageData.url) {
+                    try {
+                        const axios = require('axios');
+                        const imageResponse = await axios.get(imageData.url, {
+                            responseType: 'arraybuffer',
+                            timeout: 30000 // 30초 타임아웃
+                        });
+                        imageBase64 = Buffer.from(imageResponse.data, 'binary').toString('base64');
+                    } catch (fetchError) {
+                        console.error(LOG_ERR_HEADER + LOG_HEADER + " URL fetch error: " + fetchError.message);
+                        throw new Error('Failed to fetch image from URL');
+                    }
+                } else if (imageData.b64_json) {
+                    imageBase64 = imageData.b64_json;
+                } else {
+                    throw new Error('No image data received');
+                }
+                
+                console.log(LOG_SUCC_HEADER + LOG_HEADER + " Image generation completed successfully");
+                
+                return {
+                    success: true,
+                    image_base64: imageBase64,
+                    revised_prompt: imageData.revised_prompt || prompt,
+                    format: 'png'
+                };
+                
+            } catch (e) {
+                lastError = e;
+                retries--;
+                
+                // Rate limit 오류인 경우
+                if (e.response && (e.response.status === 429 || e.response.status === 503)) {
+                    const waitTime = e.response.status === 429 ? 60000 : 10000; // 429면 60초, 503이면 10초
+                    console.error(LOG_ERR_HEADER + LOG_HEADER + ` Rate limited, waiting ${waitTime/1000} seconds... (${retries} retries left)`);
+                    await new Promise(resolve => setTimeout(resolve, waitTime));
+                } else if (retries > 0) {
+                    console.error(LOG_ERR_HEADER + LOG_HEADER + ` Error occurred, retrying... (${retries} retries left)`);
+                    await new Promise(resolve => setTimeout(resolve, 3000)); // 3초 대기
+                } else {
+                    break;
+                }
+            }
+        }
+        
+        // 모든 재시도 실패
+        console.error(LOG_ERR_HEADER + LOG_HEADER + " All retries failed: " + (lastError.message || lastError));
         
         return {
-            success: true,
-            image_base64: imageBase64,
-            revised_prompt: imageData.revised_prompt || prompt,
-            format: 'png'
+            success: false,
+            error: lastError.message || 'Image generation failed after retries',
+            error_type: lastError.response?.status === 429 ? 'rate_limit' : 'unknown_error'
         };
         
     } catch (e) {
@@ -135,7 +185,7 @@ async function generateImageFromText(prompt, options = {}) {
         return {
             success: false,
             error: e.message || 'Image generation failed',
-            error_type: e.type || 'unknown_error'
+            error_type: e.response?.status === 429 ? 'rate_limit' : 'unknown_error'
         };
     }
 }
@@ -147,6 +197,15 @@ function extractImageKeywords(assistantResponse) {
     const LOG_HEADER = LOG_HEADER_TITLE;
     
     try {
+        // 이미지 생성이 비활성화된 경우
+        if (!IMAGE_ENABLED) {
+            return {
+                shouldGenerate: false,
+                sceneDescription: '',
+                response: assistantResponse
+            };
+        }
+        
         // 통계 섹션 이전의 상황 묘사만 추출
         let sceneDescription = assistantResponse;
         
@@ -159,7 +218,7 @@ function extractImageKeywords(assistantResponse) {
         console.log(`[${LOG_HEADER}] Extracted scene description: ${sceneDescription.substring(0, 100)}...`);
         
         return {
-            shouldGenerate: true, // 항상 이미지 생성
+            shouldGenerate: true,
             sceneDescription: sceneDescription,
             response: assistantResponse
         };
