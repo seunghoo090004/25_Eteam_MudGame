@@ -1,4 +1,4 @@
-// utils/gptUtils.js - 환경변수 적용 버전
+// utils/gptUtils.js - 조건부 이미지 생성 버전
 
 const openai = require('../config/openai');
 require('dotenv').config();
@@ -191,7 +191,7 @@ async function generateImageFromText(prompt, options = {}) {
 }
 
 //============================================================================================
-function extractImageKeywords(assistantResponse) {
+function extractImageKeywords(assistantResponse, gameData = null) {
 //============================================================================================
     const LOG_HEADER_TITLE = "EXTRACT_SCENE_DESCRIPTION";
     const LOG_HEADER = LOG_HEADER_TITLE;
@@ -202,14 +202,141 @@ function extractImageKeywords(assistantResponse) {
             return {
                 shouldGenerate: false,
                 sceneDescription: '',
-                response: assistantResponse
+                response: assistantResponse,
+                reason: 'disabled'
             };
         }
         
+        // 무조건 생성해야 하는 특별한 트리거들
+        const alwaysGenerateTriggers = [
+            '게임시작', '차원 감옥 시작',  // 게임 시작
+            '당신은 죽었습니다', '사망',    // 사망
+            '탈출 성공', '축하합니다'       // 탈출
+        ];
+        
+        // 특별 트리거 체크
+        const hasSpecialTrigger = alwaysGenerateTriggers.some(trigger => 
+            assistantResponse.includes(trigger)
+        );
+        
+        if (hasSpecialTrigger) {
+            console.log(`[${LOG_HEADER}] Special trigger detected - generating image`);
+            return {
+                shouldGenerate: true,
+                sceneDescription: extractSceneDescription(assistantResponse),
+                response: assistantResponse,
+                reason: 'special_trigger'
+            };
+        }
+        
+        // 새로운 발견 체크
+        const newDiscoveries = extractNewDiscoveries(assistantResponse, gameData);
+        
+        if (newDiscoveries.length > 0) {
+            console.log(`[${LOG_HEADER}] New discoveries detected: ${newDiscoveries.join(', ')}`);
+            return {
+                shouldGenerate: true,
+                sceneDescription: extractSceneDescription(assistantResponse),
+                response: assistantResponse,
+                reason: 'new_discovery',
+                discoveries: newDiscoveries
+            };
+        }
+        
+        // 발견이 없으면 이미지 생성하지 않음
+        console.log(`[${LOG_HEADER}] No new discoveries - skipping image generation`);
+        return {
+            shouldGenerate: false,
+            sceneDescription: '',
+            response: assistantResponse,
+            reason: 'no_new_discovery'
+        };
+        
+    } catch (e) {
+        console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
+        return {
+            shouldGenerate: false,
+            sceneDescription: '',
+            response: assistantResponse,
+            reason: 'error'
+        };
+    }
+}
+
+//============================================================================================
+function extractNewDiscoveries(response, gameData) {
+//============================================================================================
+    const LOG_HEADER = "EXTRACT_NEW_DISCOVERIES";
+    
+    try {
+        const newDiscoveries = [];
+        const existingDiscoveries = gameData?.discoveries || [];
+        
+        // 몬스터 조우 패턴
+        const monsterPatterns = [
+            /(\S+)\s*조우/g,
+            /조우.*?(\S+)/g
+        ];
+        
+        // 아이템 발견 패턴  
+        const itemPatterns = [
+            /(\S+)\s*발견/g,
+            /발견.*?(\S+)/g
+        ];
+        
+        // 몬스터 체크
+        for (const pattern of monsterPatterns) {
+            const matches = [...response.matchAll(pattern)];
+            for (const match of matches) {
+                const monster = match[1];
+                const discovery = `${monster} 조우`;
+                if (monster && !existingDiscoveries.includes(discovery) && !newDiscoveries.includes(discovery)) {
+                    // 통계 섹션이나 선택지가 아닌지 확인
+                    if (!monster.includes('↑') && !monster.includes('↓') && 
+                        !monster.includes('←') && !monster.includes('→') &&
+                        !monster.includes(':') && !monster.includes('=')) {
+                        newDiscoveries.push(discovery);
+                    }
+                }
+            }
+        }
+        
+        // 아이템 체크
+        for (const pattern of itemPatterns) {
+            const matches = [...response.matchAll(pattern)];
+            for (const match of matches) {
+                const item = match[1];
+                const discovery = `${item} 발견`;
+                if (item && !existingDiscoveries.includes(discovery) && !newDiscoveries.includes(discovery)) {
+                    // 통계 섹션이나 선택지가 아닌지 확인
+                    if (!item.includes('↑') && !item.includes('↓') && 
+                        !item.includes('←') && !item.includes('→') &&
+                        !item.includes(':') && !item.includes('=') &&
+                        item !== '없음' && item !== '발견') {
+                        newDiscoveries.push(discovery);
+                    }
+                }
+            }
+        }
+        
+        console.log(`[${LOG_HEADER}] Found discoveries: ${newDiscoveries.join(', ')}`);
+        return newDiscoveries;
+        
+    } catch (e) {
+        console.error(`[${LOG_HEADER}] Error: ${e.message}`);
+        return [];
+    }
+}
+
+//============================================================================================
+function extractSceneDescription(assistantResponse) {
+//============================================================================================
+    const LOG_HEADER = "EXTRACT_SCENE_DESC";
+    
+    try {
         let sceneDescription = assistantResponse;
         
         // 통계 섹션 및 선택지 제거
-        // "통계", "====", "사망 원인:", "다음 행동", "↑", "→" 등이 나타나기 전까지만 추출
         const patterns = [
             /통계[\s\S]*/,
             /={3,}[\s\S]*/,
@@ -234,20 +361,11 @@ function extractImageKeywords(assistantResponse) {
         }
         
         console.log(`[${LOG_HEADER}] Extracted scene: ${sceneDescription.substring(0, 100)}...`);
-        
-        return {
-            shouldGenerate: true,
-            sceneDescription: sceneDescription,
-            response: assistantResponse
-        };
+        return sceneDescription;
         
     } catch (e) {
-        console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
-        return {
-            shouldGenerate: false,
-            sceneDescription: '',
-            response: assistantResponse
-        };
+        console.error(`[${LOG_HEADER}] Error: ${e.message}`);
+        return assistantResponse.substring(0, 150);
     }
 }
 
@@ -292,5 +410,6 @@ module.exports = {
     sendMessageToGPT, 
     generateImageFromText, 
     extractImageKeywords, 
-    createImagePrompt 
+    createImagePrompt,
+    waitForCompletion  // 추가
 };

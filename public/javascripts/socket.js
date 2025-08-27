@@ -1,150 +1,147 @@
-// public/javascripts/socket.js - 이미지 기능 추가 버전
+// public/javascripts/socket.js - 이미지 스킵 이벤트 추가
+
 const GameSocket = (function() {
     let socket = null;
-    let isConnected = false;
-    let eventsRegistered = false;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 5;
     
     function initialize() {
-        socket = io({
-            reconnection: true,
-            reconnectionAttempts: 10,
-            reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000,
-            timeout: 20000
-        });
-        
-        socket.on('connect', handleConnect);
-        socket.on('disconnect', handleDisconnect);
-        socket.on('connect_error', handleConnectError);
-        
-        setupSocketEventHandlers();
-    }
-    
-    function handleConnect() {
-        console.log('Socket connected successfully');
-        isConnected = true;
-        
-        $('#connection-error').remove();
-        $(document).trigger('socket:connected');
-    }
-    
-    function handleDisconnect() {
-        console.log('Socket disconnected');
-        isConnected = false;
-        
-        if ($('#connection-error').length === 0) {
-            $('#chatbox').append(`
-                <div id="connection-error" class="system-message error">
-                    서버 연결이 끊어졌습니다.
-                    재연결 중...
-                    <button id="manual-reconnect" class="btn btn-primary mt-2">수동 재연결</button>
-                </div>
-            `);
-            
-            $('#manual-reconnect').click(function() {
-                $('#connection-error').text('재연결 시도 중...');
-                socket.connect();
-            });
-        }
-    }
-    
-    function handleConnectError(error) {
-        console.error('Socket connection error:', error);
-        
-        if ($('#connection-error').length === 0) {
-            $('#chatbox').append(`
-                <div id="connection-error" class="system-message error">
-                    서버 연결 오류: ${error.message || '알 수 없는 오류'}
-                    <button id="manual-reconnect" class="btn btn-primary mt-2">수동 재연결</button>
-                </div>
-            `);
-            
-            $('#manual-reconnect').click(function() {
-                $('#connection-error').text('재연결 시도 중...');
-                socket.connect();
-            });
-        }
-    }
-    
-    function setupSocketEventHandlers() {
-        // 이벤트 중복 등록 방지
-        if (eventsRegistered) {
-            console.log('Socket events already registered, skipping...');
+        if (socket && socket.connected) {
+            console.log('Socket already connected');
             return;
         }
         
-        // 기존 채팅 응답 핸들러
-        socket.on('chat response', function(data) {
-            console.log('Socket received chat response:', data);
-            $(document).trigger('chat:response', [data]);
+        socket = io({
+            reconnection: true,
+            reconnectionDelay: 1000,
+            reconnectionAttempts: MAX_RECONNECT_ATTEMPTS
         });
         
-        // 새 게임 응답 핸들러
-        socket.on('new game response', function(data) {
-            console.log('Socket received new game response:', data);
-            $(document).trigger('game:new', [data]);
+        setupEventHandlers();
+        console.log('Socket.IO initialized');
+    }
+    
+    function setupEventHandlers() {
+        // 연결 이벤트
+        socket.on('connect', () => {
+            console.log('Socket connected');
+            reconnectAttempts = 0;
+            $(document).trigger('socket:connected');
         });
         
-        // 게임 로드 응답 핸들러
-        socket.on('load game response', function(data) {
-            console.log('Socket received load game response:', data);
-            $(document).trigger('game:load', [data]);
+        socket.on('disconnect', () => {
+            console.log('Socket disconnected');
+            $(document).trigger('socket:disconnected');
         });
         
-        // 채팅 기록 응답 핸들러
-        socket.on('chat history response', function(data) {
-            console.log('Socket received chat history response:', data);
-            $(document).trigger('chat:history', [data]);
+        socket.on('connect_error', (error) => {
+            console.error('Connection error:', error);
+            reconnectAttempts++;
+            if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+                $(document).trigger('socket:error', { error: 'Maximum reconnection attempts reached' });
+            }
         });
         
-        // ✅ 새로운 이미지 관련 이벤트 핸들러들
-        
-        // 이미지 생성 시작 신호
-        socket.on('image generating', function(data) {
-            console.log('Socket received image generating:', data);
-            $(document).trigger('image:generating', [data]);
+        // 게임 관련 이벤트
+        socket.on('game created', (data) => {
+            console.log('Game created:', data);
+            $(document).trigger('game:new', data);
         });
         
-        // 이미지 완료 신호 + 데이터
-        socket.on('image ready', function(data) {
-            console.log('Socket received image ready:', data);
-            $(document).trigger('image:ready', [data]);
+        socket.on('game loaded', (data) => {
+            console.log('Game loaded:', data);
+            $(document).trigger('game:loaded', data);
         });
         
-        // 이미지 생성 실패 신호
-        socket.on('image error', function(data) {
-            console.log('Socket received image error:', data);
-            $(document).trigger('image:error', [data]);
+        socket.on('game list', (data) => {
+            console.log('Game list received');
+            $(document).trigger('game:list', data);
         });
         
-        // 이미지 생성 스킵 신호
-        socket.on('image skipped', function(data) {
-            console.log('Socket received image skipped:', data);
-            $(document).trigger('image:skipped', [data]);
+        socket.on('game ending', (data) => {
+            console.log('Game ending received:', data);
+            $(document).trigger('game:ending', data);
         });
         
-        eventsRegistered = true;
-        console.log('Socket event handlers registered (including image events)');
+        socket.on('ending saved', (data) => {
+            console.log('Ending saved:', data);
+            $(document).trigger('ending:saved', data);
+        });
+        
+        // 채팅 관련 이벤트
+        socket.on('chat response', (data) => {
+            console.log('Chat response received');
+            $(document).trigger('chat:response', data);
+        });
+        
+        socket.on('chat history', (data) => {
+            console.log('Chat history received');
+            $(document).trigger('chat:history', data);
+        });
+        
+        // 이미지 관련 이벤트
+        socket.on('image generating', (data) => {
+            console.log('Image generating:', data);
+            $(document).trigger('image:generating', data);
+        });
+        
+        socket.on('image ready', (data) => {
+            console.log('Image ready:', data);
+            $(document).trigger('image:ready', data);
+        });
+        
+        socket.on('image error', (data) => {
+            console.error('Image error:', data);
+            $(document).trigger('image:error', data);
+        });
+        
+        // 새로 추가: 이미지 스킵 이벤트
+        socket.on('image skipped', (data) => {
+            console.log('Image generation skipped:', data);
+            $(document).trigger('image:skipped', data);
+        });
+        
+        // 오류 관련 이벤트
+        socket.on('error', (data) => {
+            console.error('Socket error:', data);
+            $(document).trigger('socket:error', data);
+        });
     }
     
     function emit(event, data) {
-        if (!isConnected) {
-            console.error('Cannot emit event. Socket not connected');
+        if (socket && socket.connected) {
+            socket.emit(event, data);
+            return true;
+        } else {
+            console.error('Socket not connected');
             return false;
         }
-        
-        console.log(`Socket emitting: ${event}`, data);
-        socket.emit(event, data);
-        return true;
     }
     
-    function isSocketConnected() {
-        return isConnected;
+    function isConnected() {
+        return socket && socket.connected;
+    }
+    
+    function disconnect() {
+        if (socket) {
+            socket.disconnect();
+            socket = null;
+        }
+    }
+    
+    function reconnect() {
+        if (socket) {
+            socket.connect();
+        } else {
+            initialize();
+        }
     }
     
     return {
         initialize: initialize,
         emit: emit,
-        isConnected: isSocketConnected
+        isConnected: isConnected,
+        disconnect: disconnect,
+        reconnect: reconnect
     };
 })();

@@ -1,4 +1,4 @@
-// public/javascripts/chat.js - 이미지 표시 기능 추가
+// public/javascripts/chat.js - 조건부 이미지 표시 지원
 
 const GameChat = (function() {
     function initialize() {
@@ -9,9 +9,10 @@ const GameChat = (function() {
         // 기존 채팅 관련 이벤트 핸들러
         $(document).on('chat:history', handleChatHistory);
         
-        // ✅ 새로운 이미지 관련 이벤트 핸들러
+        // 이미지 관련 이벤트 핸들러
         $(document).on('image:ready', handleImageReady);
         $(document).on('image:error', handleImageError);
+        $(document).on('image:skipped', handleImageSkipped);  // 새로 추가
     }
     
     // 채팅 메시지 전송
@@ -73,17 +74,20 @@ const GameChat = (function() {
         }
     }
     
-    // ✅ 이미지 완료 처리
+    // 이미지 완료 처리
     function handleImageReady(event, data) {
         if (data.success && data.image_data) {
-            console.log('Displaying generated image');
+            console.log('Displaying generated image - Trigger:', data.image_data.trigger_reason);
+            if (data.image_data.new_discoveries) {
+                console.log('New discoveries:', data.image_data.new_discoveries);
+            }
             displayGeneratedImage(data.image_data);
         } else {
             console.error('이미지 데이터가 없습니다:', data);
         }
     }
     
-    // ✅ 이미지 에러 처리
+    // 이미지 에러 처리
     function handleImageError(event, data) {
         console.error('Image generation error:', data);
         
@@ -93,7 +97,26 @@ const GameChat = (function() {
         }
     }
     
-    // ✅ 생성된 이미지 표시 - 오른쪽 이미지 영역에 표시
+    // 이미지 생성 건너뜀 처리 (새로 추가)
+    function handleImageSkipped(event, data) {
+        console.log('Image generation skipped:', data.reason);
+        
+        // 이미지 영역에 안내 메시지 표시 (선택사항)
+        const imageDisplay = $('#image-display');
+        if (imageDisplay.length && data.reason === 'no_new_discovery') {
+            // 기존 이미지가 있으면 유지, 없으면 안내 메시지
+            if (imageDisplay.find('.generated-image').length === 0) {
+                imageDisplay.html(`
+                    <div class="no-image-placeholder" style="text-align: center; padding: 20px; color: #6c757d;">
+                        <p>새로운 발견이 있을 때 이미지가 생성됩니다</p>
+                        <small>몬스터 조우, 아이템 발견 시 자동 생성</small>
+                    </div>
+                `);
+            }
+        }
+    }
+    
+    // 생성된 이미지 표시 - 오른쪽 이미지 영역에 표시
     function displayGeneratedImage(imageData) {
         try {
             // 이미지 영역 초기화 (기존 이미지 제거)
@@ -114,6 +137,12 @@ const GameChat = (function() {
                     <img class="generated-image" alt="Generated dungeon scene" />
                     <div class="image-info">
                         <div class="image-scene-info">양피지 스타일 던전 일러스트</div>
+                        ${imageData.trigger_reason ? `<div class="trigger-reason" style="font-size: 0.8rem; color: #6c757d; margin-top: 5px;">트리거: ${
+                            imageData.trigger_reason === 'special_trigger' ? '특별 이벤트' :
+                            imageData.trigger_reason === 'new_discovery' ? '새로운 발견' :
+                            imageData.trigger_reason
+                        }</div>` : ''}
+                        ${imageData.new_discoveries ? `<div class="new-discoveries" style="font-size: 0.8rem; color: #28a745; margin-top: 5px;">발견: ${imageData.new_discoveries.join(', ')}</div>` : ''}
                         <button class="btn btn-sm btn-secondary download-btn" style="margin-top: 10px;">이미지 다운로드</button>
                         <button class="btn btn-sm btn-outline-secondary toggle-prompt-btn" style="margin-top: 10px; margin-left: 5px;">프롬프트 보기</button>
                     </div>
