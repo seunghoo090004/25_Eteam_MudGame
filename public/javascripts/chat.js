@@ -39,7 +39,7 @@ const GameChat = (function() {
             
             // 게임 상태 업데이트
             if (data.game_state) {
-                GameState.updateFromResponse(data.game_state);
+                GameState.updateGameStateFromParsing(data.game_state);
             }
         } else {
             console.error('Chat response error:', data.error);
