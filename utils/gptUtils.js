@@ -206,16 +206,34 @@ function extractImageKeywords(assistantResponse) {
             };
         }
         
-        // 통계 섹션 이전의 상황 묘사만 추출
         let sceneDescription = assistantResponse;
         
-        // "통계" 또는 "====" 이전까지만 추출
-        const statsMatch = sceneDescription.match(/(.*?)(?=통계|={3,})/s);
-        if (statsMatch) {
-            sceneDescription = statsMatch[1].trim();
+        // 통계 섹션 및 선택지 제거
+        // "통계", "====", "사망 원인:", "다음 행동", "↑", "→" 등이 나타나기 전까지만 추출
+        const patterns = [
+            /통계[\s\S]*/,
+            /={3,}[\s\S]*/,
+            /사망 원인:[\s\S]*/,
+            /다음 행동[\s\S]*/,
+            /[↑↓←→][\s\S]*/,
+            /\n\s*선택:/,
+            /당신은 죽었습니다\.[\s\S]*/
+        ];
+        
+        for (const pattern of patterns) {
+            const match = sceneDescription.match(pattern);
+            if (match) {
+                sceneDescription = sceneDescription.substring(0, match.index).trim();
+            }
         }
         
-        console.log(`[${LOG_HEADER}] Extracted scene description: ${sceneDescription.substring(0, 100)}...`);
+        // 첫 문단만 추출 (첫 2-3문장)
+        const sentences = sceneDescription.split(/[.!?]\s+/);
+        if (sentences.length > 3) {
+            sceneDescription = sentences.slice(0, 3).join('. ') + '.';
+        }
+        
+        console.log(`[${LOG_HEADER}] Extracted scene: ${sceneDescription.substring(0, 100)}...`);
         
         return {
             shouldGenerate: true,
@@ -224,10 +242,10 @@ function extractImageKeywords(assistantResponse) {
         };
         
     } catch (e) {
-        console.error(`[${LOG_HEADER}] Error extracting scene: ${e.message || e}`);
+        console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
         return {
             shouldGenerate: false,
-            sceneDescription: assistantResponse,
+            sceneDescription: '',
             response: assistantResponse
         };
     }
@@ -240,35 +258,33 @@ function createImagePrompt(sceneData, gameContext) {
     const LOG_HEADER = LOG_HEADER_TITLE;
     
     try {
-        // 기본 프롬프트 템플릿
         let basePrompt = "양피지에 그려진 연필 스케치, ";
         
-        // 추출된 상황 묘사를 동적으로 삽입
+        // 장면 설명 추가 (간결하게)
         if (sceneData.sceneDescription) {
-            // 장면 설명에서 주요 요소 추출
-            const cleanedDescription = sceneData.sceneDescription
+            // 불필요한 공백과 줄바꿈 제거
+            const cleanedScene = sceneData.sceneDescription
                 .replace(/\n/g, ' ')
                 .replace(/\s+/g, ' ')
-                .trim();
+                .trim()
+                .substring(0, 150); // 최대 150자로 제한
             
-            // 장면 설명이 있으면 해당 내용 삽입
-            basePrompt += cleanedDescription + " 앞에 모험가가 서 있는 모습, ";
+            // 장면 + 뒷모습 강조
+            basePrompt += cleanedScene + " 앞에서 뒤돌아선 모험가의 뒷모습, ";
         } else {
-            // 기본 장면 설명
-            basePrompt += "어둡고 신비로운 던전 복도 앞에 모험가가 서 있는 모습, ";
+            basePrompt += "던전 복도를 탐험하는 모험가의 뒷모습, ";
         }
         
-        // 공통 스타일 추가
-        basePrompt += "흑백 드로잉, 종이 가장자리 말린 고서 스타일, 중세 모험가 일기장 일러스트";
+        // 공통 스타일 - 뒷모습 강조
+        basePrompt += "흑백 드로잉, 종이 가장자리 말린 고서 스타일, 중세 모험가 일기장 일러스트, 인물은 뒤를 보고 있음, 얼굴이 보이지 않는 뒷모습";
         
-        console.log(`[${LOG_HEADER}] Generated prompt: ${basePrompt.substring(0, 100)}...`);
+        console.log(`[${LOG_HEADER}] Final prompt: ${basePrompt}`);
         
         return basePrompt;
         
     } catch (e) {
-        console.error(`[${LOG_HEADER}] Error creating prompt: ${e.message || e}`);
-        // 오류 시 기본 프롬프트 반환
-        return "양피지에 그려진 연필 스케치, 던전 앞에 모험가가 서 있는 모습, 흑백 드로잉, 종이 가장자리 말린 고서 스타일, 중세 모험가 일기장 일러스트";
+        console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
+        return "양피지에 그려진 연필 스케치, 던전을 탐험하는 모험가의 뒷모습, 흑백 드로잉, 종이 가장자리 말린 고서 스타일, 중세 모험가 일기장 일러스트";
     }
 }
 
