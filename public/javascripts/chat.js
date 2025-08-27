@@ -20,8 +20,22 @@ const GameChat = (function() {
     // 채팅 응답 처리
     function handleChatResponse(event, data) {
         if (data.success) {
-            // 채팅 메시지 표시
-            appendMessage('assistant', data.response);
+            // 통계 박스까지만 표시 (선택지 제거)
+            let displayContent = data.response;
+            
+            // 통계 박스 끝 찾기 (마지막 === 라인 이후 모든 내용 제거)
+            const statsEndIndex = displayContent.lastIndexOf('===============================================');
+            if (statsEndIndex !== -1) {
+                // === 라인 이후 줄바꿈 찾기
+                const newlineAfterStats = displayContent.indexOf('\n', statsEndIndex);
+                if (newlineAfterStats !== -1) {
+                    // 통계 박스까지만 잘라내기 (선택지 제거)
+                    displayContent = displayContent.substring(0, newlineAfterStats);
+                }
+            }
+            
+            // 채팅 메시지 표시 (한 번만)
+            appendMessage('assistant', displayContent);
             
             // 게임 상태 업데이트
             if (data.game_state) {
