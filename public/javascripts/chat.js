@@ -1,4 +1,4 @@
-// public/javascripts/chat.js - 이미지 표시 기능 추가
+// public/javascripts/chat.js - 이미지 스킵 처리 추가
 
 const GameChat = (function() {
     function initialize() {
@@ -7,11 +7,30 @@ const GameChat = (function() {
     
     function setupEventHandlers() {
         // 기존 채팅 관련 이벤트 핸들러
+        $(document).on('chat:response', handleChatResponse);
         $(document).on('chat:history', handleChatHistory);
         
-        // ✅ 새로운 이미지 관련 이벤트 핸들러
+        // 이미지 관련 이벤트 핸들러
+        $(document).on('image:generating', handleImageGenerating);
         $(document).on('image:ready', handleImageReady);
         $(document).on('image:error', handleImageError);
+        $(document).on('image:skipped', handleImageSkipped);
+    }
+    
+    // 채팅 응답 처리
+    function handleChatResponse(event, data) {
+        if (data.success) {
+            // 채팅 메시지 표시
+            appendMessage('assistant', data.response);
+            
+            // 게임 상태 업데이트
+            if (data.game_state) {
+                GameState.updateFromResponse(data.game_state);
+            }
+        } else {
+            console.error('Chat response error:', data.error);
+            appendMessage('system', `오류: ${data.error}`);
+        }
     }
     
     // 채팅 메시지 전송
@@ -27,6 +46,10 @@ const GameChat = (function() {
             return false;
         }
         
+        // 사용자 메시지 표시
+        appendMessage('user', message);
+        
+        // 서버로 메시지 전송
         GameSocket.emit('chat message', {
             message: message,
             game_id: currentGameId
@@ -73,10 +96,65 @@ const GameChat = (function() {
         }
     }
     
-    // ✅ 이미지 완료 처리
+    // 메시지 추가
+    function appendMessage(role, content) {
+        const messageClass = role === 'user' ? 'user-message' : 
+                           role === 'assistant' ? 'assistant-message' : 
+                           'system-message';
+        
+        $('#chatbox').append(`
+            <div class="message ${messageClass}">
+                ${content}
+            </div>
+        `);
+        
+        $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
+    }
+    
+    // ✅ 이미지 생성 시작 처리
+    function handleImageGenerating(event, data) {
+        console.log('Image generation started:', data.message);
+        
+        // 이미지 영역에 로딩 표시
+        $('#image-display').html(`
+            <div class="image-loading-container">
+                <div class="spinner"></div>
+                <div class="loading-message">${data.message || '이미지 생성 중...'}</div>
+            </div>
+        `);
+    }
+    
+    // ✅ 이미지 생성 스킵 처리
+    function handleImageSkipped(event, data) {
+        console.log('Image generation skipped:', data.reason);
+        
+        // 이미지가 스킵된 경우 로딩 스피너만 제거
+        const $imageDisplay = $('#image-display');
+        
+        // 로딩 중이었다면 제거
+        if ($imageDisplay.find('.image-loading-container').length > 0) {
+            // 기존 이미지가 있는지 확인
+            const existingImage = $imageDisplay.data('lastImage');
+            
+            if (existingImage) {
+                // 이전 이미지가 있으면 그대로 유지
+                console.log('Keeping previous image');
+            } else {
+                // 이전 이미지가 없으면 플레이스홀더 표시
+                $imageDisplay.html(`
+                    <div class="no-image-placeholder">
+                        새로운 발견이 있을 때 이미지가 표시됩니다
+                    </div>
+                `);
+            }
+        }
+        // 이미 이미지가 표시되어 있다면 그대로 유지
+    }
+    
+    // ✅ 이미지 준비 완료 처리
     function handleImageReady(event, data) {
         if (data.success && data.image_data) {
-            console.log('Displaying generated image');
+            console.log('Displaying new discovery image');
             displayGeneratedImage(data.image_data);
         } else {
             console.error('이미지 데이터가 없습니다:', data);
@@ -87,26 +165,18 @@ const GameChat = (function() {
     function handleImageError(event, data) {
         console.error('Image generation error:', data);
         
-        // 에러 메시지는 UI.js에서 처리하므로 여기서는 로그만
-        if (data.error_type === 'content_policy') {
-            console.warn('Content policy violation detected');
-        }
+        $('#image-display').html(`
+            <div class="error-message">
+                <p>이미지 생성 중 오류가 발생했습니다</p>
+                <small>${data.error || '알 수 없는 오류'}</small>
+            </div>
+        `);
     }
     
-    // ✅ 생성된 이미지 표시 - 오른쪽 이미지 영역에 표시
+    // ✅ 생성된 이미지 표시
     function displayGeneratedImage(imageData) {
         try {
-            // 이미지 영역 초기화 (기존 이미지 제거)
             const imageDisplay = $('#image-display');
-            imageDisplay.empty();
-            
-            // 로딩 스피너 표시
-            imageDisplay.html(`
-                <div class="image-loading-container" style="text-align: center; padding: 40px;">
-                    <div class="spinner"></div>
-                    <div style="margin-top: 20px; color: #6c757d;">이미지 로딩 중...</div>
-                </div>
-            `);
             
             // 이미지 컨테이너 생성
             const imageContainer = $(`
@@ -114,57 +184,38 @@ const GameChat = (function() {
                     <img class="generated-image" alt="Generated dungeon scene" />
                     <div class="image-info">
                         <div class="image-scene-info">양피지 스타일 던전 일러스트</div>
-                        <button class="btn btn-sm btn-secondary download-btn" style="margin-top: 10px;">이미지 다운로드</button>
-                        <button class="btn btn-sm btn-outline-secondary toggle-prompt-btn" style="margin-top: 10px; margin-left: 5px;">프롬프트 보기</button>
+                        <button class="btn btn-sm btn-secondary download-btn">이미지 다운로드</button>
+                        <button class="btn btn-sm btn-outline-secondary toggle-prompt-btn">프롬프트 보기</button>
                     </div>
-                    <div class="image-prompt" style="display: none; margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 5px;">
+                    <div class="image-prompt" style="display: none;">
                         <div class="prompt-section">
                             <strong>생성 프롬프트:</strong>
-                            <p style="margin-top: 5px; font-size: 0.85rem; color: #6c757d;">${imageData.prompt || 'N/A'}</p>
+                            <p>${imageData.prompt || 'N/A'}</p>
                         </div>
-                        ${imageData.revised_prompt && imageData.revised_prompt !== imageData.prompt ? `
-                        <div class="revised-prompt-section" style="margin-top: 10px;">
+                        ${imageData.revised_prompt && imageData.revised_prompt !== imageData.prompt ? 
+                          `<div class="prompt-section">
                             <strong>수정된 프롬프트:</strong>
-                            <p style="margin-top: 5px; font-size: 0.85rem; color: #6c757d;">${imageData.revised_prompt}</p>
-                        </div>
-                        ` : ''}
-                        ${imageData.sceneDescription ? `
-                        <div class="scene-section" style="margin-top: 10px;">
-                            <strong>장면 설명:</strong>
-                            <p style="margin-top: 5px; font-size: 0.85rem; color: #6c757d;">${imageData.sceneDescription.substring(0, 200)}...</p>
-                        </div>
-                        ` : ''}
+                            <p>${imageData.revised_prompt}</p>
+                          </div>` : ''}
                     </div>
                 </div>
             `);
             
             // 이미지 로드
             const img = imageContainer.find('.generated-image');
-            const imageUrl = `data:image/${imageData.format || 'png'};base64,${imageData.base64}`;
+            const dataUrl = `data:image/${imageData.format || 'png'};base64,${imageData.base64}`;
             
             img.on('load', function() {
                 console.log('Image loaded successfully');
-                // 로딩 스피너 제거하고 이미지 표시
-                imageDisplay.empty();
-                imageDisplay.append(imageContainer);
-            });
-            
-            img.on('error', function() {
-                console.error('Failed to load image');
-                imageDisplay.html(`
-                    <div class="error-message" style="text-align: center; padding: 20px; color: #dc3545;">
-                        <p>이미지를 불러올 수 없습니다.</p>
-                        <small>이미지 데이터가 손상되었거나 형식이 올바르지 않습니다.</small>
-                    </div>
-                `);
-            });
-            
-            img.attr('src', imageUrl);
-            
-            // 다운로드 버튼 이벤트 (이미지 로드 후 바인딩)
-            img.on('load', function() {
+                imageDisplay.html(imageContainer);
+                
+                // 마지막 이미지 데이터 저장
+                imageDisplay.data('lastImage', imageData);
+                
+                // 다운로드 버튼 이벤트
                 imageContainer.find('.download-btn').on('click', function() {
-                    downloadImage(imageUrl, `dungeon_scene_${Date.now()}.png`);
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    downloadImage(dataUrl, `dungeon-${timestamp}.png`);
                 });
                 
                 // 프롬프트 토글 버튼 이벤트
@@ -175,12 +226,21 @@ const GameChat = (function() {
                 });
             });
             
-            console.log('Image display completed');
+            img.on('error', function() {
+                console.error('Failed to load image');
+                imageDisplay.html(`
+                    <div class="error-message">
+                        <p>이미지를 로드할 수 없습니다</p>
+                    </div>
+                `);
+            });
+            
+            img.attr('src', dataUrl);
             
         } catch (error) {
             console.error('Error displaying image:', error);
             $('#image-display').html(`
-                <div class="error-message" style="text-align: center; padding: 20px; color: #dc3545;">
+                <div class="error-message">
                     <p>이미지 표시 중 오류가 발생했습니다.</p>
                     <small>${error.message}</small>
                 </div>
@@ -188,7 +248,7 @@ const GameChat = (function() {
         }
     }
     
-    // 이미지 다운로드 함수
+    // 이미지 다운로드
     function downloadImage(dataUrl, filename) {
         try {
             const link = document.createElement('a');
@@ -204,19 +264,21 @@ const GameChat = (function() {
         }
     }
     
-    // 이미지 영역 초기화 함수 (게임 시작/종료 시 사용)
+    // 이미지 영역 초기화
     function clearImageDisplay() {
         $('#image-display').html(`
             <div class="no-image-placeholder">
                 게임을 시작하면 이미지가 표시됩니다
             </div>
         `);
+        $('#image-display').removeData('lastImage');
     }
     
     return {
         initialize: initialize,
         sendMessage: sendMessage,
         getChatHistory: getChatHistory,
+        appendMessage: appendMessage,
         clearImageDisplay: clearImageDisplay,
         displayGeneratedImage: displayGeneratedImage
     };

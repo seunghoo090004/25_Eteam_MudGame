@@ -1,74 +1,35 @@
-// public/javascripts/socket.js - 이미지 기능 추가 버전
+// public/javascripts/socket.js - 이미지 스킵 이벤트 추가
+
 const GameSocket = (function() {
     let socket = null;
     let isConnected = false;
     let eventsRegistered = false;
     
     function initialize() {
-        socket = io({
-            reconnection: true,
-            reconnectionAttempts: 10,
-            reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000,
-            timeout: 20000
+        if (socket && isConnected) {
+            console.log('Socket already initialized');
+            return;
+        }
+        
+        socket = io();
+        
+        socket.on('connect', function() {
+            console.log('Socket connected');
+            isConnected = true;
+            $(document).trigger('socket:connected');
         });
         
-        socket.on('connect', handleConnect);
-        socket.on('disconnect', handleDisconnect);
-        socket.on('connect_error', handleConnectError);
+        socket.on('disconnect', function() {
+            console.log('Socket disconnected');
+            isConnected = false;
+            $(document).trigger('socket:disconnected');
+        });
         
-        setupSocketEventHandlers();
+        registerEventHandlers();
     }
     
-    function handleConnect() {
-        console.log('Socket connected successfully');
-        isConnected = true;
-        
-        $('#connection-error').remove();
-        $(document).trigger('socket:connected');
-    }
-    
-    function handleDisconnect() {
-        console.log('Socket disconnected');
-        isConnected = false;
-        
-        if ($('#connection-error').length === 0) {
-            $('#chatbox').append(`
-                <div id="connection-error" class="system-message error">
-                    서버 연결이 끊어졌습니다.
-                    재연결 중...
-                    <button id="manual-reconnect" class="btn btn-primary mt-2">수동 재연결</button>
-                </div>
-            `);
-            
-            $('#manual-reconnect').click(function() {
-                $('#connection-error').text('재연결 시도 중...');
-                socket.connect();
-            });
-        }
-    }
-    
-    function handleConnectError(error) {
-        console.error('Socket connection error:', error);
-        
-        if ($('#connection-error').length === 0) {
-            $('#chatbox').append(`
-                <div id="connection-error" class="system-message error">
-                    서버 연결 오류: ${error.message || '알 수 없는 오류'}
-                    <button id="manual-reconnect" class="btn btn-primary mt-2">수동 재연결</button>
-                </div>
-            `);
-            
-            $('#manual-reconnect').click(function() {
-                $('#connection-error').text('재연결 시도 중...');
-                socket.connect();
-            });
-        }
-    }
-    
-    function setupSocketEventHandlers() {
-        // 이벤트 중복 등록 방지
-        if (eventsRegistered) {
+    function registerEventHandlers() {
+        if (!socket || eventsRegistered) {
             console.log('Socket events already registered, skipping...');
             return;
         }
@@ -97,7 +58,7 @@ const GameSocket = (function() {
             $(document).trigger('chat:history', [data]);
         });
         
-        // ✅ 새로운 이미지 관련 이벤트 핸들러들
+        // ✅ 이미지 관련 이벤트 핸들러들
         
         // 이미지 생성 시작 신호
         socket.on('image generating', function(data) {
@@ -117,7 +78,7 @@ const GameSocket = (function() {
             $(document).trigger('image:error', [data]);
         });
         
-        // 이미지 생성 스킵 신호
+        // ✅ 이미지 생성 스킵 신호 (새로운 발견이 없을 때)
         socket.on('image skipped', function(data) {
             console.log('Socket received image skipped:', data);
             $(document).trigger('image:skipped', [data]);

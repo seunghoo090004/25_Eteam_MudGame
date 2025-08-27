@@ -1,4 +1,4 @@
-// routes/socket/handlers/chat.js - 이미지 생성 기능 추가
+// routes/socket/handlers/chat.js - 새로운 발견 시에만 이미지 생성
 
 const gameService = require('../services/game');
 const chatService = require('../services/chat');
@@ -30,6 +30,11 @@ const chatHandler = (io, socket) => {
             
             const parsedState = chatService.parseGameResponse(aiResponse);
             
+            // ✅ 이전 발견 목록 저장 (비교용)
+            const previousDiscoveries = updatedGameData.discoveries || [];
+            let hasNewDiscovery = false;
+            let newDiscoveries = [];
+            
             if (parsedState) {
                 if (parsedState.location && parsedState.location.current) {
                     if (!updatedGameData.location) {
@@ -47,11 +52,25 @@ const chatHandler = (io, socket) => {
                     updatedGameData.turn_count = parsedState.turn_count;
                 }
 
+                // ✅ 새로운 발견 체크
                 if (parsedState.discoveries && parsedState.discoveries.length > 0) {
                     if (!updatedGameData.discoveries) {
                         updatedGameData.discoveries = [];
                     }
-                    updatedGameData.discoveries = [...new Set([...updatedGameData.discoveries, ...parsedState.discoveries])];
+                    
+                    // 새로운 발견만 필터링
+                    parsedState.discoveries.forEach(discovery => {
+                        // "없음"이 아니고, 이전에 없던 발견인 경우
+                        if (discovery !== "없음" && !previousDiscoveries.includes(discovery)) {
+                            newDiscoveries.push(discovery);
+                            hasNewDiscovery = true;
+                        }
+                    });
+                    
+                    // 새로운 발견들을 기존 목록에 추가 (중복 제거)
+                    if (hasNewDiscovery) {
+                        updatedGameData.discoveries = [...new Set([...previousDiscoveries, ...newDiscoveries])];
+                    }
                 }
 
                 if (parsedState.game_status) {
@@ -80,15 +99,40 @@ const chatHandler = (io, socket) => {
                 updatedGameData.time_elapsed += Math.floor(Math.random() * 2) + 2;
             }
 
-            // ✅ 1. 먼저 텍스트 응답을 즉시 클라이언트에 전송 (기존 기능)
+            // 1. 텍스트 응답 즉시 전송
             socket.emit('chat response', {
                 success: true,
                 response: aiResponse,
                 game_state: updatedGameData
             });
 
-            // ✅ 2. 병렬로 이미지 생성 프로세스 시작 (신규 기능)
-            processImageGeneration(socket, aiResponse, updatedGameData, data.game_id);
+            // ✅ 2. 이미지 생성 조건 체크
+            const imageKeywords = [
+                '조우',           // 몬스터 조우
+                '발견',           // 아이템 발견
+                '차원 감옥 시작', // 게임 시작
+                '탈출 성공',      // 게임 클리어
+                '사망'            // 사망
+            ];
+            
+            // 새로운 발견이 있거나 키워드가 있을 때만 이미지 생성
+            const shouldGenerateImage = hasNewDiscovery || 
+                                       imageKeywords.some(keyword => aiResponse.includes(keyword));
+            
+            if (shouldGenerateImage) {
+                console.log(`[${LOG_HEADER}] New discovery or keyword detected:`, {
+                    hasNewDiscovery,
+                    newDiscoveries,
+                    keywordFound: imageKeywords.some(keyword => aiResponse.includes(keyword))
+                });
+                processImageGeneration(socket, aiResponse, updatedGameData, data.game_id);
+            } else {
+                console.log(`[${LOG_HEADER}] No new discovery, skipping image generation`);
+                socket.emit('image skipped', {
+                    game_id: data.game_id,
+                    reason: 'no_new_discovery'
+                });
+            }
 
         } catch (e) {
             console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
@@ -99,17 +143,18 @@ const chatHandler = (io, socket) => {
         }
     });
 
-    // ✅ 새로운 함수: 이미지 생성 처리 (병렬 실행)
+    // 이미지 생성 처리 함수
     async function processImageGeneration(socket, aiResponse, gameData, gameId) {
         const LOG_HEADER = "SOCKET/IMAGE_GENERATION";
         
         try {
-            console.log(`[${LOG_HEADER}] Starting image generation process`);
+            console.log(`[${LOG_HEADER}] Starting image generation for new discovery`);
             
-            // 이미지 생성 시작 신호 전송 (UI 버튼 비활성화용)
+            // 이미지 생성 시작 신호
             socket.emit('image generating', {
                 game_id: gameId,
-                status: 'started'
+                status: 'started',
+                message: '새로운 발견! 이미지 생성 중...'
             });
 
             // AI 응답에서 상황 묘사 추출
@@ -162,7 +207,7 @@ const chatHandler = (io, socket) => {
             } else {
                 console.log(`[${LOG_HEADER}] No image keywords found, skipping image generation`);
                 
-                // 이미지 생성 스킵 신호 (UI 버튼 활성화용)
+                // 이미지 생성 스킵 신호
                 socket.emit('image skipped', {
                     game_id: gameId,
                     reason: 'no_keywords'
@@ -182,7 +227,7 @@ const chatHandler = (io, socket) => {
         }
     }
 
-    // 기존 채팅 히스토리 기능 유지
+    // 채팅 히스토리 기능
     socket.on('get chat history', async (data) => {
         const LOG_HEADER = "SOCKET/CHAT_HISTORY";
         try {
