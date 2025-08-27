@@ -1,230 +1,246 @@
-// routes/socket/handlers/chat.js - 비동기 이미지 처리 수정
+// public/javascripts/chat.js - 브라우저용 클라이언트 코드
 
-const gameService = require('../services/game');
-const chatService = require('../services/chat');
-const { generateImageFromText, extractImageKeywords, createImagePrompt } = require('../../../utils/gptUtils');
-
-const chatHandler = (io, socket) => {
-    socket.on('chat message', async (data) => {
-        const LOG_HEADER = "SOCKET/CHAT_MESSAGE";
-        try {
-            const userId = socket.request.session.userId;
-            if (!userId) throw new Error("Not authenticated");
-            if (!data.game_id) throw new Error("Game ID required");
-            if (!data.message) throw new Error("Message required");
-
-            let safeMessage = data.message;
-            if (typeof safeMessage !== 'string') {
-                safeMessage = String(safeMessage);
-            }
-
-            const game = await gameService.loadGameForSocket(data.game_id, userId);
-            
-            const aiResponse = await chatService.sendMessage(
-                game.thread_id,
-                game.assistant_id,
-                safeMessage
-            );
-
-            let updatedGameData = JSON.parse(JSON.stringify(game.game_data));
-            
-            const parsedState = chatService.parseGameResponse(aiResponse);
-            
-            // 기존 발견 목록 백업
-            const previousDiscoveries = [...(updatedGameData.discoveries || [])];
-            
-            if (parsedState) {
-                if (parsedState.location && parsedState.location.current) {
-                    if (!updatedGameData.location) {
-                        updatedGameData.location = {};
-                    }
-                    
-                    updatedGameData.location.current = parsedState.location.current;
-                    
-                    if (parsedState.location.roomId) {
-                        updatedGameData.location.roomId = parsedState.location.roomId;
-                    }
-                }
-
-                if (parsedState.turn_count && parsedState.turn_count > 0) {
-                    updatedGameData.turn_count = parsedState.turn_count;
-                }
-
-                if (parsedState.discoveries && parsedState.discoveries.length > 0) {
-                    if (!updatedGameData.discoveries) {
-                        updatedGameData.discoveries = [];
-                    }
-                    
-                    parsedState.discoveries.forEach(discovery => {
-                        if (!updatedGameData.discoveries.includes(discovery)) {
-                            updatedGameData.discoveries.push(discovery);
-                            console.log(`[${LOG_HEADER}] New discovery added: ${discovery}`);
-                        }
-                    });
-                }
-
-                if (parsedState.death_count !== undefined) {
-                    updatedGameData.death_count = parsedState.death_count;
-                }
-
-                if (parsedState.progress) {
-                    if (!updatedGameData.progress) {
-                        updatedGameData.progress = {};
-                    }
-                    Object.assign(updatedGameData.progress, parsedState.progress);
-                }
-            }
-
-            await gameService.updateGameDataForSocket(data.game_id, userId, updatedGameData);
-
-            // 즉시 채팅 응답 전송 (이미지 생성 전)
-            socket.emit('chat response', {
-                success: true,
-                message: aiResponse,
-                game_data: updatedGameData
-            });
-            
-            // 엔딩 조건 체크
-            const endingCondition = gameService.checkEndingConditions(updatedGameData, aiResponse);
-            
-            if (endingCondition) {
-                console.log(`[${LOG_HEADER}] Ending detected:`, endingCondition.type);
-                
-                const endingData = {
-                    ending_type: endingCondition.type,
-                    final_turn: updatedGameData.turn_count || 1,
-                    total_deaths: updatedGameData.death_count || 0,
-                    discoveries: updatedGameData.discoveries || [],
-                    ending_story: endingCondition.story,
-                    cause_of_death: endingCondition.cause,
-                    game_data: updatedGameData,
-                    game_started: game.created_at
-                };
-                
-                socket.emit('game ending', {
-                    success: true,
-                    ending_data: endingData
-                });
-            }
-            
-            // 이미지 생성은 비동기로 처리 (응답 후)
-            processImageGeneration(socket, data.game_id, aiResponse, updatedGameData, previousDiscoveries);
-            
-        } catch (error) {
-            console.error(`[${LOG_HEADER}] Error:`, error);
-            socket.emit('chat response', {
-                success: false,
-                error: error.message || 'Failed to process message'
-            });
-        }
-    });
+const GameChat = (function() {
+    function initialize() {
+        setupEventHandlers();
+    }
     
-    // 이미지 생성 비동기 처리 함수
-    async function processImageGeneration(socket, gameId, aiResponse, gameData, previousDiscoveries) {
-        const LOG_HEADER = "SOCKET/IMAGE_GENERATION";
+    function setupEventHandlers() {
+        // 기존 채팅 관련 이벤트 핸들러
+        $(document).on('chat:history', handleChatHistory);
         
-        try {
-            // 이미지 생성 시작 신호
-            socket.emit('image generating', {
-                game_id: gameId,
-                status: 'started'
-            });
-
-            // AI 응답에서 상황 묘사 추출
-            const sceneResult = extractImageKeywords(aiResponse, {
-                ...gameData,
-                previousDiscoveries: previousDiscoveries
-            });
+        // 이미지 관련 이벤트 핸들러
+        $(document).on('image:ready', handleImageReady);
+        $(document).on('image:error', handleImageError);
+        $(document).on('image:skipped', handleImageSkipped);
+    }
+    
+    // 채팅 메시지 전송
+    function sendMessage(message) {
+        if (!GameSocket.isConnected()) {
+            console.error('소켓 연결이 끊어져 메시지를 보낼 수 없습니다.');
+            return false;
+        }
+        
+        const currentGameId = GameState.getCurrentGameId();
+        if (!currentGameId) {
+            console.error('현재 게임이 없어 메시지를 보낼 수 없습니다.');
+            return false;
+        }
+        
+        GameSocket.emit('chat message', {
+            message: message,
+            game_id: currentGameId
+        });
+        
+        return true;
+    }
+    
+    // 채팅 기록 요청
+    function getChatHistory() {
+        const currentGameId = GameState.getCurrentGameId();
+        if (!currentGameId) {
+            console.error('현재 게임이 없어 채팅 기록을 가져올 수 없습니다.');
+            return false;
+        }
+        
+        GameSocket.emit('get chat history', {
+            game_id: currentGameId
+        });
+        
+        return true;
+    }
+    
+    // 채팅 기록 응답 처리
+    function handleChatHistory(event, data) {
+        if (data.success) {
+            const history = data.history;
             
-            if (sceneResult.shouldGenerate) {
-                console.log(`[${LOG_HEADER}] Image generation triggered - Reason: ${sceneResult.reason}`);
-                if (sceneResult.discoveries) {
-                    console.log(`[${LOG_HEADER}] New discoveries: ${sceneResult.discoveries.join(', ')}`);
-                }
-                
-                const imagePrompt = createImagePrompt(sceneResult, gameData);
-                
-                const imageOptions = {
-                    model: 'gpt-image-1',
-                    quality: 'medium',
-                    size: '1024x1024',
-                    format: 'png',
-                    background: 'opaque'
-                };
-                
-                const imageResult = await generateImageFromText(imagePrompt, imageOptions);
-                
-                if (imageResult.success) {
-                    console.log(`[${LOG_HEADER}] Image generation completed successfully`);
-                    
-                    socket.emit('image ready', {
-                        game_id: gameId,
-                        success: true,
-                        image_data: {
-                            base64: imageResult.image_base64,
-                            format: imageResult.format,
-                            prompt: imagePrompt,
-                            revised_prompt: imageResult.revised_prompt,
-                            sceneDescription: sceneResult.sceneDescription,
-                            trigger_reason: sceneResult.reason,
-                            new_discoveries: sceneResult.discoveries
-                        }
-                    });
-                } else {
-                    console.error(`[${LOG_HEADER}] Image generation failed:`, imageResult.error);
-                    
-                    socket.emit('image error', {
-                        game_id: gameId,
-                        success: false,
-                        error: imageResult.error,
-                        error_type: imageResult.error_type
-                    });
-                }
-            } else {
-                console.log(`[${LOG_HEADER}] Image generation skipped - Reason: ${sceneResult.reason}`);
-                
-                socket.emit('image skipped', {
-                    game_id: gameId,
-                    reason: sceneResult.reason,
-                    message: '새로운 발견이 없어 이미지가 생성되지 않았습니다.'
+            $('#chatbox').empty();
+            
+            if (history && history.length > 0) {
+                history.forEach(msg => {
+                    const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
+                    $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
                 });
+                
+                $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
+            } else {
+                $('#chatbox').append(`<div class="system-message">채팅 기록이 없습니다.</div>`);
             }
-            
-        } catch (error) {
-            console.error(`[${LOG_HEADER}] Error in image generation:`, error);
-            
-            socket.emit('image error', {
-                game_id: gameId,
-                success: false,
-                error: error.message || 'Image generation failed',
-                error_type: 'processing_error'
-            });
+        } else {
+            console.error('채팅 기록을 가져오는 중 오류:', data.error);
+            $('#chatbox').append(`<div class="system-message error">채팅 기록을 가져오는 중 오류가 발생했습니다.</div>`);
         }
     }
     
-    // 채팅 기록 가져오기
-    socket.on('get chat history', async (data) => {
-        const LOG_HEADER = "SOCKET/GET_CHAT_HISTORY";
+    // 이미지 완료 처리
+    function handleImageReady(event, data) {
+        if (data.success && data.image_data) {
+            console.log('Displaying generated image - Trigger:', data.image_data.trigger_reason);
+            if (data.image_data.new_discoveries) {
+                console.log('New discoveries:', data.image_data.new_discoveries);
+            }
+            displayGeneratedImage(data.image_data);
+        } else {
+            console.error('이미지 데이터가 없습니다:', data);
+        }
+    }
+    
+    // 이미지 에러 처리
+    function handleImageError(event, data) {
+        console.error('Image generation error:', data);
+        
+        if (data.error_type === 'content_policy') {
+            console.warn('Content policy violation detected');
+        }
+    }
+    
+    // 이미지 생성 건너뜀 처리
+    function handleImageSkipped(event, data) {
+        console.log('Image generation skipped:', data.reason);
+        
+        const imageDisplay = $('#image-display');
+        if (imageDisplay.length && data.reason === 'no_new_discovery') {
+            if (imageDisplay.find('.generated-image').length === 0) {
+                imageDisplay.html(`
+                    <div class="no-image-placeholder" style="text-align: center; padding: 20px; color: #6c757d;">
+                        <p>새로운 발견이 있을 때 이미지가 생성됩니다</p>
+                        <small>몬스터 조우, 아이템 발견 시 자동 생성</small>
+                    </div>
+                `);
+            }
+        }
+    }
+    
+    // 생성된 이미지 표시
+    function displayGeneratedImage(imageData) {
         try {
-            const userId = socket.request.session.userId;
-            if (!userId) throw new Error("Not authenticated");
-            if (!data.game_id) throw new Error("Game ID required");
+            const imageDisplay = $('#image-display');
+            imageDisplay.empty();
             
-            const history = await chatService.getChatHistory(data.game_id, userId);
+            // 로딩 스피너 표시
+            imageDisplay.html(`
+                <div class="image-loading-container" style="text-align: center; padding: 40px;">
+                    <div class="spinner"></div>
+                    <div style="margin-top: 20px; color: #6c757d;">이미지 로딩 중...</div>
+                </div>
+            `);
             
-            socket.emit('chat history', {
-                success: true,
-                history: history
+            // 이미지 컨테이너 생성
+            const imageContainer = $(`
+                <div class="generated-image-container">
+                    <img class="generated-image" alt="Generated dungeon scene" />
+                    <div class="image-info">
+                        <div class="image-scene-info">양피지 스타일 던전 일러스트</div>
+                        ${imageData.trigger_reason ? `<div class="trigger-reason" style="font-size: 0.8rem; color: #6c757d; margin-top: 5px;">트리거: ${
+                            imageData.trigger_reason === 'special_trigger' ? '특별 이벤트' :
+                            imageData.trigger_reason === 'new_discovery' ? '새로운 발견' :
+                            imageData.trigger_reason
+                        }</div>` : ''}
+                        ${imageData.new_discoveries ? `<div class="new-discoveries" style="font-size: 0.8rem; color: #28a745; margin-top: 5px;">발견: ${imageData.new_discoveries.join(', ')}</div>` : ''}
+                        <button class="btn btn-sm btn-secondary download-btn" style="margin-top: 10px;">이미지 다운로드</button>
+                        <button class="btn btn-sm btn-outline-secondary toggle-prompt-btn" style="margin-top: 10px; margin-left: 5px;">프롬프트 보기</button>
+                    </div>
+                    <div class="image-prompt" style="display: none; margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 5px;">
+                        <div class="prompt-section">
+                            <strong>생성 프롬프트:</strong>
+                            <p style="margin-top: 5px; font-size: 0.85rem; color: #6c757d;">${imageData.prompt || 'N/A'}</p>
+                        </div>
+                        ${imageData.revised_prompt && imageData.revised_prompt !== imageData.prompt ? `
+                        <div class="revised-prompt-section" style="margin-top: 10px;">
+                            <strong>수정된 프롬프트:</strong>
+                            <p style="margin-top: 5px; font-size: 0.85rem; color: #6c757d;">${imageData.revised_prompt}</p>
+                        </div>
+                        ` : ''}
+                        ${imageData.sceneDescription ? `
+                        <div class="scene-section" style="margin-top: 10px;">
+                            <strong>장면 설명:</strong>
+                            <p style="margin-top: 5px; font-size: 0.85rem; color: #6c757d;">${imageData.sceneDescription.substring(0, 200)}...</p>
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `);
+            
+            // 이미지 로드
+            const img = imageContainer.find('.generated-image');
+            const imageUrl = `data:image/${imageData.format || 'png'};base64,${imageData.base64}`;
+            
+            img.on('load', function() {
+                console.log('Image loaded successfully');
+                imageDisplay.empty();
+                imageDisplay.append(imageContainer);
             });
+            
+            img.on('error', function() {
+                console.error('Failed to load image');
+                imageDisplay.html(`
+                    <div class="error-message" style="text-align: center; padding: 20px; color: #dc3545;">
+                        <p>이미지를 불러올 수 없습니다.</p>
+                        <small>이미지 데이터가 손상되었거나 형식이 올바르지 않습니다.</small>
+                    </div>
+                `);
+            });
+            
+            img.attr('src', imageUrl);
+            
+            // 이벤트 바인딩
+            img.on('load', function() {
+                imageContainer.find('.download-btn').on('click', function() {
+                    downloadImage(imageUrl, `dungeon_scene_${Date.now()}.png`);
+                });
+                
+                imageContainer.find('.toggle-prompt-btn').on('click', function() {
+                    const promptDiv = imageContainer.find('.image-prompt');
+                    promptDiv.slideToggle();
+                    $(this).text(promptDiv.is(':visible') ? '프롬프트 숨기기' : '프롬프트 보기');
+                });
+            });
+            
+            console.log('Image display completed');
             
         } catch (error) {
-            console.error(`[${LOG_HEADER}] Error:`, error);
-            socket.emit('chat history', {
-                success: false,
-                error: error.message || 'Failed to get chat history'
-            });
+            console.error('Error displaying image:', error);
+            $('#image-display').html(`
+                <div class="error-message" style="text-align: center; padding: 20px; color: #dc3545;">
+                    <p>이미지 표시 중 오류가 발생했습니다.</p>
+                    <small>${error.message}</small>
+                </div>
+            `);
         }
-    });
-};
-
-module.exports = chatHandler;
+    }
+    
+    // 이미지 다운로드 함수
+    function downloadImage(dataUrl, filename) {
+        try {
+            const link = document.createElement('a');
+            link.href = dataUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            console.log('Image download initiated:', filename);
+        } catch (error) {
+            console.error('Download error:', error);
+            alert('이미지 다운로드 중 오류가 발생했습니다.');
+        }
+    }
+    
+    // 이미지 영역 초기화 함수
+    function clearImageDisplay() {
+        $('#image-display').html(`
+            <div class="no-image-placeholder">
+                게임을 시작하면 이미지가 표시됩니다
+            </div>
+        `);
+    }
+    
+    return {
+        initialize: initialize,
+        sendMessage: sendMessage,
+        getChatHistory: getChatHistory,
+        clearImageDisplay: clearImageDisplay,
+        displayGeneratedImage: displayGeneratedImage
+    };
+})();
