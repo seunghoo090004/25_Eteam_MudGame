@@ -1,4 +1,4 @@
-// routes/socket/handlers/game.js
+// routes/socket/handlers/game.js - 수정된 버전
 
 const gameService = require('../services/game');
 const chatService = require('../services/chat');
@@ -25,8 +25,7 @@ const gameHandler = (io, socket) => {
     
             const initialResponse = await chatService.initializeChat(data.thread_id, data.assistant_id);
             
-            // 이벤트 이름 통일: game created
-            socket.emit('game created', {
+            socket.emit('new game response', {
                 success: true,
                 game_id: data.game_id,
                 game_data: data.game_data,
@@ -37,14 +36,14 @@ const gameHandler = (io, socket) => {
     
         } catch (e) {
             console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
-            socket.emit('game created', {
+            socket.emit('new game response', {
                 success: false,
                 error: e.message || e
             });
         }
     });
 
-    // 게임 로드
+    // 게임 로드 (채팅 히스토리용)
     socket.on('load game', async (data) => {
         const LOG_HEADER = "SOCKET/LOAD_GAME";
         
@@ -60,17 +59,15 @@ const gameHandler = (io, socket) => {
     
             const gameData = await gameService.loadGameForSocket(data.game_id, userId);
             
-            // 이벤트 이름 통일: game loaded
-            socket.emit('game loaded', {
+            console.log(`[${LOG_HEADER}] Game loaded for socket successfully`);
+            socket.emit('load game response', {
                 success: true,
                 game: gameData
             });
-            
-            console.log(`[${LOG_HEADER}] Game loaded successfully`);
     
         } catch (e) {
             console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
-            socket.emit('game loaded', {
+            socket.emit('load game response', {
                 success: false,
                 error: e.message || e
             });
