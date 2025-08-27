@@ -1,4 +1,4 @@
-// routes/socket/services/game.js - 로그라이크 버전
+// routes/socket/services/game.js
 
 const pool = require('../../../config/database');
 const openai = require('../../../config/openai');
@@ -69,53 +69,36 @@ class GameService {
         }
     }
 
-    // 로그라이크 게임 데이터 정규화
-    normalizeGameData(gameData) {
-        let gameDataObj;
+    // Socket용 게임 데이터 업데이트
+    async updateGameDataForSocket(gameId, userId, gameData) {
+        const LOG_HEADER = "SOCKET_GAME_SERVICE/UPDATE";
         
         try {
-            gameDataObj = typeof gameData === 'string' 
-                ? JSON.parse(gameData) 
-                : gameData;
-        } catch (err) {
-            console.error("Game data parsing error:", err);
-            gameDataObj = this.getDefaultGameData();
-        }
-        
-        // 로그라이크 필수 구조 보장
-        gameDataObj.turn_count = gameDataObj.turn_count || 1;
-        gameDataObj.death_count = gameDataObj.death_count || 0;
-        gameDataObj.game_mode = gameDataObj.game_mode || 'roguelike';
-        
-        gameDataObj.location = gameDataObj.location || {};
-        gameDataObj.location.current = gameDataObj.location.current || "던전 입구";
-        gameDataObj.location.roomId = gameDataObj.location.roomId || "001";
-        
-        gameDataObj.discoveries = gameDataObj.discoveries || [];
-        
-        gameDataObj.progress = gameDataObj.progress || {};
-        gameDataObj.progress.phase = gameDataObj.progress.phase || "시작";
-        gameDataObj.progress.last_action = gameDataObj.progress.last_action || "게임 시작";
-        
-        return gameDataObj;
-    }
-    
-    // 로그라이크 기본 데이터
-    getDefaultGameData() {
-        return {
-            turn_count: 1,
-            death_count: 0,
-            game_mode: "roguelike",
-            location: {
-                roomId: "001",
-                current: "던전 입구"
-            },
-            discoveries: [],
-            progress: {
-                phase: "시작",
-                last_action: "게임 시작"
+            const connection = await pool.getConnection();
+            try {
+                // 게임 데이터를 JSON 문자열로 변환
+                const gameDataJson = JSON.stringify(gameData);
+                
+                const [result] = await connection.query(
+                    'UPDATE game_state SET game_data = ?, last_updated = NOW() WHERE game_id = ? AND user_id = ?',
+                    [gameDataJson, gameId, userId]
+                );
+
+                if (result.affectedRows === 0) {
+                    throw new Error("Game not found or unauthorized");
+                }
+
+                console.log(`[${LOG_HEADER}] Game data updated for: ${gameId}`);
+                return true;
+
+            } finally {
+                connection.release();
             }
-        };
+
+        } catch (e) {
+            console.error(`[${LOG_HEADER}] Error: ${e.message}`);
+            throw e;
+        }
     }
 
     // 엔딩 조건 체크
@@ -216,31 +199,53 @@ class GameService {
         return story;
     }
 
-    // 턴 증가 및 위험도 체크
-    incrementTurn(gameData) {
-        gameData.turn_count = (gameData.turn_count || 1) + 1;
+    // 로그라이크 게임 데이터 정규화
+    normalizeGameData(gameData) {
+        let gameDataObj;
         
-        // 16턴 시스템 단계별 위험도 로그
-        const turn = gameData.turn_count;
-        let stageInfo = "";
-        
-        if (turn >= 1 && turn <= 3) {
-            stageInfo = "초급 단계 - 50% 생존율 (생존 선택지 2개)";
-        } else if (turn >= 4 && turn <= 7) {
-            stageInfo = "중급 단계 - 25% 생존율 (생존 선택지 1개)";
-        } else if (turn >= 8 && turn <= 12) {
-            stageInfo = "고급 단계 - 25% 생존율 (생존 선택지 1개)";
-        } else if (turn >= 13 && turn <= 16) {
-            stageInfo = "최종 단계 - 75% 생존율 (생존 선택지 3개)";
-        } else if (turn > 16) {
-            stageInfo = "탈출 기회 단계 - 탈출 루트 제공";
-        } else {
-            stageInfo = "알 수 없는 단계";
+        try {
+            gameDataObj = typeof gameData === 'string' 
+                ? JSON.parse(gameData) 
+                : gameData;
+        } catch (err) {
+            console.error("Game data parsing error:", err);
+            gameDataObj = this.getDefaultGameData();
         }
         
-        console.log(`Turn ${turn} - ${stageInfo}`);
+        // 로그라이크 필수 구조 보장
+        gameDataObj.turn_count = gameDataObj.turn_count || 1;
+        gameDataObj.death_count = gameDataObj.death_count || 0;
+        gameDataObj.game_mode = gameDataObj.game_mode || 'roguelike';
         
-        return gameData;
+        gameDataObj.location = gameDataObj.location || {};
+        gameDataObj.location.current = gameDataObj.location.current || "던전 입구";
+        gameDataObj.location.roomId = gameDataObj.location.roomId || "001";
+        
+        gameDataObj.discoveries = gameDataObj.discoveries || [];
+        
+        gameDataObj.progress = gameDataObj.progress || {};
+        gameDataObj.progress.phase = gameDataObj.progress.phase || "시작";
+        gameDataObj.progress.last_action = gameDataObj.progress.last_action || "게임 시작";
+        
+        return gameDataObj;
+    }
+    
+    // 로그라이크 기본 데이터
+    getDefaultGameData() {
+        return {
+            turn_count: 1,
+            death_count: 0,
+            game_mode: "roguelike",
+            location: {
+                roomId: "001",
+                current: "던전 입구"
+            },
+            discoveries: [],
+            progress: {
+                phase: "시작",
+                last_action: "게임 시작"
+            }
+        };
     }
 }
 
