@@ -240,14 +240,26 @@ function createImagePrompt(sceneData, gameContext) {
     const LOG_HEADER = LOG_HEADER_TITLE;
     
     try {
-        let basePrompt = "양피지에 그려진 연필 스케치, 흑백 드로잉, 종이 가장자리가 말린 고서 스타일, 중세 모험가 탐험 일기장 일러스트 느낌. ";
+        // 기본 프롬프트 템플릿
+        let basePrompt = "양피지에 그려진 연필 스케치, ";
         
-        // 추출된 상황 묘사를 그대로 사용
+        // 추출된 상황 묘사를 동적으로 삽입
         if (sceneData.sceneDescription) {
-            basePrompt += sceneData.sceneDescription;
+            // 장면 설명에서 주요 요소 추출
+            const cleanedDescription = sceneData.sceneDescription
+                .replace(/\n/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            
+            // 장면 설명이 있으면 해당 내용 삽입
+            basePrompt += cleanedDescription + " 앞에 모험가가 서 있는 모습, ";
         } else {
-            basePrompt += "어둡고 신비로운 던전 복도, 모험가의 탐험 장면";
+            // 기본 장면 설명
+            basePrompt += "어둡고 신비로운 던전 복도 앞에 모험가가 서 있는 모습, ";
         }
+        
+        // 공통 스타일 추가
+        basePrompt += "흑백 드로잉, 종이 가장자리 말린 고서 스타일, 중세 모험가 일기장 일러스트";
         
         console.log(`[${LOG_HEADER}] Generated prompt: ${basePrompt.substring(0, 100)}...`);
         
@@ -255,7 +267,8 @@ function createImagePrompt(sceneData, gameContext) {
         
     } catch (e) {
         console.error(`[${LOG_HEADER}] Error creating prompt: ${e.message || e}`);
-        return "양피지에 그려진 연필 스케치, 흑백 드로잉, 중세 던전 탐험 장면";
+        // 오류 시 기본 프롬프트 반환
+        return "양피지에 그려진 연필 스케치, 던전 앞에 모험가가 서 있는 모습, 흑백 드로잉, 종이 가장자리 말린 고서 스타일, 중세 모험가 일기장 일러스트";
     }
 }
 
