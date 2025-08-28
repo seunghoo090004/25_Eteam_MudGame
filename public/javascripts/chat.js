@@ -61,17 +61,21 @@ const GameChat = (function() {
                 discovery: '없음'
             };
             this.lastDiscoveryTurn = 0;
+            this.lastDiscoveredEntity = null;
         }
 
         updateStats(turn, location, newDiscovery = null) {
             this.currentStats.turn = turn;
             this.currentStats.location = location;
             
-            // 발견 항목 처리 - 새로운 발견이 있을 때만 업데이트, 다음 턴에는 리셋
-            if (newDiscovery && turn > this.lastDiscoveryTurn) {
+            // 발견 항목 처리 - 최초 발견 시에만 표시, 다음 턴부터는 무조건 "없음"
+            if (newDiscovery && newDiscovery !== this.lastDiscoveredEntity) {
+                // 새로운 엔티티 발견 시
                 this.currentStats.discovery = newDiscovery;
                 this.lastDiscoveryTurn = turn;
+                this.lastDiscoveredEntity = newDiscovery;
             } else if (turn > this.lastDiscoveryTurn) {
+                // 턴이 넘어가면 무조건 "없음"
                 this.currentStats.discovery = '없음';
             }
         }
@@ -110,6 +114,26 @@ const GameChat = (function() {
     // 전역 인스턴스
     const imageDetector = new ImageTriggerDetector();
     const gameStats = new GameStatistics();
+    
+    // 헬퍼 함수들
+    function extractTurnFromMessage(message) {
+        const turnMatch = message.match(/턴:\s*(\d+)/);
+        return turnMatch ? parseInt(turnMatch[1]) : gameStats.currentStats.turn;
+    }
+
+    function extractLocationFromMessage(message) {
+        const locationMatch = message.match(/위치:\s*([^\n]+)/);
+        return locationMatch ? locationMatch[1].trim() : gameStats.currentStats.location;
+    }
+
+    function updateMessageStats(message, newStatsBox) {
+        // 기존 통계 박스를 새로운 것으로 교체 (시간 항목 제거)
+        const statsRegex = /통계[\s\S]*?={10,}/;
+        if (statsRegex.test(message)) {
+            return message.replace(statsRegex, newStatsBox);
+        }
+        return message;
+    }
     
     function initialize() {
         setupEventHandlers();
@@ -164,26 +188,6 @@ const GameChat = (function() {
             $('#chatbox').append(`<div class="message ${messageClass}">${updatedMessage}</div>`);
             $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
         }
-    }
-    
-    // 헬퍼 함수들
-    function extractTurnFromMessage(message) {
-        const turnMatch = message.match(/턴:\s*(\d+)/);
-        return turnMatch ? parseInt(turnMatch[1]) : gameStats.currentStats.turn;
-    }
-
-    function extractLocationFromMessage(message) {
-        const locationMatch = message.match(/위치:\s*([^\n]+)/);
-        return locationMatch ? locationMatch[1].trim() : gameStats.currentStats.location;
-    }
-
-    function updateMessageStats(message, newStatsBox) {
-        // 기존 통계 박스를 새로운 것으로 교체 (시간 항목 제거)
-        const statsRegex = /통계[\s\S]*?={10,}/;
-        if (statsRegex.test(message)) {
-            return message.replace(statsRegex, newStatsBox);
-        }
-        return message;
     }
     
     // 채팅 메시지 전송
@@ -330,6 +334,18 @@ const GameChat = (function() {
                 // 로딩 스피너 제거하고 이미지 표시
                 imageDisplay.empty();
                 imageDisplay.append(imageContainer);
+                
+                // 다운로드 버튼 이벤트
+                imageContainer.find('.download-btn').on('click', function() {
+                    downloadImage(imageUrl, `dungeon_scene_${Date.now()}.png`);
+                });
+                
+                // 프롬프트 토글 버튼 이벤트
+                imageContainer.find('.toggle-prompt-btn').on('click', function() {
+                    const promptDiv = imageContainer.find('.image-prompt');
+                    promptDiv.slideToggle();
+                    $(this).text(promptDiv.is(':visible') ? '프롬프트 숨기기' : '프롬프트 보기');
+                });
             });
             
             img.on('error', function() {
@@ -343,20 +359,6 @@ const GameChat = (function() {
             });
             
             img.attr('src', imageUrl);
-            
-            // 다운로드 버튼 이벤트 (이미지 로드 후 바인딩)
-            img.on('load', function() {
-                imageContainer.find('.download-btn').on('click', function() {
-                    downloadImage(imageUrl, `dungeon_scene_${Date.now()}.png`);
-                });
-                
-                // 프롬프트 토글 버튼 이벤트
-                imageContainer.find('.toggle-prompt-btn').on('click', function() {
-                    const promptDiv = imageContainer.find('.image-prompt');
-                    promptDiv.slideToggle();
-                    $(this).text(promptDiv.is(':visible') ? '프롬프트 숨기기' : '프롬프트 보기');
-                });
-            });
             
             console.log('Image display completed');
             
