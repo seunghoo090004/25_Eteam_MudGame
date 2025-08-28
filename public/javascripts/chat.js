@@ -1,6 +1,116 @@
 // public/javascripts/chat.js - 이미지 표시 기능 추가
 
 const GameChat = (function() {
+    // 이미지 트리거 감지 클래스
+    class ImageTriggerDetector {
+        constructor() {
+            this.triggers = {
+                gameStart: ['차원 감옥 시작', '던전 시작', '게임 시작'],
+                monsterEncounter: ['조우'],
+                itemDiscovery: ['발견'],
+                death: ['죽었습니다', '사망'],
+                escape: ['탈출 성공', '탈출했습니다']
+            };
+        }
+
+        detectTrigger(message) {
+            // 게임 시작 체크
+            if (this.triggers.gameStart.some(trigger => message.includes(trigger))) {
+                return { type: 'game_start', detected: true };
+            }
+            
+            // 몬스터 조우 체크
+            if (message.includes('조우')) {
+                const monsters = ['고블린', '스켈레톤', '슬라임', '오크', '트롤', 
+                                '미노타우로스', '리치', '데몬', '뱀파이어', '드래곤'];
+                const encounteredMonster = monsters.find(m => message.includes(m));
+                if (encounteredMonster) {
+                    return { type: 'monster_encounter', detected: true, monster: encounteredMonster };
+                }
+            }
+            
+            // 아이템 발견 체크
+            if (message.includes('발견')) {
+                const items = ['단검', '횃불', '병', '방패', '창', '판자'];
+                const foundItem = items.find(i => message.includes(i));
+                if (foundItem) {
+                    return { type: 'item_discovery', detected: true, item: foundItem };
+                }
+            }
+            
+            // 사망 체크
+            if (this.triggers.death.some(trigger => message.includes(trigger))) {
+                return { type: 'death', detected: true };
+            }
+            
+            // 탈출 체크
+            if (this.triggers.escape.some(trigger => message.includes(trigger))) {
+                return { type: 'escape', detected: true };
+            }
+            
+            return { detected: false };
+        }
+    }
+
+    // 게임 통계 관리 클래스
+    class GameStatistics {
+        constructor() {
+            this.currentStats = {
+                turn: 1,
+                location: '시작의 방',
+                discovery: '없음'
+            };
+            this.lastDiscoveryTurn = 0;
+        }
+
+        updateStats(turn, location, newDiscovery = null) {
+            this.currentStats.turn = turn;
+            this.currentStats.location = location;
+            
+            // 발견 항목 처리 - 새로운 발견이 있을 때만 업데이트, 다음 턴에는 리셋
+            if (newDiscovery && turn > this.lastDiscoveryTurn) {
+                this.currentStats.discovery = newDiscovery;
+                this.lastDiscoveryTurn = turn;
+            } else if (turn > this.lastDiscoveryTurn) {
+                this.currentStats.discovery = '없음';
+            }
+        }
+
+        generateStatsBox() {
+            return `통계
+===============================================
+턴: ${this.currentStats.turn}
+위치: ${this.currentStats.location}
+발견: ${this.currentStats.discovery}
+===============================================`;
+        }
+
+        parseDiscovery(message) {
+            // 몬스터 처치/조우
+            const monsters = ['고블린', '스켈레톤', '슬라임', '오크', '트롤', 
+                            '미노타우로스', '리치', '데몬', '뱀파이어', '드래곤'];
+            for (const monster of monsters) {
+                if (message.includes(monster) && message.includes('조우')) {
+                    return monster;
+                }
+            }
+            
+            // 아이템 발견
+            const items = ['부러진 단검', '썩은 횃불', '깨진 병', '부서진 방패', '부러진 창', '썩은 나무 판자'];
+            for (const item of items) {
+                if (message.includes(item) && message.includes('발견')) {
+                    return item;
+                }
+            }
+            
+            return null;
+        }
+    }
+
+    // 전역 인스턴스
+    const imageDetector = new ImageTriggerDetector();
+    const gameStats = new GameStatistics();
+    
     function initialize() {
         setupEventHandlers();
     }
@@ -8,10 +118,72 @@ const GameChat = (function() {
     function setupEventHandlers() {
         // 기존 채팅 관련 이벤트 핸들러
         $(document).on('chat:history', handleChatHistory);
+        $(document).on('chat:response', handleChatResponse);
         
-        // ✅ 새로운 이미지 관련 이벤트 핸들러
+        // 이미지 관련 이벤트 핸들러
         $(document).on('image:ready', handleImageReady);
         $(document).on('image:error', handleImageError);
+    }
+    
+    // 채팅 응답 처리 (추가)
+    function handleChatResponse(event, data) {
+        if (data.success && data.message) {
+            // 이미지 트리거 감지
+            const trigger = imageDetector.detectTrigger(data.message);
+            
+            if (trigger.detected) {
+                console.log(`Image trigger detected: ${trigger.type}`);
+                
+                // 서버에 이미지 트리거 알림
+                if (GameSocket && GameSocket.isConnected()) {
+                    GameSocket.emit('check_image_trigger', {
+                        game_id: GameState.getCurrentGameId(),
+                        trigger_type: trigger.type,
+                        context: {
+                            monster: trigger.monster,
+                            item: trigger.item,
+                            turn: gameStats.currentStats.turn,
+                            location: gameStats.currentStats.location
+                        }
+                    });
+                }
+            }
+            
+            // 통계 업데이트
+            const turn = extractTurnFromMessage(data.message);
+            const location = extractLocationFromMessage(data.message);
+            const discovery = gameStats.parseDiscovery(data.message);
+            
+            gameStats.updateStats(turn, location, discovery);
+            
+            // 메시지 통계 업데이트 (시간 제거)
+            const updatedMessage = updateMessageStats(data.message, gameStats.generateStatsBox());
+            
+            // UI 업데이트
+            const messageClass = 'assistant-message';
+            $('#chatbox').append(`<div class="message ${messageClass}">${updatedMessage}</div>`);
+            $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
+        }
+    }
+    
+    // 헬퍼 함수들
+    function extractTurnFromMessage(message) {
+        const turnMatch = message.match(/턴:\s*(\d+)/);
+        return turnMatch ? parseInt(turnMatch[1]) : gameStats.currentStats.turn;
+    }
+
+    function extractLocationFromMessage(message) {
+        const locationMatch = message.match(/위치:\s*([^\n]+)/);
+        return locationMatch ? locationMatch[1].trim() : gameStats.currentStats.location;
+    }
+
+    function updateMessageStats(message, newStatsBox) {
+        // 기존 통계 박스를 새로운 것으로 교체 (시간 항목 제거)
+        const statsRegex = /통계[\s\S]*?={10,}/;
+        if (statsRegex.test(message)) {
+            return message.replace(statsRegex, newStatsBox);
+        }
+        return message;
     }
     
     // 채팅 메시지 전송
@@ -60,7 +232,18 @@ const GameChat = (function() {
             if (history && history.length > 0) {
                 history.forEach(msg => {
                     const messageClass = msg.role === 'user' ? 'user-message' : 'assistant-message';
-                    $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
+                    
+                    // assistant 메시지의 경우 통계 업데이트
+                    if (msg.role === 'assistant') {
+                        const turn = extractTurnFromMessage(msg.content);
+                        const location = extractLocationFromMessage(msg.content);
+                        // 히스토리에서는 발견을 업데이트하지 않음 (현재 턴만 표시)
+                        gameStats.updateStats(turn, location, null);
+                        const updatedContent = updateMessageStats(msg.content, gameStats.generateStatsBox());
+                        $('#chatbox').append(`<div class="message ${messageClass}">${updatedContent}</div>`);
+                    } else {
+                        $('#chatbox').append(`<div class="message ${messageClass}">${msg.content}</div>`);
+                    }
                 });
                 
                 $('#chatbox').scrollTop($('#chatbox')[0].scrollHeight);
@@ -73,7 +256,7 @@ const GameChat = (function() {
         }
     }
     
-    // ✅ 이미지 완료 처리
+    // 이미지 완료 처리
     function handleImageReady(event, data) {
         if (data.success && data.image_data) {
             console.log('Displaying generated image');
@@ -83,7 +266,7 @@ const GameChat = (function() {
         }
     }
     
-    // ✅ 이미지 에러 처리
+    // 이미지 에러 처리
     function handleImageError(event, data) {
         console.error('Image generation error:', data);
         
@@ -93,7 +276,7 @@ const GameChat = (function() {
         }
     }
     
-    // ✅ 생성된 이미지 표시 - 오른쪽 이미지 영역에 표시
+    // 생성된 이미지 표시 - 오른쪽 이미지 영역에 표시
     function displayGeneratedImage(imageData) {
         try {
             // 이미지 영역 초기화 (기존 이미지 제거)
@@ -218,6 +401,7 @@ const GameChat = (function() {
         sendMessage: sendMessage,
         getChatHistory: getChatHistory,
         clearImageDisplay: clearImageDisplay,
-        displayGeneratedImage: displayGeneratedImage
+        displayGeneratedImage: displayGeneratedImage,
+        gameStats: gameStats  // 외부 접근용
     };
 })();
