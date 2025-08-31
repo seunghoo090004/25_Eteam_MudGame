@@ -72,7 +72,7 @@ class ChatService {
             // 실행 완료 대기
             let runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
             const startTime = Date.now();
-            const timeout = 120000;
+            const timeout = 250000;
             
             while (['queued', 'in_progress'].includes(runStatus.status)) {
                 if (Date.now() - startTime > timeout) {
