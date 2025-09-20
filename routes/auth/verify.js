@@ -3,23 +3,15 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../../config/database');
 const reqinfo = require('../../utils/reqinfo');
-const { sendVerificationEmail, generateToken } = require('../../utils/emailUtils');
 const csrf = require('csurf');
+const { generateToken, sendVerificationEmail } = require('../../utils/emailUtils');
 
 // CSRF 보호 설정
 const csrfProtection = csrf({ cookie: true });
 
-// 인증 코드 생성 함수
-function generateVerificationCode() {
-    return Math.floor(100000 + Math.random() * 900000).toString(); // 6자리 코드
-}
-
-// 인증 코드 저장 및 관리를 위한 객체
-const verificationCodes = {};
-
-// POST /auth/verify/send-code - 인증 코드 발송
+// POST /auth/verify/send-code - 이메일 인증 코드 발송
 router.post('/send-code', csrfProtection, async(req, res) => {
-    const LOG_HEADER_TITLE = "SEND_VERIFICATION_CODE";
+    const LOG_HEADER_TITLE = "EMAIL_VERIFY_SEND_CODE";
     const LOG_HEADER = reqinfo.get_req_url(req) + " --> " + LOG_HEADER_TITLE;
     const LOG_ERR_HEADER = "[FAIL] ";
     const LOG_SUCC_HEADER = "[SUCC] ";
@@ -38,7 +30,7 @@ router.post('/send-code', csrfProtection, async(req, res) => {
     try {
         connection = await pool.getConnection();
         
-        // 이미 가입된 이메일인지 확인
+        // 이메일 중복 확인
         const [existingUsers] = await connection.query(
             'SELECT * FROM users WHERE email = ?',
             [email]
@@ -47,34 +39,35 @@ router.post('/send-code', csrfProtection, async(req, res) => {
         if (existingUsers.length > 0) {
             return res.status(409).json({
                 code: 'EMAIL_EXISTS',
-                msg: '이미 가입된 이메일입니다.'
+                msg: '이미 등록된 이메일입니다.'
             });
         }
         
-        // 인증 코드 생성
-        const verificationCode = generateVerificationCode();
+        // 6자리 인증 코드 생성
+        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
         
-        // 인증 코드 저장 (실제 환경에서는 DB에 저장하는 것이 좋음)
-        verificationCodes[email] = {
-            code: verificationCode,
-            expires: new Date(Date.now() + 30 * 60 * 1000) // 30분 후 만료
-        };
+        // 세션에 인증 코드와 이메일 저장 (5분 유효)
+        req.session.verificationCode = verificationCode;
+        req.session.verificationEmail = email;
+        req.session.verificationExpiry = Date.now() + 5 * 60 * 1000; // 5분
         
         // 이메일 발송
         await sendVerificationEmail(
             email,
-            `머드게임 이메일 인증 코드: ${verificationCode}`,
-            `<h1>머드게임 이메일 인증</h1>
-            <p>안녕하세요! 머드게임 회원가입을 위한 인증 코드입니다.</p>
-            <p>인증 코드: <strong>${verificationCode}</strong></p>
-            <p>이 코드는 30분 동안 유효합니다.</p>`
+            '머드게임 이메일 인증',
+            `
+                <h1>이메일 인증 코드</h1>
+                <p>아래 인증 코드를 입력해주세요:</p>
+                <h2 style="color: #007bff; letter-spacing: 3px;">${verificationCode}</h2>
+                <p>이 코드는 5분 동안 유효합니다.</p>
+            `
         );
         
-        console.log(LOG_SUCC_HEADER + LOG_HEADER + " 인증 코드 발송 성공: " + email);
+        console.log(LOG_SUCC_HEADER + LOG_HEADER + " 인증 코드 발송: " + email);
         
         return res.status(200).json({
             code: 'CODE_SENT',
-            msg: '인증 코드가 발송되었습니다. 이메일을 확인해주세요.'
+            msg: '인증 코드가 이메일로 발송되었습니다.'
         });
         
     } catch (e) {
@@ -88,9 +81,9 @@ router.post('/send-code', csrfProtection, async(req, res) => {
     }
 });
 
-// POST /auth/verify/check-code - 인증 코드 확인
-router.post('/check-code', csrfProtection, async(req, res) => {
-    const LOG_HEADER_TITLE = "CHECK_VERIFICATION_CODE";
+// POST /auth/verify/verify-code - 인증 코드 확인
+router.post('/verify-code', csrfProtection, async(req, res) => {
+    const LOG_HEADER_TITLE = "EMAIL_VERIFY_CHECK_CODE";
     const LOG_HEADER = reqinfo.get_req_url(req) + " --> " + LOG_HEADER_TITLE;
     const LOG_ERR_HEADER = "[FAIL] ";
     const LOG_SUCC_HEADER = "[SUCC] ";
@@ -105,35 +98,50 @@ router.post('/check-code', csrfProtection, async(req, res) => {
     }
     
     try {
-        // 저장된 인증 코드 확인
-        const storedData = verificationCodes[email];
-        
-        if (!storedData) {
-            return res.status(404).json({
-                code: 'CODE_NOT_FOUND',
-                msg: '인증 코드가 발급되지 않았습니다. 다시 요청해주세요.'
+        // 세션에서 인증 정보 확인
+        if (!req.session.verificationCode || 
+            !req.session.verificationEmail ||
+            !req.session.verificationExpiry) {
+            return res.status(400).json({
+                code: 'NO_VERIFICATION',
+                msg: '인증 요청을 먼저 진행해주세요.'
             });
         }
         
-        if (new Date() > storedData.expires) {
-            delete verificationCodes[email]; // 만료된 코드 삭제
-            return res.status(401).json({
+        // 만료 확인
+        if (Date.now() > req.session.verificationExpiry) {
+            delete req.session.verificationCode;
+            delete req.session.verificationEmail;
+            delete req.session.verificationExpiry;
+            
+            return res.status(400).json({
                 code: 'CODE_EXPIRED',
                 msg: '인증 코드가 만료되었습니다. 다시 요청해주세요.'
             });
         }
         
-        if (storedData.code !== code) {
-            return res.status(401).json({
-                code: 'INVALID_CODE',
-                msg: '인증 코드가 일치하지 않습니다.'
+        // 이메일 일치 확인
+        if (req.session.verificationEmail !== email) {
+            return res.status(400).json({
+                code: 'EMAIL_MISMATCH',
+                msg: '인증 요청한 이메일과 일치하지 않습니다.'
             });
         }
         
-        // 인증 성공 시 인증 상태 업데이트
-        verificationCodes[email].verified = true;
+        // 코드 일치 확인
+        if (req.session.verificationCode !== code) {
+            return res.status(400).json({
+                code: 'INVALID_CODE',
+                msg: '인증 코드가 올바르지 않습니다.'
+            });
+        }
         
-        console.log(LOG_SUCC_HEADER + LOG_HEADER + " 인증 코드 확인 성공: " + email);
+        // 인증 성공 - 세션에 표시
+        req.session.emailVerified = true;
+        delete req.session.verificationCode;
+        delete req.session.verificationExpiry;
+        
+        console.log(LOG_SUCC_HEADER + LOG_HEADER + " 인증 성공: " + email);
         
         return res.status(200).json({
             code: 'VERIFICATION_SUCCESS',

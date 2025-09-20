@@ -56,7 +56,7 @@ router.post('/', csrfProtection, async(req, res) => {
     
     try {
         // 필수 입력값 체크 및 검증
-        const { username, email, password, verified } = req.body;
+        const { username, email, password } = req.body;
         const validation = validateSignupInput(username, email, password);
         
         if (!validation.isValid) {
@@ -67,8 +67,8 @@ router.post('/', csrfProtection, async(req, res) => {
             });
         }
         
-        // 이메일 인증 여부 확인 - 클라이언트에서 verified 필드를 전송
-        if (!verified) {
+        // 세션에서 이메일 인증 확인 (수정된 부분)
+        if (!req.session.emailVerified || req.session.verificationEmail !== email) {
             return res.status(403).json({
                 code: 'EMAIL_NOT_VERIFIED',
                 msg: '이메일 인증이 필요합니다.'
@@ -106,13 +106,17 @@ router.post('/', csrfProtection, async(req, res) => {
         // 비밀번호 해싱
         const hashedPassword = await bcrypt.hash(password, 12);
         
-        // DB에 사용자 추가
+        // DB에 사용자 추가 (email_verified를 TRUE로 설정)
         const [result] = await connection.query(
             `INSERT INTO users 
             (email, username, password, email_verified, created_at) 
             VALUES (?, ?, ?, TRUE, NOW())`,
             [email, username, hashedPassword]
         );
+        
+        // 세션 정리
+        delete req.session.emailVerified;
+        delete req.session.verificationEmail;
         
         console.log(LOG_SUCC_HEADER + LOG_HEADER + " 회원가입 성공: " + username);
         
