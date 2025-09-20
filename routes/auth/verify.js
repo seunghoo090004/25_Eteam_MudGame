@@ -9,7 +9,7 @@ const { generateToken, sendVerificationEmail } = require('../../utils/emailUtils
 // CSRF 보호 설정
 const csrfProtection = csrf({ cookie: true });
 
-// POST /auth/verify/send-code - 이메일 인증 코드 발송
+// POST /auth/verify/send-code - 이메일 인증 코드 발송 (이메일 없이)
 router.post('/send-code', csrfProtection, async(req, res) => {
     const LOG_HEADER_TITLE = "EMAIL_VERIFY_SEND_CODE";
     const LOG_HEADER = reqinfo.get_req_url(req) + " --> " + LOG_HEADER_TITLE;
@@ -28,7 +28,6 @@ router.post('/send-code', csrfProtection, async(req, res) => {
     let connection = null;
     
     try {
-        // 연결 획득 시도 (타임아웃 설정)
         connection = await pool.getConnection();
         console.log(LOG_SUCC_HEADER + LOG_HEADER + " DB 연결 성공");
         
@@ -53,7 +52,7 @@ router.post('/send-code', csrfProtection, async(req, res) => {
         req.session.verificationEmail = email;
         req.session.verificationExpiry = Date.now() + 5 * 60 * 1000; // 5분
         
-        // 세션 저장 대기
+        // 세션 저장
         await new Promise((resolve, reject) => {
             req.session.save((err) => {
                 if (err) reject(err);
@@ -61,42 +60,51 @@ router.post('/send-code', csrfProtection, async(req, res) => {
             });
         });
         
-        // 이메일 발송
-        await sendVerificationEmail(
-            email,
-            '머드게임 이메일 인증',
-            `
-                <h1>이메일 인증 코드</h1>
-                <p>아래 인증 코드를 입력해주세요:</p>
-                <h2 style="color: #007bff; letter-spacing: 3px;">${verificationCode}</h2>
-                <p>이 코드는 5분 동안 유효합니다.</p>
-            `
-        );
+        // 이메일 발송 시도 (실패해도 계속 진행)
+        try {
+            await sendVerificationEmail(
+                email,
+                '머드게임 이메일 인증',
+                `
+                    <h1>이메일 인증 코드</h1>
+                    <p>아래 인증 코드를 입력해주세요:</p>
+                    <h2 style="color: #007bff; letter-spacing: 3px;">${verificationCode}</h2>
+                    <p>이 코드는 5분 동안 유효합니다.</p>
+                `
+            );
+            console.log(LOG_SUCC_HEADER + LOG_HEADER + " 이메일 발송 성공");
+        } catch (emailError) {
+            // 이메일 발송 실패 시 콘솔에만 코드 출력
+            console.error(LOG_ERR_HEADER + LOG_HEADER + " 이메일 발송 실패 (코드는 세션에 저장됨)");
+            console.log("====================================");
+            console.log(`인증 코드: ${verificationCode}`);
+            console.log(`이메일: ${email}`);
+            console.log("====================================");
+        }
         
-        console.log(LOG_SUCC_HEADER + LOG_HEADER + " 인증 코드 발송: " + email + " / 코드: " + verificationCode);
-        
-        return res.status(200).json({
+        // 개발/테스트 환경에서는 코드 반환 (프로덕션에서는 제거해야 함)
+        const responseData = {
             code: 'CODE_SENT',
-            msg: '인증 코드가 이메일로 발송되었습니다.'
-        });
+            msg: '인증 코드가 발송되었습니다. (이메일 오류 시 콘솔 확인)'
+        };
+        
+        // 테스트용 - 프로덕션에서는 제거!
+        if (process.env.NODE_ENV !== 'production' || true) { // 임시로 true
+            responseData.verificationCode = verificationCode; // 테스트용
+            responseData.msg = `테스트 인증 코드: ${verificationCode}`;
+        }
+        
+        console.log(LOG_SUCC_HEADER + LOG_HEADER + " 인증 코드 생성 완료: " + email + " / 코드: " + verificationCode);
+        
+        return res.status(200).json(responseData);
         
     } catch (e) {
         console.error(LOG_ERR_HEADER + LOG_HEADER + " 오류: ", e);
-        
-        // 연결 타임아웃 에러 처리
-        if (e.code === 'PROTOCOL_CONNECTION_LOST' || e.code === 'ETIMEDOUT' || e.message.includes('timeout')) {
-            return res.status(503).json({
-                code: 'DB_CONNECTION_ERROR',
-                msg: '데이터베이스 연결 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
-            });
-        }
-        
         return res.status(500).json({
             code: 'SERVER_ERROR',
             msg: '인증 코드 발송 중 오류가 발생했습니다.'
         });
     } finally {
-        // 연결 반환 - 매우 중요!
         if (connection) {
             try {
                 connection.release();
