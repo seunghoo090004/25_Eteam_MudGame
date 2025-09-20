@@ -29,7 +29,6 @@ router.post('/send-code', csrfProtection, async(req, res) => {
     
     try {
         connection = await pool.getConnection();
-        console.log(LOG_SUCC_HEADER + LOG_HEADER + " DB 연결 성공");
         
         // 이메일 중복 확인
         const [existingUsers] = await connection.query(
@@ -60,43 +59,24 @@ router.post('/send-code', csrfProtection, async(req, res) => {
             });
         });
         
-        // 이메일 발송 시도 (실패해도 계속 진행)
-        try {
-            await sendVerificationEmail(
-                email,
-                '머드게임 이메일 인증',
-                `
-                    <h1>이메일 인증 코드</h1>
-                    <p>아래 인증 코드를 입력해주세요:</p>
-                    <h2 style="color: #007bff; letter-spacing: 3px;">${verificationCode}</h2>
-                    <p>이 코드는 5분 동안 유효합니다.</p>
-                `
-            );
-            console.log(LOG_SUCC_HEADER + LOG_HEADER + " 이메일 발송 성공");
-        } catch (emailError) {
-            // 이메일 발송 실패 시 콘솔에만 코드 출력
-            console.error(LOG_ERR_HEADER + LOG_HEADER + " 이메일 발송 실패 (코드는 세션에 저장됨)");
-            console.log("====================================");
-            console.log(`인증 코드: ${verificationCode}`);
-            console.log(`이메일: ${email}`);
-            console.log("====================================");
-        }
+        // 이메일 발송 (Resend API 사용)
+        await sendVerificationEmail(
+            email,
+            '머드게임 이메일 인증',
+            `
+                <h1>이메일 인증 코드</h1>
+                <p>아래 인증 코드를 입력해주세요:</p>
+                <h2 style="color: #007bff; letter-spacing: 3px;">${verificationCode}</h2>
+                <p>이 코드는 5분 동안 유효합니다.</p>
+            `
+        );
         
-        // 개발/테스트 환경에서는 코드 반환 (프로덕션에서는 제거해야 함)
-        const responseData = {
+        console.log(LOG_SUCC_HEADER + LOG_HEADER + " 인증 코드 발송: " + email);
+        
+        return res.status(200).json({
             code: 'CODE_SENT',
-            msg: '인증 코드가 발송되었습니다. (이메일 오류 시 콘솔 확인)'
-        };
-        
-        // 테스트용 - 프로덕션에서는 제거!
-        if (process.env.NODE_ENV !== 'production' || true) { // 임시로 true
-            responseData.verificationCode = verificationCode; // 테스트용
-            responseData.msg = `테스트 인증 코드: ${verificationCode}`;
-        }
-        
-        console.log(LOG_SUCC_HEADER + LOG_HEADER + " 인증 코드 생성 완료: " + email + " / 코드: " + verificationCode);
-        
-        return res.status(200).json(responseData);
+            msg: '인증 코드가 이메일로 발송되었습니다.'
+        });
         
     } catch (e) {
         console.error(LOG_ERR_HEADER + LOG_HEADER + " 오류: ", e);
@@ -106,17 +86,12 @@ router.post('/send-code', csrfProtection, async(req, res) => {
         });
     } finally {
         if (connection) {
-            try {
-                connection.release();
-                console.log(LOG_SUCC_HEADER + LOG_HEADER + " DB 연결 반환");
-            } catch (releaseError) {
-                console.error(LOG_ERR_HEADER + LOG_HEADER + " 연결 반환 실패: ", releaseError);
-            }
+            connection.release();
         }
     }
 });
 
-// POST /auth/verify/check-code - 인증 코드 확인 (엔드포인트 이름 수정됨!)
+// POST /auth/verify/check-code - 인증 코드 확인
 router.post('/check-code', csrfProtection, async(req, res) => {
     const LOG_HEADER_TITLE = "EMAIL_VERIFY_CHECK_CODE";
     const LOG_HEADER = reqinfo.get_req_url(req) + " --> " + LOG_HEADER_TITLE;
@@ -200,7 +175,7 @@ router.post('/check-code', csrfProtection, async(req, res) => {
     }
 });
 
-// GET /auth/verify - 이메일 인증 링크 처리 (기존 코드)
+// GET /auth/verify - 이메일 인증 링크 처리
 router.get('/', async(req, res) => {
     const LOG_HEADER_TITLE = "EMAIL_VERIFY";
     const LOG_HEADER = reqinfo.get_req_url(req) + " --> " + LOG_HEADER_TITLE;
@@ -258,16 +233,12 @@ router.get('/', async(req, res) => {
         });
     } finally {
         if (connection) {
-            try {
-                connection.release();
-            } catch (releaseError) {
-                console.error(LOG_ERR_HEADER + LOG_HEADER + " 연결 반환 실패: ", releaseError);
-            }
+            connection.release();
         }
     }
 });
 
-// POST /auth/verify/resend - 인증 이메일 재발송 (기존 코드)
+// POST /auth/verify/resend - 인증 이메일 재발송
 router.post('/resend', csrfProtection, async(req, res) => {
     const LOG_HEADER_TITLE = "EMAIL_VERIFY_RESEND";
     const LOG_HEADER = reqinfo.get_req_url(req) + " --> " + LOG_HEADER_TITLE;
@@ -330,11 +301,7 @@ router.post('/resend', csrfProtection, async(req, res) => {
         });
     } finally {
         if (connection) {
-            try {
-                connection.release();
-            } catch (releaseError) {
-                console.error(LOG_ERR_HEADER + LOG_HEADER + " 연결 반환 실패: ", releaseError);
-            }
+            connection.release();
         }
     }
 });
