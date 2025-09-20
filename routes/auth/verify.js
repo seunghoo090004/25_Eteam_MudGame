@@ -1,4 +1,4 @@
-// routes/auth/verify.js - 연결 문제 수정 버전
+// routes/auth/verify.js
 const express = require('express');
 const router = express.Router();
 const pool = require('../../config/database');
@@ -9,7 +9,7 @@ const { generateToken, sendVerificationEmail } = require('../../utils/emailUtils
 // CSRF 보호 설정
 const csrfProtection = csrf({ cookie: true });
 
-// POST /auth/verify/send-code - 이메일 인증 코드 발송 (이메일 없이)
+// POST /auth/verify/send-code - 이메일 인증 코드 발송
 router.post('/send-code', csrfProtection, async(req, res) => {
     const LOG_HEADER_TITLE = "EMAIL_VERIFY_SEND_CODE";
     const LOG_HEADER = reqinfo.get_req_url(req) + " --> " + LOG_HEADER_TITLE;
@@ -116,8 +116,8 @@ router.post('/send-code', csrfProtection, async(req, res) => {
     }
 });
 
-// POST /auth/verify/verify-code - 인증 코드 확인
-router.post('/verify-code', csrfProtection, async(req, res) => {
+// POST /auth/verify/check-code - 인증 코드 확인 (엔드포인트 이름 수정됨!)
+router.post('/check-code', csrfProtection, async(req, res) => {
     const LOG_HEADER_TITLE = "EMAIL_VERIFY_CHECK_CODE";
     const LOG_HEADER = reqinfo.get_req_url(req) + " --> " + LOG_HEADER_TITLE;
     const LOG_ERR_HEADER = "[FAIL] ";
