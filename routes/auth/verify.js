@@ -1,4 +1,4 @@
-// routes/auth/verify.js
+// routes/auth/verify.js - 연결 문제 수정 버전
 const express = require('express');
 const router = express.Router();
 const pool = require('../../config/database');
@@ -25,14 +25,16 @@ router.post('/send-code', csrfProtection, async(req, res) => {
         });
     }
     
-    let connection;
+    let connection = null;
     
     try {
+        // 연결 획득 시도 (타임아웃 설정)
         connection = await pool.getConnection();
+        console.log(LOG_SUCC_HEADER + LOG_HEADER + " DB 연결 성공");
         
         // 이메일 중복 확인
         const [existingUsers] = await connection.query(
-            'SELECT * FROM users WHERE email = ?',
+            'SELECT email FROM users WHERE email = ? LIMIT 1',
             [email]
         );
         
@@ -51,6 +53,14 @@ router.post('/send-code', csrfProtection, async(req, res) => {
         req.session.verificationEmail = email;
         req.session.verificationExpiry = Date.now() + 5 * 60 * 1000; // 5분
         
+        // 세션 저장 대기
+        await new Promise((resolve, reject) => {
+            req.session.save((err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+        
         // 이메일 발송
         await sendVerificationEmail(
             email,
@@ -63,7 +73,7 @@ router.post('/send-code', csrfProtection, async(req, res) => {
             `
         );
         
-        console.log(LOG_SUCC_HEADER + LOG_HEADER + " 인증 코드 발송: " + email);
+        console.log(LOG_SUCC_HEADER + LOG_HEADER + " 인증 코드 발송: " + email + " / 코드: " + verificationCode);
         
         return res.status(200).json({
             code: 'CODE_SENT',
@@ -71,13 +81,30 @@ router.post('/send-code', csrfProtection, async(req, res) => {
         });
         
     } catch (e) {
-        console.error(LOG_ERR_HEADER + LOG_HEADER + " 오류: " + e.message);
+        console.error(LOG_ERR_HEADER + LOG_HEADER + " 오류: ", e);
+        
+        // 연결 타임아웃 에러 처리
+        if (e.code === 'PROTOCOL_CONNECTION_LOST' || e.code === 'ETIMEDOUT' || e.message.includes('timeout')) {
+            return res.status(503).json({
+                code: 'DB_CONNECTION_ERROR',
+                msg: '데이터베이스 연결 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
+            });
+        }
+        
         return res.status(500).json({
             code: 'SERVER_ERROR',
             msg: '인증 코드 발송 중 오류가 발생했습니다.'
         });
     } finally {
-        if (connection) connection.release();
+        // 연결 반환 - 매우 중요!
+        if (connection) {
+            try {
+                connection.release();
+                console.log(LOG_SUCC_HEADER + LOG_HEADER + " DB 연결 반환");
+            } catch (releaseError) {
+                console.error(LOG_ERR_HEADER + LOG_HEADER + " 연결 반환 실패: ", releaseError);
+            }
+        }
     }
 });
 
@@ -141,6 +168,14 @@ router.post('/verify-code', csrfProtection, async(req, res) => {
         delete req.session.verificationCode;
         delete req.session.verificationExpiry;
         
+        // 세션 저장
+        await new Promise((resolve, reject) => {
+            req.session.save((err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+        
         console.log(LOG_SUCC_HEADER + LOG_HEADER + " 인증 성공: " + email);
         
         return res.status(200).json({
@@ -149,7 +184,7 @@ router.post('/verify-code', csrfProtection, async(req, res) => {
         });
         
     } catch (e) {
-        console.error(LOG_ERR_HEADER + LOG_HEADER + " 오류: " + e.message);
+        console.error(LOG_ERR_HEADER + LOG_HEADER + " 오류: ", e);
         return res.status(500).json({
             code: 'SERVER_ERROR',
             msg: '인증 코드 확인 중 오류가 발생했습니다.'
@@ -174,14 +209,14 @@ router.get('/', async(req, res) => {
         });
     }
     
-    let connection;
+    let connection = null;
     
     try {
         connection = await pool.getConnection();
         
         // 토큰으로 사용자 찾기
         const [users] = await connection.query(
-            'SELECT * FROM users WHERE verification_token = ? AND verification_expires > NOW() AND email_verified = FALSE',
+            'SELECT user_id, email FROM users WHERE verification_token = ? AND verification_expires > NOW() AND email_verified = FALSE LIMIT 1',
             [token]
         );
         
@@ -208,13 +243,19 @@ router.get('/', async(req, res) => {
         });
         
     } catch (e) {
-        console.error(LOG_ERR_HEADER + LOG_HEADER + " 오류: " + e.message);
+        console.error(LOG_ERR_HEADER + LOG_HEADER + " 오류: ", e);
         return res.render('verify', { 
             success: false, 
             message: '인증 처리 중 오류가 발생했습니다. 나중에 다시 시도해주세요.' 
         });
     } finally {
-        if (connection) connection.release();
+        if (connection) {
+            try {
+                connection.release();
+            } catch (releaseError) {
+                console.error(LOG_ERR_HEADER + LOG_HEADER + " 연결 반환 실패: ", releaseError);
+            }
+        }
     }
 });
 
@@ -234,14 +275,14 @@ router.post('/resend', csrfProtection, async(req, res) => {
         });
     }
     
-    let connection;
+    let connection = null;
     
     try {
         connection = await pool.getConnection();
         
         // 이메일로 사용자 찾기
         const [users] = await connection.query(
-            'SELECT * FROM users WHERE email = ? AND email_verified = FALSE',
+            'SELECT user_id FROM users WHERE email = ? AND email_verified = FALSE LIMIT 1',
             [email]
         );
         
@@ -274,13 +315,19 @@ router.post('/resend', csrfProtection, async(req, res) => {
         });
         
     } catch (e) {
-        console.error(LOG_ERR_HEADER + LOG_HEADER + " 오류: " + e.message);
+        console.error(LOG_ERR_HEADER + LOG_HEADER + " 오류: ", e);
         return res.status(500).json({
             code: 'SERVER_ERROR',
             msg: '인증 이메일 재발송 중 오류가 발생했습니다.'
         });
     } finally {
-        if (connection) connection.release();
+        if (connection) {
+            try {
+                connection.release();
+            } catch (releaseError) {
+                console.error(LOG_ERR_HEADER + LOG_HEADER + " 연결 반환 실패: ", releaseError);
+            }
+        }
     }
 });
 

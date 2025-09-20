@@ -13,11 +13,17 @@ const dbConfig = {
     ssl: {
         rejectUnauthorized: false
     },
-    connectTimeout: 60000, // 타임아웃 60초로 증가
-    waitForConnections: true,
-    connectionLimit: 10,
+    // 연결 타임아웃 설정 개선
+    connectTimeout: 20000,      // 20초로 감소
+    connectionLimit: 5,         // 연결 수 제한
+    maxIdle: 3,                // 최대 유휴 연결
+    idleTimeout: 60000,        // 유휴 타임아웃
     queueLimit: 0,
-    debug: ['ComQueryPacket', 'RowDataPacket'] // 디버그 모드 활성화
+    waitForConnections: true,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 0,
+    // 디버그 모드 제거 (성능 향상)
+    // debug: ['ComQueryPacket', 'RowDataPacket']
 };
 
 // 개발 환경에서는 SSL 설정 제거
@@ -27,43 +33,37 @@ if (isDevelopment) {
 
 const pool = mysql.createPool(dbConfig);
 
-// 상세한 연결 테스트 및 로깅
-pool.getConnection()
-    .then(async connection => {
-        // 연결 성공 시 추가 정보 확인
-        console.log(`✅ Database connected successfully in ${isDevelopment ? 'development' : 'production'} mode`);
+// 연결 테스트 간소화
+(async () => {
+    try {
+        const connection = await pool.getConnection();
+        console.log(`✅ Database connected in ${isDevelopment ? 'development' : 'production'} mode`);
         
-        // 현재 사용자 권한 확인
-        const [grants] = await connection.query('SHOW GRANTS FOR CURRENT_USER');
-        console.log('Current user grants:', grants);
-        
-        // 데이터베이스 정보 확인
+        // 데이터베이스 버전 확인
         const [version] = await connection.query('SELECT VERSION() as version');
         console.log('Database version:', version[0].version);
         
         connection.release();
-    })
-    .catch(err => {
-        console.error('❌ Database connection error:', {
-            message: err.message,
-            code: err.code,
-            errno: err.errno,
-            sqlState: err.sqlState,
-            host: process.env.MYSQLHOST,
-            user: process.env.MYSQLUSER,
-            database: process.env.MYSQLDATABASE,
-            port: process.env.MYSQLPORT
-        });
-        
-        // 연결 실패 시 환경 변수 확인 (비밀번호는 제외)
+    } catch (err) {
+        console.error('❌ Database connection error:', err.message);
         console.log('Environment check:', {
             NODE_ENV: process.env.NODE_ENV,
             MYSQLHOST: process.env.MYSQLHOST,
-            MYSQLUSER: process.env.MYSQLUSER,
             MYSQLPORT: process.env.MYSQLPORT,
-            MYSQLDATABASE: process.env.MYSQLDATABASE,
-            SSL_CONFIG: dbConfig.ssl
+            MYSQLDATABASE: process.env.MYSQLDATABASE
         });
-    });
+    }
+})();
+
+// 연결 풀 상태 모니터링 (디버그용)
+setInterval(() => {
+    if (pool.pool) {
+        console.log('Pool stats:', {
+            free: pool.pool._freeConnections.length,
+            pending: pool.pool._connectionQueue.length,
+            total: pool.pool._allConnections.length
+        });
+    }
+}, 30000); // 30초마다 체크
 
 module.exports = pool;
