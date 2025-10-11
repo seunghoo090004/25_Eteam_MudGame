@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const my_reqinfo = require('../../../utils/apiReqinfo');
 const pool = require('../../../config/database');
+const openai = require('../../../config/openai'); // ✅ 추가
 const chatService = require('../../socket/services/chat');
 
 //========================================================================
@@ -103,50 +104,60 @@ router.post('/', async(req, res) =>
   }
 
   //----------------------------------------------------------------------
+  // ✅ Thread 초기화 확인 (Postman 지원용)
+  //----------------------------------------------------------------------
+  try {
+    const messages = await openai.beta.threads.messages.list(game_data.thread_id);
+    if (messages.data.length === 0) {
+      console.log('[CHAT_SEND] Thread empty, initializing...');
+      await chatService.initializeChat(game_data.thread_id, game_data.assistant_id);
+    }
+  } catch (initError) {
+    console.error('[CHAT_SEND] Initialization check error:', initError);
+    // 초기화 실패 시에도 계속 진행 (기존 메시지가 있을 수 있음)
+  }
+
+  //----------------------------------------------------------------------
   // 채팅 서비스 호출
   //----------------------------------------------------------------------
   let ai_response, updated_game_data;
   try {
-    // AI 응답 받기
     ai_response = await chatService.sendMessage(
       game_data.thread_id,
       game_data.assistant_id,
       req_message
     );
 
-    // 게임 상태 파싱 및 업데이트
-    let currentGameData = JSON.parse(JSON.stringify(game_data.game_data));
-    if (typeof currentGameData === 'string') {
-      currentGameData = JSON.parse(currentGameData);
+    // 게임 데이터 파싱
+    let currentGameData;
+    try {
+      currentGameData = typeof game_data.game_data === 'string' 
+        ? JSON.parse(game_data.game_data) 
+        : game_data.game_data;
+    } catch (parseError) {
+      console.error('[CHAT_SEND] Game data parse error:', parseError);
+      currentGameData = game_data.game_data;
     }
 
+    // 응답에서 게임 상태 파싱
     const parsedState = chatService.parseGameResponse(ai_response);
-    
+
+    // 게임 데이터 업데이트
     if (parsedState) {
-      // 위치 정보 업데이트
-      if (parsedState.location && parsedState.location.current) {
-        currentGameData.location.current = parsedState.location.current;
-        
-        if (parsedState.location.roomId) {
-          currentGameData.location.roomId = parsedState.location.roomId;
-        }
-        
-        if (!currentGameData.location.discovered.includes(parsedState.location.current)) {
-          currentGameData.location.discovered.push(parsedState.location.current);
-        }
+      if (parsedState.turn_count !== undefined) {
+        currentGameData.turn_count = parsedState.turn_count;
       }
-      
-      // 플레이어 상태 업데이트
-      if (parsedState.player) {
-        Object.keys(parsedState.player).forEach(key => {
-          if (parsedState.player[key] !== undefined) {
-            currentGameData.player[key] = parsedState.player[key];
-          }
-        });
+      if (parsedState.location) {
+        currentGameData.location = {
+          ...currentGameData.location,
+          ...parsedState.location
+        };
       }
-      
-      // 인벤토리 업데이트
+      if (parsedState.discoveries) {
+        currentGameData.discoveries = parsedState.discoveries;
+      }
       if (parsedState.inventory) {
+        currentGameData.inventory = currentGameData.inventory || {};
         Object.keys(parsedState.inventory).forEach(key => {
           if (parsedState.inventory[key] !== undefined) {
             currentGameData.inventory[key] = parsedState.inventory[key];
