@@ -7,7 +7,7 @@ require('dotenv').config();
 const IMAGE_ENABLED = process.env.IMAGE_GENERATION_ENABLED !== 'false';
 const MIN_INTERVAL_BETWEEN_IMAGES = parseInt(process.env.IMAGE_GENERATION_INTERVAL) || 5000;
 const MAX_RETRIES = parseInt(process.env.IMAGE_GENERATION_MAX_RETRIES) || 3;
-const IMAGE_QUALITY = process.env.IMAGE_GENERATION_QUALITY || 'standard';
+const IMAGE_QUALITY = process.env.IMAGE_GENERATION_QUALITY || 'medium'; // ✅ gpt-image-1: low, medium, high, auto
 
 // Rate limiting 변수
 let lastImageGenerationTime = 0;
@@ -104,10 +104,14 @@ async function generateImageFromText(prompt, options = {}) {
             await new Promise(resolve => setTimeout(resolve, waitTime));
         }
         
-        // ✅ quality 설정 (medium을 standard로 변환)
+        // ✅ quality 설정 (gpt-image-1 지원: low, medium, high, auto)
         let quality = options.quality || IMAGE_QUALITY;
-        if (quality === 'medium') {
-            quality = 'standard';
+        
+        // 유효하지 않은 quality 값을 medium으로 변환
+        const validQualities = ['low', 'medium', 'high', 'auto'];
+        if (!validQualities.includes(quality)) {
+            console.log(LOG_SUCC_HEADER + LOG_HEADER + ` Invalid quality '${quality}', using 'medium' instead`);
+            quality = 'medium';
         }
         
         const size = options.size || '1024x1024';
