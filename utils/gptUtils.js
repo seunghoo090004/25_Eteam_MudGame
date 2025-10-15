@@ -1,4 +1,4 @@
-// utils/gptUtils.js - gpt-image-1 정식 버전
+// utils/gptUtils.js - gpt-image-1 오류 수정 버전
 
 const openai = require('../config/openai');
 require('dotenv').config();
@@ -7,7 +7,7 @@ require('dotenv').config();
 const IMAGE_ENABLED = process.env.IMAGE_GENERATION_ENABLED !== 'false';
 const MIN_INTERVAL_BETWEEN_IMAGES = parseInt(process.env.IMAGE_GENERATION_INTERVAL) || 5000;
 const MAX_RETRIES = parseInt(process.env.IMAGE_GENERATION_MAX_RETRIES) || 3;
-const IMAGE_QUALITY = process.env.IMAGE_GENERATION_QUALITY || 'standard'; // ✅ gpt-image-1은 'standard' 또는 'high'
+const IMAGE_QUALITY = process.env.IMAGE_GENERATION_QUALITY || 'standard';
 
 // Rate limiting 변수
 let lastImageGenerationTime = 0;
@@ -104,11 +104,10 @@ async function generateImageFromText(prompt, options = {}) {
             await new Promise(resolve => setTimeout(resolve, waitTime));
         }
         
-        // ✅ gpt-image-1 옵션 설정
-        // quality: 'standard' 또는 'high' (medium은 지원 안 함)
+        // ✅ quality 설정 (medium을 standard로 변환)
         let quality = options.quality || IMAGE_QUALITY;
         if (quality === 'medium') {
-            quality = 'standard'; // medium을 standard로 변환
+            quality = 'standard';
         }
         
         const size = options.size || '1024x1024';
@@ -121,17 +120,17 @@ async function generateImageFromText(prompt, options = {}) {
         
         while (retries > 0) {
             try {
-                // ✅ gpt-image-1 API 호출
+                // ✅ gpt-image-1 API 호출 (response_format 제거)
                 const response = await openai.images.generate({
                     model: "gpt-image-1",
                     prompt: prompt,
                     n: 1,
                     size: size,
-                    quality: quality,
-                    response_format: "b64_json", // base64로 직접 받기
-                    output_format: "png", // gpt-image-1 전용 파라미터
-                    background: "auto", // gpt-image-1 전용 파라미터
-                    moderation: "auto" // gpt-image-1 전용 파라미터
+                    quality: quality
+                    // ❌ response_format 제거 - gpt-image-1이 지원하지 않음
+                    // ❌ output_format 제거 - 기본값 사용
+                    // ❌ background 제거 - 기본값 사용
+                    // ❌ moderation 제거 - 기본값 사용
                 });
                 
                 lastImageGenerationTime = Date.now();
@@ -140,13 +139,13 @@ async function generateImageFromText(prompt, options = {}) {
                 const imageData = response.data[0];
                 let imageBase64 = null;
                 
-                // b64_json 응답 처리
+                // ✅ 응답 형식 처리 (b64_json 또는 url)
                 if (imageData.b64_json) {
                     imageBase64 = imageData.b64_json;
                     console.log(LOG_SUCC_HEADER + LOG_HEADER + ` Image received as base64 (${generationTime}ms)`);
                     
                 } else if (imageData.url) {
-                    // URL 응답인 경우 (fallback)
+                    // URL 응답인 경우 다운로드
                     try {
                         const axios = require('axios');
                         const imageResponse = await axios.get(imageData.url, {
@@ -193,18 +192,28 @@ async function generateImageFromText(prompt, options = {}) {
                         await new Promise(resolve => setTimeout(resolve, waitTime));
                     }
                     
-                // Content policy violation (400 - 재시도 불필요)
+                // Bad Request (400) - 파라미터 오류 등
                 } else if (e.response && e.response.status === 400) {
-                    const errorCode = e.response.data?.error?.code;
-                    if (errorCode === 'content_policy_violation') {
-                        console.error(LOG_ERR_HEADER + LOG_HEADER + " Content policy violation - no retry");
+                    const errorMessage = e.response.data?.error?.message || e.message;
+                    console.error(LOG_ERR_HEADER + LOG_HEADER + ` Bad request (400): ${errorMessage}`);
+                    
+                    // Content policy violation
+                    if (e.response.data?.error?.code === 'content_policy_violation') {
                         return {
                             success: false,
                             error: 'Content policy violation',
                             error_type: 'content_policy',
-                            details: e.response.data?.error?.message
+                            details: errorMessage
                         };
                     }
+                    
+                    // 기타 400 오류는 재시도하지 않음
+                    return {
+                        success: false,
+                        error: errorMessage,
+                        error_type: 'bad_request',
+                        details: e.response.data?.error
+                    };
                     
                 // 기타 오류
                 } else {
