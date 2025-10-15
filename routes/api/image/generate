@@ -1,0 +1,170 @@
+'use strict';
+const express = require('express');
+const router = express.Router();
+const my_reqinfo = require('../../../utils/apiReqinfo');
+const { 
+    generateImageFromText, 
+    createImagePrompt, 
+    extractImageKeywords 
+} = require('../../../utils/gptUtils');
+
+//========================================================================
+// POST /api/image/generate - 이미지 생성 (Unity 및 외부 클라이언트용)
+//========================================================================
+router.post('/', async(req, res) => {
+    const LOG_FAIL_HEADER = "[FAIL]";
+    const LOG_SUCC_HEADER = "[SUCC]";
+    const EXT_data = my_reqinfo.get_req_url(req);
+    
+    const fail_status = 500;
+    let ret_status = 200;
+    let ret_data;
+
+    const catch_body = -1;
+    const catch_image = -2;
+
+    //----------------------------------------------------------------------
+    // getBODY
+    //----------------------------------------------------------------------
+    let req_user_id, req_prompt, req_scene_description, req_ai_response;
+    let req_quality, req_size;
+    
+    try {
+        if (!req.session.userId) throw "user not authenticated";
+        
+        req_user_id = req.session.userId;
+        req_prompt = req.body.prompt;
+        req_scene_description = req.body.scene_description;
+        req_ai_response = req.body.ai_response;
+        req_quality = req.body.quality || 'medium';
+        req_size = req.body.size || '1024x1024';
+        
+        // 최소 하나의 입력값 필요
+        if (!req_prompt && !req_scene_description && !req_ai_response) {
+            throw "prompt, scene_description, or ai_response required";
+        }
+        
+    } catch (e) {
+        ret_status = fail_status + -1 * catch_body;
+        ret_data = {
+            code: "getBODY()",
+            value: catch_body,
+            value_ext1: ret_status,
+            value_ext2: e,
+            EXT_data,
+        };
+        console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+        return res.status(ret_status).json(ret_data);
+    }
+
+    //----------------------------------------------------------------------
+    // 이미지 생성 프롬프트 준비
+    //----------------------------------------------------------------------
+    let final_prompt;
+    try {
+        // 우선순위: prompt > scene_description > ai_response
+        if (req_prompt) {
+            final_prompt = req_prompt;
+            console.log(`[IMAGE_API] Using direct prompt`);
+            
+        } else if (req_scene_description) {
+            // scene_description으로부터 프롬프트 생성
+            const sceneData = {
+                shouldGenerate: true,
+                sceneDescription: req_scene_description,
+                response: req_scene_description
+            };
+            final_prompt = createImagePrompt(sceneData, {});
+            console.log(`[IMAGE_API] Generated prompt from scene description`);
+            
+        } else if (req_ai_response) {
+            // AI 응답에서 장면 설명 추출 후 프롬프트 생성
+            const sceneResult = extractImageKeywords(req_ai_response);
+            
+            if (sceneResult.shouldGenerate && sceneResult.sceneDescription) {
+                final_prompt = createImagePrompt(sceneResult, {});
+                console.log(`[IMAGE_API] Generated prompt from AI response`);
+            } else {
+                throw "No valid scene description found in AI response";
+            }
+        }
+        
+        if (!final_prompt) {
+            throw "Failed to generate image prompt";
+        }
+        
+        console.log(`[IMAGE_API] Final prompt: ${final_prompt.substring(0, 100)}...`);
+        
+    } catch (e) {
+        ret_status = fail_status + -1 * catch_body;
+        ret_data = {
+            code: "generatePrompt()",
+            value: catch_body,
+            value_ext1: ret_status,
+            value_ext2: e,
+            EXT_data,
+        };
+        console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+        return res.status(ret_status).json(ret_data);
+    }
+
+    //----------------------------------------------------------------------
+    // 이미지 생성 실행
+    //----------------------------------------------------------------------
+    let image_result;
+    try {
+        // 이미지 생성 옵션
+        const imageOptions = {
+            model: 'gpt-image-1',
+            quality: req_quality,
+            size: req_size,
+            format: 'png'
+        };
+        
+        console.log(`[IMAGE_API] Starting image generation with options:`, imageOptions);
+        
+        // gptUtils의 generateImageFromText 호출
+        image_result = await generateImageFromText(final_prompt, imageOptions);
+        
+        if (!image_result.success) {
+            throw image_result.error || 'Image generation failed';
+        }
+        
+        console.log(`[IMAGE_API] Image generation completed successfully`);
+
+    } catch (e) {
+        ret_status = fail_status + -1 * catch_image;
+        ret_data = {
+            code: "generateImageFromText()",
+            value: catch_image,
+            value_ext1: ret_status,
+            value_ext2: typeof e === 'string' ? e : e.message,
+            error_type: image_result?.error_type || 'unknown_error',
+            EXT_data,
+        };
+        console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+        return res.status(ret_status).json(ret_data);
+    }
+    
+    //----------------------------------------------------------------------
+    // result
+    //----------------------------------------------------------------------
+    ret_data = {
+        code: "result",
+        value: 1,
+        value_ext1: ret_status,
+        value_ext2: {
+            image_base64: image_result.image_base64,
+            format: image_result.format,
+            revised_prompt: image_result.revised_prompt,
+            original_prompt: req_prompt || req_scene_description || "Generated from AI response",
+            generation_time: image_result.generation_time || null
+        },
+        EXT_data,
+    };
+    console.log(LOG_SUCC_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+
+    return res.status(ret_status).json(ret_data);
+});
+
+module.exports = router;

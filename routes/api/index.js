@@ -12,6 +12,9 @@ const gameEndingRouter = require('./game/ending');
 const chatSendRouter = require('./chat/send');
 const chatHistoryRouter = require('./chat/history');
 
+// ✅ 이미지 관련 API (신규 추가)
+const imageGenerateRouter = require('./image/generate');
+
 // 게임 라우터 등록
 router.use('/game/create', gameCreateRouter);
 router.use('/game/current', gameLoadRouter);
@@ -20,6 +23,9 @@ router.use('/game/ending', gameEndingRouter);
 // 채팅 라우터 등록
 router.use('/chat/send', chatSendRouter);
 router.use('/chat/history', chatHistoryRouter);
+
+// ✅ 이미지 라우터 등록
+router.use('/image/generate', imageGenerateRouter);
 
 // API 상태 확인 엔드포인트
 router.get('/status', (req, res) => {
