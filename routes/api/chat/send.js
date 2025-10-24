@@ -6,12 +6,21 @@ const pool = require('../../../config/database');
 const openai = require('../../../config/openai'); // ✅ 추가
 const chatService = require('../../socket/services/chat');
 
+//신혁이가 수정
+// ✅ 이미지 생성 함수들 임포트
+const { 
+    generateImageFromText, 
+    extractImageKeywords, 
+    createImagePrompt 
+} = require('../../../utils/gptUtils');
+
 //========================================================================
 router.post('/', async(req, res) => 
 //========================================================================
 {
   const LOG_FAIL_HEADER = "[FAIL]";
   const LOG_SUCC_HEADER = "[SUCC]";
+  const LOG_HEADER = "[CHAT_SEND]"; // 신혁이가 추가
   const EXT_data = my_reqinfo.get_req_url(req);
   
   const fail_status = 500;
@@ -186,6 +195,93 @@ router.post('/', async(req, res) =>
   }
   
   //----------------------------------------------------------------------
+  // image create logic
+  //----------------------------------------------------------------------
+   let imageData = null;
+  
+  try {
+    console.log(`${LOG_HEADER} ===== 이미지 생성 프로세스 시작 =====`);
+    
+    // 게임 컨텍스트 준비
+    const gameContext = {
+      turn_count: updated_game_data.turn_count || 1,
+      location: updated_game_data.location,
+      game_state: updated_game_data
+    };
+    
+    console.log(`${LOG_HEADER} Game context:`, {
+      turn: gameContext.turn_count,
+      location: gameContext.location?.current
+    });
+    
+    // 씬 설명 추출
+    const sceneInfo = extractImageKeywords(ai_response, gameContext);
+    console.log(`${LOG_HEADER} Scene extraction:`, {
+      shouldGenerate: sceneInfo.shouldGenerate,
+      descriptionLength: sceneInfo.sceneDescription?.length || 0
+    });
+    
+    if (sceneInfo.shouldGenerate) {
+      console.log(`${LOG_HEADER} 이미지 프롬프트 생성 중...`);
+      
+      // 이미지 프롬프트 생성
+      const imagePrompt = createImagePrompt(sceneInfo, gameContext);
+      console.log(`${LOG_HEADER} Image prompt: ${imagePrompt.substring(0, 100)}...`);
+      
+      console.log(`${LOG_HEADER} OpenAI 이미지 생성 API 호출 시작...`);
+      const startTime = Date.now();
+      
+      // 이미지 생성 (비동기)
+      const imageResult = await generateImageFromText(imagePrompt, {
+        quality: process.env.IMAGE_GENERATION_QUALITY || 'low',
+        size: '1024x1024'
+      });
+      
+      const generationTime = Date.now() - startTime;
+      
+      console.log(`${LOG_HEADER} 이미지 생성 결과 (${generationTime}ms):`, {
+        success: imageResult.success,
+        error: imageResult.error || 'none',
+        error_type: imageResult.error_type || 'none',
+        hasBase64: !!imageResult.image_base64,
+        base64Length: imageResult.image_base64?.length || 0
+      });
+      
+      if (imageResult.success) {
+        console.log(`${LOG_HEADER} ✅ 이미지 생성 성공!`);
+        imageData = imageResult;
+      } else {
+        console.log(`${LOG_HEADER} ⚠️ 이미지 생성 실패: ${imageResult.error}`);
+        imageData = {
+          success: false,
+          error: imageResult.error || 'Image generation failed',
+          error_type: imageResult.error_type || 'unknown'
+        };
+      }
+      
+    } else {
+      console.log(`${LOG_HEADER} 이미지 생성 조건 미충족 - 스킵`);
+      imageData = {
+        success: false,
+        error: 'Scene not suitable for image generation',
+        error_type: 'skipped'
+      };
+    }
+    
+    console.log(`${LOG_HEADER} ===== 이미지 생성 프로세스 완료 =====`);
+    
+  } catch (imageError) {
+    console.error(`${LOG_HEADER} ❌ 이미지 생성 중 예외 발생:`, imageError.message);
+    console.error(imageError.stack);
+    imageData = {
+      success: false,
+      error: imageError.message || 'Unexpected error',
+      error_type: 'exception'
+    };
+  }
+
+
+  //----------------------------------------------------------------------
   // result
   //----------------------------------------------------------------------
   connection.release();
@@ -195,7 +291,8 @@ router.post('/', async(req, res) =>
     value_ext1: ret_status,
     value_ext2: {
       response: ai_response,
-      game_state: updated_game_data
+      game_state: updated_game_data,
+      image_data: imageData  // <- 이미지 추가
     },
     EXT_data,
   };
