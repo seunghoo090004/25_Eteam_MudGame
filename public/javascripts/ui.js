@@ -393,29 +393,40 @@ const GameUI = (function() {
             const response = await GameAPI.game.create(assistantId);
             
             if (response.code === "result" && response.value === 1) {
-                const gameData = response.value_ext2.game;
-                
-                GameSocket.emit('new game', {
-                    assistant_id: assistantId,
-                    thread_id: gameData.thread_id,
-                    game_id: gameData.game_id,
-                    game_data: gameData.game_data
-                });
-                
-                GameState.clearGameState();
+                const gameInfo = response.value_ext2;
                 gameExists = true;
                 updateLoadButtonState(true);
-                
+                handleNewGameSuccess(gameInfo);
             } else {
                 throw new Error(response.value_ext2 || '게임 생성 실패');
             }
         } catch (error) {
-            console.error('게임 생성 오류:', error);
+            console.error('새 게임 생성 오류:', error);
             hideLoading();
             setButtonLoading($('#new-game'), false);
-            alert('게임 생성 중 오류: ' + (error.message || error));
             enableAllButtons();
+            alert('새 게임 생성 중 오류: ' + (error.message || error));
         }
+    }
+    
+    function handleNewGameSuccess(gameInfo) {
+        hideLoading();
+        setButtonLoading($('#new-game'), false);
+        
+        GameState.setGameState(gameInfo.game_id, gameInfo.game_data, true);
+        
+        $('#chatbox').empty();
+        $('#chatbox').append(`<div class="message system-message">새 로그라이크 게임이 시작되었습니다...</div>`);
+        
+        $('#assistant-select').prop('disabled', true);
+        enableAllButtons();
+        
+        GameSocket.emit('new game', {
+            assistant_id: $('#assistant-select').val(),
+            thread_id: gameInfo.thread_id,
+            game_id: gameInfo.game_id,
+            game_data: gameInfo.game_data
+        });
     }
     
     async function handleLoadGame() {
