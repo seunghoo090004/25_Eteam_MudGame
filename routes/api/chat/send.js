@@ -173,6 +173,26 @@ router.post('/', async(req, res) =>
           }
         });
       }
+      // 사망 처리
+       if (parsedState.is_death === true) {
+         currentGameData.is_death = true;
+         currentGameData.is_completed = true;
+        if (parsedState.death_cause) {
+      currentGameData.death_cause = parsedState.death_cause;
+       }
+      }
+  
+       // 탈출 성공 처리
+       if (parsedState.is_escape === true) {
+        currentGameData.is_completed = true;
+        currentGameData.is_escape = true;
+        currentGameData.is_death = false;
+      }
+  
+      // death_count 업데이트
+      if (parsedState.death_count !== undefined) {
+       currentGameData.death_count = parsedState.death_count;
+      }
     }
 
     updated_game_data = currentGameData;
@@ -292,7 +312,10 @@ router.post('/', async(req, res) =>
     value_ext2: {
       response: ai_response,
       game_state: updated_game_data,
-      image_data: imageData  // <- 이미지 추가
+      image_data: imageData,  // <- 이미지 추가
+      is_completed: updated_game_data.is_completed || false,  // 탈출 성공
+      is_death: updated_game_data.is_death || false,          // 탈출 실팽(죽음)
+      death_cause: updated_game_data.death_cause || null,     // 죽은 횟수?사건
     },
     EXT_data,
   };
