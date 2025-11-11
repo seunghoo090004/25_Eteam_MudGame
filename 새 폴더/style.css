@@ -209,51 +209,6 @@ body {
     font-weight: bold;
 }
 
-/* ✅ 텍스트 입력란 스타일 */
-#input-area {
-    padding: 15px;
-    background: #f8f9fa;
-    border-top: 2px solid #dee2e6;
-}
-
-.input-container {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-}
-
-#user-input {
-    flex: 1;
-    padding: 10px 15px;
-    border: 1px solid #ced4da;
-    border-radius: 4px;
-    font-size: 14px;
-    background: white;
-    transition: border-color 0.3s;
-}
-
-#user-input:focus {
-    outline: none;
-    border-color: #007bff;
-    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.1);
-}
-
-#user-input:disabled {
-    background-color: #e9ecef;
-    cursor: not-allowed;
-    opacity: 0.6;
-}
-
-#send-btn {
-    padding: 10px 20px;
-    white-space: nowrap;
-}
-
-#send-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-
 .loading-overlay {
     position: absolute;
     top: 0;
@@ -420,23 +375,5 @@ body {
     .ending-actions .btn {
         width: 200px;
         margin: 5px 0;
-    }
-    
-    /* ✅ 모바일 입력란 스타일 */
-    #input-area {
-        padding: 10px;
-    }
-    
-    .input-container {
-        flex-direction: column;
-        gap: 8px;
-    }
-    
-    #user-input {
-        width: 100%;
-    }
-    
-    #send-btn {
-        width: 100%;
     }
 }
