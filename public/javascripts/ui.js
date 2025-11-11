@@ -494,40 +494,36 @@ const GameUI = (function() {
             const gameData = GameState.getGameData();
             
             // 사망 횟수는 서버에서 자동 계산되므로 클라이언트에서는 0으로 설정
-            const totalDeaths = gameData.death_count || 0;
-            const discoveries = gameData.discoveries || [];
+            let totalDeaths = 0;
             
-            const endingStory = generateEndingStory(endingCondition, gameData, aiResponse, totalDeaths);
+            let endingStory = generateEndingStory(endingCondition, gameData, aiResponse, totalDeaths);
             
             const endingData = {
-                game_id: currentGameId,
                 ending_type: endingCondition.type,
                 final_turn: endingCondition.final_turn,
-                ending_story: endingStory,
+                total_deaths: totalDeaths,
+                discoveries: [],
+                discoveries_count: 0,
                 cause_of_death: endingCondition.cause || null,
-                discoveries_count: discoveries.length
+                ending_story: endingStory,
+                completed_at: new Date().toISOString()
             };
             
-            const response = await GameAPI.game.saveEnding(endingData);
+            const response = await GameAPI.game.ending.create(currentGameId, endingData);
             
             if (response.code === "result" && response.value === 1) {
-                const savedEnding = response.value_ext2.ending;
-                showEndingScreen(savedEnding, aiResponse);
-                
-                GameState.clearGameState();
+                hideLoading();
+                showEndingScreen(endingData, aiResponse);
                 gameExists = false;
                 updateLoadButtonState(false);
-                
-                $('#assistant-select').prop('disabled', false);
+                // GameChat.clearImageDisplay() 제거 - 로딩 유지를 위해
             } else {
-                throw new Error(response.value_ext2 || '엔딩 저장 실패');
+                throw new Error(response.value_ext2 || '엔딩 처리 실패');
             }
             
-            hideLoading();
-            
         } catch (error) {
-            console.error('엔딩 처리 오류:', error);
             hideLoading();
+            console.error('엔딩 처리 오류:', error);
             $('#chatbox').append(`
                 <div class="message error">
                     엔딩 처리 중 오류가 발생했습니다: ${error.message}
