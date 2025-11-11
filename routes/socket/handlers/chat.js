@@ -82,6 +82,7 @@ const chatHandler = (io, socket) => {
                 }
 
                 if (parsedState.is_death === true) {
+                    updatedGameData.is_death = true; // 신혁이가 추가
                     updatedGameData.is_completed = true;
                     if (parsedState.death_cause) {
                         updatedGameData.death_cause = parsedState.death_cause;
@@ -91,6 +92,7 @@ const chatHandler = (io, socket) => {
                 if (parsedState.is_escape === true) {
                     updatedGameData.is_completed = true;
                     updatedGameData.is_escape = true;
+                    updatedGameData.is_death = false; // 신혁이가 추가
                 }
 
                 if (!updatedGameData.time_elapsed) {
