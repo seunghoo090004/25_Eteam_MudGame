@@ -3,7 +3,11 @@ const crypto = require('crypto');
 const { Resend } = require('resend');
 
 // Resend API 초기화
-const resend = new Resend(process.env.RESEND_API_KEY || 're_BaVmNAmw_CN6PZKumxcqehQiBbmFk5rsC');
+const resendApiKey = process.env.RESEND_API_KEY;
+if (!resendApiKey) {
+  console.warn('[emailUtils] RESEND_API_KEY is not set; email sending will fail if attempted');
+}
+const resend = new Resend(resendApiKey);
 
 function generateToken() {
   return crypto.randomBytes(32).toString('hex');
