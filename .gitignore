@@ -136,3 +136,7 @@ dist
 
 PK-GPT-API.json
 세미나 정의 파일
+
+# Local development files that must not be pushed
+docker-compose.yml
+scripts/create_local_db.sql
