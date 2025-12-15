@@ -5,11 +5,12 @@ require('dotenv').config();
 const isDevelopment = process.env.NODE_ENV !== 'production';
 
 const dbConfig = {
-    host: process.env.MYSQLHOST,
-    user: process.env.MYSQLUSER,
-    password: process.env.MYSQLPASSWORD,
-    database: process.env.MYSQLDATABASE,
-    port: process.env.MYSQLPORT,
+    host: process.env.MYSQLHOST || process.env.MYSQL_HOST,
+    user: process.env.MYSQLUSER || process.env.MYSQL_USER,
+    password: process.env.MYSQLPASSWORD || process.env.MYSQL_PASSWORD,
+    // Support both MYSQLDATABASE and MYSQL_DATABASE variable names (historical mismatch)
+    database: process.env.MYSQLDATABASE || process.env.MYSQL_DATABASE,
+    port: process.env.MYSQLPORT || process.env.MYSQL_PORT,
     ssl: {
         rejectUnauthorized: false
     },

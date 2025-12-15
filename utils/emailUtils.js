@@ -7,7 +7,13 @@ const resendApiKey = process.env.RESEND_API_KEY;
 if (!resendApiKey) {
   console.warn('[emailUtils] RESEND_API_KEY is not set; email sending will fail if attempted');
 }
-const resend = new Resend(resendApiKey);
+let resend = null;
+if (resendApiKey) {
+  resend = new Resend(resendApiKey);
+} else {
+  // Provide a safe stub so requiring this module doesn't throw at startup
+  resend = null;
+}
 
 function generateToken() {
   return crypto.randomBytes(32).toString('hex');
@@ -15,6 +21,10 @@ function generateToken() {
 
 async function sendVerificationEmail(email, tokenOrSubject, htmlContent = null) {
   try {
+    if (!resend) {
+      console.warn('[emailUtils] Resend client not configured - skipping email send');
+      return null;
+    }
     if (!htmlContent && typeof tokenOrSubject === 'string' && tokenOrSubject.length > 10) {
       const token = tokenOrSubject;
       const verificationUrl = `https://mudgame.up.railway.app/auth/verify?token=${token}`;
@@ -54,6 +64,10 @@ async function sendPasswordResetEmail(email, token) {
   const resetUrl = `https://mudgame.up.railway.app/auth/reset-password?token=${token}`;
   
   try {
+    if (!resend) {
+      console.warn('[emailUtils] Resend client not configured - skipping password reset email');
+      return null;
+    }
     const data = await resend.emails.send({
       from: 'onboarding@resend.dev',
       to: email,
