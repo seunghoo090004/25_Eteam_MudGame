@@ -139,5 +139,5 @@ PK-GPT-API.json
 
 # Local development files that must not be pushed
 docker-compose.yml
-scripts/create_local_db.sql
+scripts
 LOCAL_SETUP.md
