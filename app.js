@@ -10,6 +10,11 @@ const session = require('express-session');
 const helmet = require('helmet');
 const cors = require('cors');
 
+// 필수 유틸리티 임포트
+const ApiResponse = require('./lib/ApiResponse');
+const AppError = require('./lib/AppError');
+const Logger = require('./lib/Logger');
+
 // 필요한 라우터 불러오기
 const indexRouter = require('./routes/index');
 
@@ -93,17 +98,54 @@ app.use('/assistant/list', assistantListRouter);
 // ✅ API 라우터 등록 (엔딩 시스템 포함)
 app.use('/api', apiRouter);
 
-// 404 에러 핸들러
-app.use(function(req, res, next) {
-   next(createError(404));
+// ─────────────────────────────────────────────────────────
+// 404 핸들러
+// ─────────────────────────────────────────────────────────
+app.use((req, res, next) => {
+   const error = new AppError(404, `Cannot ${req.method} ${req.path}`, 'NOT_FOUND');
+   next(error);
 });
 
-// 에러 핸들러
-app.use(function(err, req, res, next) {
-   res.locals.message = err.message;
-   res.locals.error = req.app.get('env') === 'development' ? err : {};
-   res.status(err.status || 500);
-   res.render('error');
+// ─────────────────────────────────────────────────────────
+// 전역 에러 핸들러
+// ─────────────────────────────────────────────────────────
+app.use((error, req, res, next) => {
+   // AppError 인스턴스 확인
+   if (error instanceof AppError) {
+      Logger.error(
+         `HTTP/${error.statusCode}`,
+         error.message,
+         {
+            code: error.code,
+            details: error.details
+         }
+      );
+
+      return res.status(error.statusCode).json(error.toJSON());
+   }
+
+   // Express 내장 에러 처리
+   if (error.status === 403 && error.code === 'EBADCSRFTOKEN') {
+      Logger.warn('CSRF_ERROR', 'CSRF token validation failed');
+      return res.status(403).json(
+         ApiResponse.error(403, 'Invalid CSRF token', 'CSRF_ERROR')
+      );
+   }
+
+   // 기타 예상 외 에러
+   Logger.error('UNEXPECTED_ERROR', 'Unknown error', error);
+
+   const statusCode = error.status || error.statusCode || 500;
+   const message = error.message || 'Internal Server Error';
+
+   res.status(statusCode).json(
+      ApiResponse.error(
+         statusCode,
+         message,
+         'INTERNAL_ERROR',
+         process.env.NODE_ENV === 'development' ? { stack: error.stack } : null
+      )
+   );
 });
 
 module.exports = app;

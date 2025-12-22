@@ -1,62 +1,69 @@
 // middleware/auth.js
-//사용자 인증 상태 확인 및 세션 관리 미들웨어
-const auth = (req, res, next) => {
-    const LOG_HEADER = "AUTH/MIDDLEWARE";
+// 사용자 인증 상태 확인 및 세션 관리 미들웨어
+
+const AppError = require('../lib/AppError');
+const Logger = require('../lib/Logger');
+
+/**
+ * 세션 기반 인증 미들웨어
+ * @returns {Function} Express 미들웨어
+ */
+const authenticate = (req, res, next) => {
+    const context = 'MIDDLEWARE/AUTH/AUTHENTICATE';
 
     try {
-        // 세션에서 사용자 ID 확인
         if (!req.session.userId) {
-            console.log(`[${LOG_HEADER}] Authentication failed: No session`);
-            return res.status(401).json({
-                success: false,
-                error: 'Authentication required'
-            });
+            Logger.warn(context, 'Authentication failed: No session');
+            return next(AppError.unauthorized());
         }
 
-        // API 요청인 경우 (AJAX)
-        if (req.xhr || req.headers.accept.indexOf('json') > -1) {
-            console.log(`[${LOG_HEADER}] API authentication successful`);
-        } 
-        // 페이지 요청인 경우
-        else {
-            console.log(`[${LOG_HEADER}] Page authentication successful`);
-        }
+        Logger.debug(context, 'Authentication successful', {
+            userId: req.session.userId
+        });
+
+        // req.user 객체 설정
+        req.user = {
+            id: req.session.userId,
+            username: req.session.username
+        };
 
         next();
-
     } catch (e) {
-        console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
-        return res.status(500).json({
-            success: false,
-            error: 'Internal authentication error'
-        });
+        Logger.error(context, 'Unexpected error', e);
+        next(AppError.internalError());
     }
-    };
+};
 
-    //============================================================================================
-    // Socket.IO용 인증 미들웨어
-    //============================================================================================
-    const socketAuth = (socket, next) => {
-    const LOG_HEADER = "AUTH/SOCKET";
+/**
+ * Socket.IO 인증 미들웨어
+ * @returns {Function} Socket.IO 미들웨어
+ */
+const socketAuth = (socket, next) => {
+    const context = 'MIDDLEWARE/AUTH/SOCKET';
 
     try {
-        const userId = socket.request.session.userId;
-        
+        const userId = socket.request.session?.userId;
+
         if (!userId) {
-            console.log(`[${LOG_HEADER}] Socket authentication failed`);
-            return next(new Error('Authentication required'));
+            Logger.warn(context, 'Socket authentication failed');
+            return next(new AppError(401, 'Authentication required'));
         }
 
-        console.log(`[${LOG_HEADER}] Socket authenticated`);
-        next();
+        // Socket에 사용자 정보 추가
+        socket.userId = userId;
+        socket.username = socket.request.session.username;
 
-    } catch (e) {
-        console.error(`[${LOG_HEADER}] Error: ${e.message || e}`);
-        next(new Error('Authentication error'));
+        Logger.debug(context, 'Socket authenticated', { userId });
+        next();
+    } catch (error) {
+        Logger.error(context, 'Socket auth error', error);
+        next(error);
     }
 };
 
 module.exports = {
-    auth,
-    socketAuth
+    authenticate,
+    socketAuth,
+    // 하위 호환성 (기존 코드용)
+    auth: authenticate
 };

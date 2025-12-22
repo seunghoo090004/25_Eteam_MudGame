@@ -224,39 +224,45 @@
                         password: $('#password').val()
                     }),
                     success: function(response) {
-                        if (response.code === 'LOGIN_SUCCESS') {
+                        // 새 ApiResponse 포맷 처리
+                        if (response.success === true || response.code === 200) {
                             window.location.href = '/';
                         } else {
-                            $('#errorMessage').removeClass('hidden').text(response.msg);
+                            $('#errorMessage').removeClass('hidden').text(response.message || response.msg || '로그인에 실패했습니다.');
                             $('#loginButton').prop('disabled', false).text('로그인');
                         }
                     },
                     error: function(xhr) {
                         // 에러 코드별 처리
                         const response = xhr.responseJSON || {};
-                        let errorMsg = response.msg || '로그인 중 오류가 발생했습니다.';
+                        let errorMsg = response.message || response.msg || '로그인 중 오류가 발생했습니다.';
                         
                         // 에러 코드에 따른 필드 강조
-                        if (response.code === 'AUTH_FAILED') {
+                        if (response.errorCode === 'UNAUTHORIZED' || response.code === 401) {
                             $('#email, #password').addClass('error-field');
                             $('#email').focus();
-                        } else if (response.code === 'INVALID_INPUT') {
-                            if (response.data && response.data.email) {
+                        } else if (response.errorCode === 'VALIDATION_ERROR' || response.code === 400) {
+                            if (response.details && response.details.email) {
                                 $('#email').addClass('error-field').focus();
                             }
-                            if (response.data && response.data.password) {
+                            if (response.details && response.details.password) {
                                 $('#password').addClass('error-field');
-                                if (!response.data.email) {
+                                if (!response.details.email) {
                                     $('#password').focus();
                                 }
                             }
                         }
                         
                         // CSRF 오류 처리
-                        if (xhr.status === 403 && errorMsg.includes('CSRF')) {
+                        if (xhr.status === 403 && response.errorCode === 'CSRF_ERROR') {
                             alert('보안 토큰이 만료되었습니다. 페이지를 새로고침합니다.');
                             window.location.reload();
                             return;
+                        }
+                        
+                        // Rate limit 에러 처리
+                        if (xhr.status === 429) {
+                            errorMsg = response.message || '로그인 시도가 너무 많습니다. 잠시 후 다시 시도해주세요.';
                         }
                         
                         $('#errorMessage').removeClass('hidden').text(errorMsg);

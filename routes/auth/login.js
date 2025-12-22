@@ -1,46 +1,39 @@
 // routes/auth/login.js
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcrypt');
-const pool = require('../../config/database');
-const reqinfo = require('../../utils/reqinfo');
 const csrf = require('csurf');
+
+// 유틸리티 임포트
+const asyncHandler = require('../../lib/asyncHandler');
+const ApiResponse = require('../../lib/ApiResponse');
+const AppError = require('../../lib/AppError');
+const { validate, Validators } = require('../../lib/Validators');
+const Logger = require('../../lib/Logger');
+const AuthService = require('../../services/AuthService');
+const pool = require('../../config/database');
 
 // CSRF 보호 설정
 const csrfProtection = csrf({ cookie: true });
 
 // 로그인 시도 로깅 함수
-async function logLoginAttempt(connection, email, ip, status, userId = null, errorReason = null) {
+async function logLoginAttempt(email, ip, status, userId = null, errorReason = null) {
     try {
-        await connection.query(
-            'INSERT INTO login_attempts (user_id, email, ip_address, status, error_reason, attempt_time) VALUES (?, ?, ?, ?, ?, NOW())',
-            [userId, email, ip, status, errorReason]
-        );
+        const connection = await pool.getConnection();
+        try {
+            await connection.query(
+                'INSERT INTO login_attempts (user_id, email, ip_address, status, error_reason, attempt_time) VALUES (?, ?, ?, ?, ?, NOW())',
+                [userId, email, ip, status, errorReason]
+            );
+        } finally {
+            connection.release();
+        }
     } catch (error) {
-        console.error('로그인 시도 로깅 실패:', error);
+        Logger.error('logLoginAttempt', 'Failed to log login attempt', error);
     }
-}
-
-// 입력값 검증 함수
-function validateLoginInput(email, password) {
-    const errors = {};
-    
-    if (!email || email.trim() === '') {
-        errors.email = '이메일을 입력해주세요.';
-    }
-    
-    if (!password || password.trim() === '') {
-        errors.password = '비밀번호를 입력해주세요.';
-    }
-    
-    return {
-        isValid: Object.keys(errors).length === 0,
-        errors
-    };
 }
 
 // 로그인 시도 제한 미들웨어
-const loginAttemptTracker = async (req, res, next) => {
+const loginAttemptTracker = asyncHandler(async (req, res, next) => {
     const { email } = req.body;
     
     if (!email) {
@@ -60,141 +53,110 @@ const loginAttemptTracker = async (req, res, next) => {
         
         // 5회 이상 실패 시 비밀번호 재설정 메시지 표시
         if (failCount >= 4) {
-            return res.status(403).json({
-                code: 'TOO_MANY_ATTEMPTS',
-                msg: '로그인 시도가 너무 많습니다. 비밀번호를 재설정해주세요.',
-                resetRequired: true
-            });
+            Logger.warn('loginAttemptTracker', 'Too many login attempts', { email, failCount });
+            return res.status(429).json(
+                ApiResponse.error(429, '로그인 시도가 너무 많습니다. 비밀번호를 재설정해주세요.', 'TOO_MANY_ATTEMPTS')
+            );
         }
         
         next();
     } catch (error) {
-        console.error('로그인 시도 확인 중 오류:', error);
+        Logger.error('loginAttemptTracker', 'Failed to check login attempts', error);
         next();
     } finally {
         connection.release();
     }
-};
+});
 
-// GET 요청 처리 (로그인 페이지 렌더링)
-router.get('/', csrfProtection, function(req, res) {
-    // 이미 로그인된 사용자는 메인 페이지로 리다이렉트
+// ─────────────────────────────────────────────────────────
+// GET /auth/login - 로그인 페이지 렌더링
+// ─────────────────────────────────────────────────────────
+router.get('/', csrfProtection, asyncHandler(async (req, res) => {
+    const context = 'ROUTE/LOGIN/GET';
+    
     if (req.session.userId) {
+        Logger.debug(context, 'Already logged in, redirecting to home');
         return res.redirect('/');
     }
     
-    // login.ejs를 렌더링하면서 CSRF 토큰 전달
     res.render('login', { 
         csrfToken: req.csrfToken(),
         registered: req.query.registered === 'true'
     });
-});
+}));
 
-router.post('/', csrfProtection, loginAttemptTracker, async(req, res) => {
-    const LOG_HEADER_TITLE = "LOGIN";
-    const LOG_HEADER = reqinfo.get_req_url(req) + " --> " + LOG_HEADER_TITLE;
-    const LOG_ERR_HEADER = "[FAIL] ";
-    const LOG_SUCC_HEADER = "[SUCC] ";
-    
-    let connection;
+// ─────────────────────────────────────────────────────────
+// POST /auth/login - 로그인 처리
+// ─────────────────────────────────────────────────────────
+router.post('/', csrfProtection, loginAttemptTracker, asyncHandler(async (req, res) => {
+    const context = 'ROUTE/LOGIN/POST';
+    const { email, password } = req.body;
     const clientIP = req.ip || req.connection.remoteAddress;
-    
-    try {
-        // 입력값 검증
-        const { email, password } = req.body;
-        const validation = validateLoginInput(email, password);
-        
-        if (!validation.isValid) {
-            return res.status(400).json({
-                code: 'INVALID_INPUT',
-                msg: '입력값이 유효하지 않습니다.',
-                data: validation.errors
-            });
+
+    Logger.debug(context, 'Login attempt', { email, ip: clientIP });
+
+    // 1️⃣ 입력값 검증
+    const validation = validate(
+        { email, password },
+        {
+            email: Validators.email,
+            password: Validators.required
         }
-        
-        connection = await pool.getConnection();
-        
-        // 사용자 찾기 (이메일로 조회)
-        const [users] = await connection.query(
-            'SELECT * FROM users WHERE email = ?',
-            [email]
+    );
+
+    if (!validation.isValid) {
+        Logger.warn(context, 'Validation failed', validation.errors);
+        return res.status(400).json(
+            ApiResponse.validationError(validation.errors)
         );
-        
-        // 사용자 또는 비밀번호 오류
-        if (users.length === 0 || !(await bcrypt.compare(password, users[0].password))) {
-            await logLoginAttempt(
-                connection, 
-                email, 
-                clientIP, 
-                'FAILED',
-                null, // user_id는 null
-                users.length === 0 ? 'USER_NOT_FOUND' : 'INVALID_PASSWORD'
-            );
-            
-            return res.status(403).json({
-                code: 'AUTH_FAILED',
-                msg: '이메일 또는 비밀번호가 올바르지 않습니다.'
-            });
-        }
-        
-        const user = users[0];
-        
-        // 이메일 인증 확인
-        if (!user.email_verified) {
-            await logLoginAttempt(
-                connection, 
-                email, 
-                clientIP, 
-                'FAILED',
-                user.user_id,
-                'EMAIL_NOT_VERIFIED'
-            );
-            
-            return res.status(403).json({
-                code: 'EMAIL_NOT_VERIFIED',
-                msg: '이메일 인증이 필요합니다. 인증 메일을 확인해주세요.',
-                email: user.email
-            });
-        }
-        
-        // 로그인 성공 로깅
-        await logLoginAttempt(connection, email, clientIP, 'SUCCESS', user.user_id);
-        
-        // 세션에 사용자 정보 저장
-        req.session.userId = user.user_id;
+    }
+
+    try {
+        // 2️⃣ 비즈니스 로직 실행
+        const user = await AuthService.login(email, password);
+
+        // 3️⃣ 세션 설정
+        req.session.userId = user.userId;
         req.session.username = user.username;
-        
+
+        // 세션 저장 대기
         await new Promise((resolve, reject) => {
             req.session.save((err) => {
                 if (err) reject(err);
                 else resolve();
             });
         });
-        
-        console.log(LOG_SUCC_HEADER + LOG_HEADER + " 로그인 성공: " + user.email);
-        
-        return res.status(200).json({
-            code: 'LOGIN_SUCCESS',
-            msg: '로그인이 완료되었습니다.',
-            data: { 
-                user_id: user.user_id, 
-                username: user.username,
-                email: user.email
-            }
+
+        // 4️⃣ 로그인 성공 로깅
+        await logLoginAttempt(email, clientIP, 'SUCCESS', user.userId);
+
+        Logger.info(context, 'Login successful', {
+            userId: user.userId,
+            email
         });
+
+        // 5️⃣ 응답
+        res.json(
+            ApiResponse.success(
+                { userId: user.userId, username: user.username, email: user.email },
+                '로그인이 완료되었습니다.'
+            )
+        );
+    } catch (error) {
+        // 실패 로깅
+        if (error instanceof AppError && error.statusCode === 401) {
+            await logLoginAttempt(email, clientIP, 'FAILED', null, 'INVALID_CREDENTIALS');
+        }
         
-    } catch (e) {
-        // 오류 코드와 상태에 따른 처리
-        console.error(LOG_ERR_HEADER + LOG_HEADER + " 오류: " + e.message);
+        // 에러는 자동으로 다음 에러 핸들러로 전파됨
+        if (error instanceof AppError) {
+            Logger.warn(context, error.message, { email });
+            throw error;
+        }
         
-        return res.status(500).json({
-            code: 'SERVER_ERROR',
-            msg: '로그인 처리 중 오류가 발생했습니다.',
-            data: null
-        });
-    } finally {
-        if (connection) connection.release();
+        Logger.error(context, 'Unexpected error during login', error);
+        throw new AppError(500, '로그인 처리 중 오류가 발생했습니다.');
     }
-});
+}));
 
 module.exports = router;
