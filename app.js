@@ -86,9 +86,9 @@ app.use(sessionMiddleware);
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Socket.IO 설정
-app.createSocketServer = function(server) {
+/*app.createSocketServer = function(server) {
    return require('./routes/socket')(server, sessionMiddleware);
-};
+};*/
 
 // 라우터 설정
 //app.use('/', indexRouter); 웹 사이트 제거 작업
