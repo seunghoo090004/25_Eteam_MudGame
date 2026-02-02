@@ -1,14 +1,16 @@
 'use strict';
+const { authenticateUser } = require('../../../middleware/auth');
 const express = require('express');
 const router = express.Router();
 const my_reqinfo = require('../../../utils/apiReqinfo');
 const pool = require('../../../config/database');
 const openai = require('../../../config/openai');
+const { authenticateUser } = require('../../../middleware/auth'); //인증 미들웨어 추가
 
 //========================================================================
 // GET /api/game/current - 현재 진행 중인 게임 조회
 //========================================================================
-router.get('/', async(req, res) => {
+router.get('/', authenticateUser,async(req, res) => {
     const LOG_FAIL_HEADER = "[FAIL]";
     const LOG_SUCC_HEADER = "[SUCC]";
     const EXT_data = my_reqinfo.get_req_url(req);
@@ -17,11 +19,13 @@ router.get('/', async(req, res) => {
     let ret_status = 200;
     let ret_data;
 
-    const catch_auth = -1;
+    //const catch_auth = -1; 기존 방법
     const catch_sqlconn = -2;
     const catch_query = -3;
+    
+    const req_user_id = req.session.userId;
 
-    let req_user_id;
+    /*let req_user_id;
     try {
         if (!req.session || !req.session.userId) throw "user not authenticated";
         req_user_id = req.session.userId;
@@ -36,7 +40,7 @@ router.get('/', async(req, res) => {
         };
         console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
         return res.status(ret_status).json(ret_data);
-    }
+    }*/
 
     let connection;
     try {
@@ -175,7 +179,7 @@ router.get('/', async(req, res) => {
 //========================================================================
 // DELETE /api/game/current - 현재 진행 중인 게임 삭제
 //========================================================================
-router.delete('/', async(req, res) => {
+router.delete('/', authenticateUser, async(req, res) => {
     const LOG_FAIL_HEADER = "[FAIL]";
     const LOG_SUCC_HEADER = "[SUCC]";
     const EXT_data = my_reqinfo.get_req_url(req);
@@ -184,11 +188,12 @@ router.delete('/', async(req, res) => {
     let ret_status = 200;
     let ret_data;
 
-    const catch_auth = -1;
+    //const catch_auth = -1;
     const catch_sqlconn = -2;
     const catch_query = -3;
 
-    let req_user_id;
+    const req_user_id = req.session.userId;
+   /* let req_user_id;
     try {
         if (!req.session || !req.session.userId) throw "user not authenticated";
         req_user_id = req.session.userId;
@@ -203,7 +208,7 @@ router.delete('/', async(req, res) => {
         };
         console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
         return res.status(ret_status).json(ret_data);
-    }
+    }*/
 
     let connection;
     try {

@@ -3,10 +3,12 @@ const express = require('express');
 const router = express.Router();
 const my_reqinfo = require('../../../utils/apiReqinfo');
 const pool = require('../../../config/database');
+const { authenticateUser } = require('../../../middleware/auth');
 //const chatService = require('../../socket/services/chat'); // 기존 경로
 
+
 //========================================================================
-router.post('/', async(req, res) => 
+router.post('/', authenticateUser,async(req, res) => 
 //========================================================================
 {
   const LOG_FAIL_HEADER = "[FAIL]";
@@ -27,10 +29,10 @@ router.post('/', async(req, res) =>
   //----------------------------------------------------------------------
   let req_user_id, req_game_id;
   try {
-    if (!req.session.userId) throw "user not authenticated";
-    if (typeof req.body.game_id === 'undefined') throw "game_id undefined";
-    
+    //if (!req.session.userId) throw "user not authenticated"; 기존 방버
     req_user_id = req.session.userId;
+
+    if (typeof req.body.game_id === 'undefined') throw "game_id undefined";
     req_game_id = req.body.game_id;
   } catch (e) {
     ret_status = fail_status + -1 * catch_body;
@@ -101,19 +103,28 @@ router.post('/', async(req, res) =>
   }
 
   //----------------------------------------------------------------------
-  // 채팅 히스토리 조회
+  // 채팅 히스토리 조회 -> OpenAI Thread에서 메시지 가져오기
   //----------------------------------------------------------------------
   let chat_history;
   try {
-    chat_history = await chatService.getMessageHistory(game_data.thread_id);
+    const messages = await openai.beta.threads.messages.list(game_data.thread_id);
+    
+    chat_history = messages.data
+      .filter(msg => msg.role === 'assistant')
+      .map(msg => ({
+        role: msg.role,
+        content: msg.content[0].text.value,
+        created_at: new Date(msg.created_at * 1000)
+      }))
+      .sort((a, b) => a.created_at - b.created_at);
 
   } catch (e) {
     ret_status = fail_status + -1 * catch_chat;
     ret_data = {
-      code: "chatService.getMessageHistory()",
+      code: "openai_history",
       value: catch_chat,
       value_ext1: ret_status,
-      value_ext2: e,
+      value_ext2: e.message || e,
       EXT_data,
     };
     console.log(LOG_FAIL_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
@@ -137,7 +148,7 @@ router.post('/', async(req, res) =>
     },
     EXT_data,
   };
-  console.log(LOG_SUCC_HEADER + "%s\n", JSON.stringify(ret_data, null, 2));
+  console.log(LOG_SUCC_HEADER + ` History count: ${chat_history.length}`);
 
   return res.status(ret_status).json(ret_data);
 });

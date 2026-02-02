@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const csrf = require('csurf');
+const jwt = require('jsonwebtoken'); // ✅ 추가
 
 // 유틸리티 임포트
 const asyncHandler = require('../../lib/asyncHandler');
@@ -11,6 +12,7 @@ const { validate, Validators } = require('../../lib/Validators');
 const Logger = require('../../lib/Logger');
 const AuthService = require('../../services/AuthService');
 const pool = require('../../config/database');
+const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-key'; // ✅ 추가
 
 // CSRF 보호 설정
 const csrfProtection = csrf({ cookie: true });
@@ -86,7 +88,7 @@ router.get('/', csrfProtection, asyncHandler(async (req, res) => {
 }));
 
 // ─────────────────────────────────────────────────────────
-// POST /auth/login - 로그인 처리
+// POST /auth/login - 로그인 처리 (JWT 토큰 추가 버전)
 // ─────────────────────────────────────────────────────────
 router.post('/', csrfProtection, loginAttemptTracker, asyncHandler(async (req, res) => {
     const context = 'ROUTE/LOGIN/POST';
@@ -127,7 +129,17 @@ router.post('/', csrfProtection, loginAttemptTracker, asyncHandler(async (req, r
             });
         });
 
-        // 4️⃣ 로그인 성공 로깅
+        // 4️⃣ JWT 토큰 생성 (Unity용)
+        const token = jwt.sign(
+            { 
+                userId: user.userId, 
+                username: user.username,
+                email: user.email 
+            },
+            JWT_SECRET,
+            { expiresIn: '30d' }
+        );
+        // 5️⃣ 로그인 성공 로깅
         await logLoginAttempt(email, clientIP, 'SUCCESS', user.userId);
 
         Logger.info(context, 'Login successful', {
@@ -135,10 +147,10 @@ router.post('/', csrfProtection, loginAttemptTracker, asyncHandler(async (req, r
             email
         });
 
-        // 5️⃣ 응답
+        // 6️⃣  응답 (JWT 토큰 포함)
         res.json(
             ApiResponse.success(
-                { userId: user.userId, username: user.username, email: user.email },
+                { userId: user.userId, username: user.username, email: user.email, token: token },
                 '로그인이 완료되었습니다.'
             )
         );

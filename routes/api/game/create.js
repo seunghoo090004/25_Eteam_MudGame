@@ -5,9 +5,10 @@ const my_reqinfo = require('../../../utils/apiReqinfo');
 const pool = require('../../../config/database');
 const openai = require('../../../config/openai');
 const { v4: uuidv4 } = require('uuid');
+const { authenticateUser } = require('../../../middleware/auth'); //인증 미들웨어 추가
 
 //========================================================================
-router.post('/', async(req, res) => 
+router.post('/', authenticateUser,async(req, res) => 
 //========================================================================
 {
     const LOG_FAIL_HEADER = "[FAIL]";
@@ -26,11 +27,12 @@ router.post('/', async(req, res) =>
     let req_user_id, req_assistant_id, req_game_mode;
     try {
         if (!req.session.userId) throw "user not authenticated";
-        if (typeof req.body.assistant_id === 'undefined') throw "assistant_id undefined";
         
         req_user_id = req.session.userId;
         req_assistant_id = req.body.assistant_id;
         req_game_mode = req.body.game_mode || 'roguelike';
+        //if (!req_assistant_id) throw "assistant_id undefined"; 기존 방식
+        if (typeof req_assistant_id === 'undefined') throw "assistant_id undefined";
     } catch (e) {
         ret_status = fail_status + -1 * catch_body;
         ret_data = {
