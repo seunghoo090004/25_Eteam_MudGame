@@ -4,7 +4,7 @@ const router = express.Router();
 const my_reqinfo = require('../../../utils/apiReqinfo');
 const pool = require('../../../config/database');
 const openai = require('../../../config/openai'); // ✅ 추가
-const chatService = require('../../socket/services/chat');
+//const chatService = require('../../socket/services/chat'); // 기존 경로
 
 //신혁이가 수정
 // ✅ 이미지 생성 함수들 임포트
