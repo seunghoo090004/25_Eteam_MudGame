@@ -16,7 +16,7 @@ const AppError = require('./lib/AppError');
 const Logger = require('./lib/Logger');
 
 // 필요한 라우터 불러오기
-const indexRouter = require('./routes/index');
+//const indexRouter = require('./routes/index'); 웹 사이트 제거 작업
 
 // auth routes - 인증 관련 라우터는 유지
 const authRouter = require('./routes/auth');
@@ -91,7 +91,7 @@ app.createSocketServer = function(server) {
 };
 
 // 라우터 설정
-app.use('/', indexRouter);
+//app.use('/', indexRouter); 웹 사이트 제거 작업
 app.use('/auth', authRouter);
 app.use('/assistant/list', assistantListRouter);
 
