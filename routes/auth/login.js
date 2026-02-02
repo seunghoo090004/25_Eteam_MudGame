@@ -1,7 +1,7 @@
 // routes/auth/login.js
 const express = require('express');
 const router = express.Router();
-const csrf = require('csurf');
+//const csrf = require('csurf');
 const jwt = require('jsonwebtoken'); // ✅ 추가
 
 // 유틸리티 임포트
@@ -15,7 +15,7 @@ const pool = require('../../config/database');
 const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-key'; // ✅ 추가
 
 // CSRF 보호 설정
-const csrfProtection = csrf({ cookie: true });
+//const csrfProtection = csrf({ cookie: true });
 
 // 로그인 시도 로깅 함수
 async function logLoginAttempt(email, ip, status, userId = null, errorReason = null) {
@@ -73,7 +73,7 @@ const loginAttemptTracker = asyncHandler(async (req, res, next) => {
 // ─────────────────────────────────────────────────────────
 // GET /auth/login - 로그인 페이지 렌더링
 // ─────────────────────────────────────────────────────────
-router.get('/', csrfProtection, asyncHandler(async (req, res) => {
+/*router.get('/', csrfProtection, asyncHandler(async (req, res) => {
     const context = 'ROUTE/LOGIN/GET';
     
     if (req.session.userId) {
@@ -85,12 +85,12 @@ router.get('/', csrfProtection, asyncHandler(async (req, res) => {
         csrfToken: req.csrfToken(),
         registered: req.query.registered === 'true'
     });
-}));
+}));*/
 
 // ─────────────────────────────────────────────────────────
 // POST /auth/login - 로그인 처리 (JWT 토큰 추가 버전)
 // ─────────────────────────────────────────────────────────
-router.post('/', csrfProtection, loginAttemptTracker, asyncHandler(async (req, res) => {
+router.post('/', loginAttemptTracker, asyncHandler(async (req, res) => {
     const context = 'ROUTE/LOGIN/POST';
     const { email, password } = req.body;
     const clientIP = req.ip || req.connection.remoteAddress;
