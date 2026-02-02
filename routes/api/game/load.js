@@ -1,11 +1,10 @@
 'use strict';
-const { authenticateUser } = require('../../../middleware/auth');
+const { authenticateUser } = require('../../../middleware/auth'); //인증 미들웨어 추가
 const express = require('express');
 const router = express.Router();
 const my_reqinfo = require('../../../utils/apiReqinfo');
 const pool = require('../../../config/database');
 const openai = require('../../../config/openai');
-const { authenticateUser } = require('../../../middleware/auth'); //인증 미들웨어 추가
 
 //========================================================================
 // GET /api/game/current - 현재 진행 중인 게임 조회
