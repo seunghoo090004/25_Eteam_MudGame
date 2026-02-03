@@ -3,6 +3,7 @@
 const jwt = require('jsonwebtoken');
 const AppError = require('../lib/AppError');
 const Logger = require('../lib/Logger');
+const JWT_SECRET = process.env.JWT_SECRET || 'asdas0azu0daswpqjklpmkofgjdoifjASDsdsdaw4682zHHlasd56';
 
 /**
  * 세션 기반 인증 미들웨어(기존 - 유지)

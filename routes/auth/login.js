@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 //const csrf = require('csurf');
 const jwt = require('jsonwebtoken'); // ✅ 추가
+const JWT_SECRET = process.env.JWT_SECRET || 'asdas0azu0daswpqjklpmkofgjdoifjASDsdsdaw4682zHHlasd56'; // ✅ 추가
 
 // 유틸리티 임포트
 const asyncHandler = require('../../lib/asyncHandler');
@@ -12,7 +13,7 @@ const { validate, Validators } = require('../../lib/Validators');
 const Logger = require('../../lib/Logger');
 const AuthService = require('../../services/AuthService');
 const pool = require('../../config/database');
-const JWT_SECRET = process.env.JWT_SECRET || 'asdas0azu0daswpqjklpmkofgjdoifjASDsdsdaw4682zHHlasd56'; // ✅ 추가
+
 
 // CSRF 보호 설정
 //const csrfProtection = csrf({ cookie: true });
